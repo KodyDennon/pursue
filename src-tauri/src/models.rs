@@ -151,6 +151,18 @@ pub struct EntityHit {
     pub source: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct RecordAsset {
+    pub id: String,
+    pub record_id: String,
+    pub asset_type: String,
+    pub local_path: String,
+    pub mime_type: Option<String>,
+    pub file_size: Option<i64>,
+    pub metadata_json: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisReport {
     pub record_id: String,
@@ -159,6 +171,8 @@ pub struct AnalysisReport {
     pub entities: Vec<EntityHit>,
     pub chunks_indexed: usize,
     pub engine: String,
+    pub intelligence_json: Option<String>,
+    pub assets: Vec<RecordAsset>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

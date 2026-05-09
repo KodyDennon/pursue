@@ -4,7 +4,7 @@
   import L from "leaflet";
   import "leaflet/dist/leaflet.css";
 
-  let { records = [] } = $props<{ records: RecordSummary[] }>();
+  let { records = [], onSelect = null } = $props<{ records: RecordSummary[]; onSelect?: (record: RecordSummary) => void }>();
   let mapElement: HTMLDivElement;
   let map: L.Map | null = null;
   let markerLayer: L.LayerGroup | null = null;
@@ -37,7 +37,6 @@
       maxZoom: 19
     }).addTo(map);
 
-    L.control.zoom({ position: "bottomright" }).addTo(map);
     markerLayer = L.layerGroup().addTo(map);
     updateMarkers(records);
   });
@@ -59,30 +58,38 @@
       if (!coords) continue;
 
       const markerIcon = L.divIcon({
-        className: "custom-div-icon",
-        html: "<div class='marker-pin'></div>",
-        iconSize: [14, 14],
-        iconAnchor: [7, 7]
+        className: "tactical-pip",
+        html: "<div class='pulse-dot'></div>",
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
       });
 
       L.marker(coords, { icon: markerIcon })
         .addTo(markerLayer)
         .bindPopup(`
-          <div class="pursue-popup">
-            <strong>${escapeHtml(record.title)}</strong>
-            <span>${escapeHtml(record.agency || "UNKNOWN")} · ${escapeHtml(record.incident_date || "N/A")}</span>
+          <div class="tactical-popup">
+            <header>
+              <strong>${record.title}</strong>
+              <span class="status ${record.analysis_status}">${record.analysis_status || 'Pending'}</span>
+            </header>
+            <p>${record.agency}</p>
+            <div class="p-footer">
+              <small>${record.incident_date || 'N/A'}</small>
+              <button class="mini-btn" onclick="window.dispatchEvent(new CustomEvent('select-record', { detail: '${record.id}' }))">Open Dossier</button>
+            </div>
           </div>
-        `);
+        `, {
+          className: 'tactical-popup-container'
+        });
     }
   }
 
-  function escapeHtml(value: string): string {
-    return value
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;");
-  }
+  onMount(() => {
+    window.addEventListener('select-record', ((e: CustomEvent<string>) => {
+      const record = records.find(r => r.id === e.detail);
+      if (record && onSelect) onSelect(record);
+    }) as EventListener);
+  });
 
   $effect(() => {
     updateMarkers(records);
@@ -93,53 +100,113 @@
   });
 </script>
 
-<div bind:this={mapElement} class="map"></div>
+<div bind:this={mapElement} class="map-surface"></div>
 
 <style>
-  .map {
+  .map-surface {
     width: 100%;
     height: 100%;
-    min-height: 0;
-    background: #101114;
+    background: #0a0b0d;
   }
 
-  :global(.custom-div-icon) {
+  :global(.tactical-pip) {
     background: transparent;
     border: none;
   }
 
-  :global(.marker-pin) {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
+  :global(.pulse-dot) {
+    width: 12px;
+    height: 12px;
     background: #e7c46b;
-    border: 2px solid #101114;
-    box-shadow: 0 0 0 2px rgba(231, 196, 107, 0.28), 0 0 18px rgba(231, 196, 107, 0.72);
+    border-radius: 50%;
+    box-shadow: 0 0 15px #e7c46b;
+    border: 2px solid #0a0b0d;
+    position: relative;
+  }
+
+  :global(.pulse-dot::after) {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    background: #e7c46b;
+    border-radius: 50%;
+    animation: pip-pulse 2s infinite;
+    z-index: -1;
+  }
+
+  @keyframes pip-pulse {
+    0% { transform: scale(1); opacity: 0.8; }
+    100% { transform: scale(3); opacity: 0; }
   }
 
   :global(.leaflet-popup-content-wrapper) {
-    background: transparent !important;
-    box-shadow: none !important;
+    background: rgba(16, 17, 20, 0.9) !important;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(231, 196, 107, 0.3);
+    color: white !important;
+    border-radius: 12px !important;
     padding: 0 !important;
+    box-shadow: 0 12px 24px rgba(0,0,0,0.5) !important;
   }
 
   :global(.leaflet-popup-tip) {
-    display: none !important;
+    background: rgba(16, 17, 20, 0.9) !important;
+    border: 1px solid rgba(231, 196, 107, 0.3);
   }
 
-  :global(.pursue-popup) {
-    display: grid;
-    gap: 4px;
-    min-width: 210px;
-    color: #f4f1e8;
-    background: #17191e;
-    border: 1px solid #3a3d45;
-    border-radius: 6px;
-    padding: 10px;
+  :global(.tactical-popup) {
+    padding: 16px;
+    min-width: 240px;
+    font-family: 'Outfit', sans-serif;
   }
 
-  :global(.pursue-popup span) {
-    color: #9da3ad;
+  :global(.tactical-popup header) {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  :global(.tactical-popup strong) {
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  :global(.tactical-popup .status) {
+    font-size: 9px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.1);
+  }
+
+  :global(.tactical-popup p) {
+    margin: 0;
     font-size: 12px;
+    color: #9da3ad;
+  }
+
+  :global(.tactical-popup .p-footer) {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  :global(.mini-btn) {
+    background: var(--accent-gold);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
   }
 </style>

@@ -16,6 +16,8 @@ export interface RecordSummary {
   artifact_sha256: string | null;
   artifact_size: number | null;
   analysis_status: string | null;
+  intelligence_json: string | null;
+  redaction_score: number | null;
   entity_count: number;
 }
 
@@ -111,6 +113,7 @@ export interface AnalysisReport {
   entities: EntityHit[];
   chunks_indexed: number;
   engine: string;
+  intelligence_json?: string | null;
 }
 
 export interface SearchRequest {

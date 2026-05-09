@@ -17,6 +17,7 @@ use crate::models::{
     SearchRequest, SearchResults, SyncReport,
 };
 use crate::sources::war_gov;
+use crate::analysis::diagnostics::{self, HardwareSpecs};
 
 pub struct AppState {
     pub db: SqlitePool,
@@ -26,6 +27,16 @@ pub struct AppState {
 #[tauri::command]
 pub async fn sync_official_source(state: State<'_, AppState>) -> Result<SyncReport, String> {
     war_gov::sync_official_source(&state.db, &state.library)
+        .await
+        .map_err(to_error)
+}
+
+#[tauri::command]
+pub async fn sync_official_source_with_csv(
+    csv: String,
+    state: State<'_, AppState>,
+) -> Result<SyncReport, String> {
+    war_gov::sync_official_source_from_bytes(&state.db, &state.library, csv.as_bytes())
         .await
         .map_err(to_error)
 }
@@ -47,16 +58,37 @@ pub async fn download_record(
 }
 
 #[tauri::command]
+pub async fn download_record_with_bytes(
+    id: String,
+    url: String,
+    bytes: Vec<u8>,
+    state: State<'_, AppState>,
+) -> Result<DownloadResult, String> {
+    state
+        .library
+        .ingest_from_bytes(&state.db, &id, &url, &bytes)
+        .await
+        .map_err(to_error)
+}
+
+#[tauri::command]
 pub async fn download_missing_records(state: State<'_, AppState>) -> Result<String, String> {
     let job_id = create_download_job(&state.db).await.map_err(to_error)?;
     let db = state.db.clone();
-    let failure_db = state.db.clone();
     let library = state.library.clone();
     let job_id_for_task = job_id.clone();
 
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = run_download_job(db, library, &job_id_for_task).await {
-            let _ = mark_job_failed(&failure_db, &job_id_for_task, &error.to_string()).await;
+        if let Err(error) = run_download_job(db.clone(), library, &job_id_for_task).await {
+            let summary = serde_json::json!({ "error": error.to_string() });
+            let _ = sqlx::query(
+                "UPDATE download_jobs SET status = 'failed', summary_json = ?, updated_at = ? WHERE id = ?",
+            )
+            .bind(summary.to_string())
+            .bind(now())
+            .bind(&job_id_for_task)
+            .execute(&db)
+            .await;
         }
     });
 
@@ -152,6 +184,11 @@ pub async fn analyze_record(
 ) -> Result<AnalysisReport, String> {
     let manager = AnalysisManager::new(state.db.clone(), state.library.clone());
     manager.analyze_record(&id).await.map_err(to_error)
+}
+
+#[tauri::command]
+pub async fn get_hardware_diagnostics() -> Result<HardwareSpecs, String> {
+    Ok(diagnostics::get_hardware_specs())
 }
 
 #[tauri::command]
@@ -311,7 +348,11 @@ async fn run_download_job(
     let mut completed = 0_i64;
     let mut failed = 0_i64;
     for item in items {
-        if cancel_requested(&db, job_id).await? {
+        let cancel_req = sqlx::query_scalar::<_, i64>("SELECT cancel_requested FROM download_jobs WHERE id = ?")
+            .bind(job_id)
+            .fetch_one(&db)
+            .await?;
+        if cancel_req != 0 {
             sqlx::query("UPDATE download_jobs SET status = 'cancelled', updated_at = ? WHERE id = ?")
                 .bind(now())
                 .bind(job_id)
@@ -385,29 +426,6 @@ async fn run_download_job(
     .bind(now())
     .bind(job_id)
     .execute(&db)
-    .await?;
-    Ok(())
-}
-
-async fn cancel_requested(db: &SqlitePool, job_id: &str) -> Result<bool> {
-    let value = sqlx::query_scalar::<_, i64>(
-        "SELECT cancel_requested FROM download_jobs WHERE id = ?",
-    )
-    .bind(job_id)
-    .fetch_one(db)
-    .await?;
-    Ok(value != 0)
-}
-
-async fn mark_job_failed(db: &SqlitePool, job_id: &str, error: &str) -> Result<()> {
-    let summary = serde_json::json!({ "error": error });
-    sqlx::query(
-        "UPDATE download_jobs SET status = 'failed', summary_json = ?, updated_at = ? WHERE id = ?",
-    )
-    .bind(summary.to_string())
-    .bind(now())
-    .bind(job_id)
-    .execute(db)
     .await?;
     Ok(())
 }

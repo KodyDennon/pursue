@@ -37,8 +37,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::sync_official_source,
+            commands::sync_official_source_with_csv,
             commands::list_records,
             commands::download_record,
+            commands::download_record_with_bytes,
             commands::download_missing_records,
             commands::get_bulk_download_status,
             commands::cancel_bulk_download,
@@ -50,7 +52,8 @@ pub fn run() {
             commands::create_case,
             commands::update_case_notes,
             commands::add_record_to_case,
-            commands::export_case
+            commands::export_case,
+            commands::get_hardware_diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

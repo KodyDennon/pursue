@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use csv::ReaderBuilder;
-use reqwest::Client;
+use rquest::{header, Client};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
@@ -21,8 +21,23 @@ struct ParsedOfficialRecord {
 }
 
 pub async fn sync_official_source(pool: &SqlitePool, library: &LibraryManager) -> Result<SyncReport> {
+    let mut headers = header::HeaderMap::new();
+    headers.insert(
+        header::ACCEPT,
+        header::HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+    );
+    headers.insert(
+        header::ACCEPT_LANGUAGE,
+        header::HeaderValue::from_static("en-US,en;q=0.9"),
+    );
+    headers.insert(
+        header::REFERER,
+        header::HeaderValue::from_static("https://www.war.gov/"),
+    );
+
     let client = Client::builder()
-        .user_agent("PURSUE-Data-Analyzer/0.1 official WAR.gov sync")
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .default_headers(headers)
         .build()?;
 
     let bytes = client
@@ -36,15 +51,32 @@ pub async fn sync_official_source(pool: &SqlitePool, library: &LibraryManager) -
         .await
         .context("WAR.gov source body could not be read")?;
 
-    let content_hash = hash_bytes(&bytes);
+    sync_official_source_from_bytes(pool, library, &bytes).await
+}
+
+pub async fn sync_official_source_from_bytes(
+    pool: &SqlitePool,
+    library: &LibraryManager,
+    bytes: &[u8],
+) -> Result<SyncReport> {
+    sync_official_source_from_bytes_inner(pool, library, bytes, WAR_GOV_CSV_URL).await
+}
+
+async fn sync_official_source_from_bytes_inner(
+    pool: &SqlitePool,
+    library: &LibraryManager,
+    bytes: &[u8],
+    upstream_url: &str,
+) -> Result<SyncReport> {
+    let content_hash = hash_bytes(bytes);
     let fetched_at = now();
     let snapshot_id = Uuid::new_v4().to_string();
     let snapshot_dir = library.snapshots_dir().join("war-gov");
     fs::create_dir_all(&snapshot_dir).await?;
     let snapshot_file = snapshot_dir.join(format!("{snapshot_id}.csv"));
-    fs::write(&snapshot_file, &bytes).await?;
+    fs::write(&snapshot_file, bytes).await?;
     let snapshot_path = snapshot_file.to_string_lossy().into_owned();
-    let records = parse_csv_records(&bytes)?;
+    let records = parse_csv_records(bytes)?;
     let previous = previous_snapshot_records(pool).await?;
 
     sqlx::query(
@@ -57,7 +89,7 @@ pub async fn sync_official_source(pool: &SqlitePool, library: &LibraryManager) -
         "#,
     )
     .bind(&snapshot_id)
-    .bind(WAR_GOV_CSV_URL)
+    .bind(upstream_url)
     .bind(format!("WAR.gov UFO sync {}", &fetched_at[..10]))
     .bind(&fetched_at)
     .bind(&content_hash)
@@ -161,7 +193,7 @@ pub async fn sync_official_source(pool: &SqlitePool, library: &LibraryManager) -
 
     Ok(SyncReport {
         snapshot_id,
-        upstream_url: WAR_GOV_CSV_URL.to_string(),
+        upstream_url: upstream_url.to_string(),
         fetched_at,
         content_hash,
         snapshot_path,

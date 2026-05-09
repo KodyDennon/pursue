@@ -1,5 +1,9 @@
 pub mod ocr;
 pub mod pdf;
+pub mod diagnostics;
+pub mod extraction;
+pub mod native_macos;
+pub mod native_windows;
 
 use anyhow::{anyhow, Result};
 use regex::Regex;
@@ -9,11 +13,15 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::fs;
 use uuid::Uuid;
+use log::{info, error, warn};
 
 use crate::db::records;
 use crate::library::LibraryManager;
 use crate::models::{AnalysisReport, EntityHit};
 use crate::search::{chunk_text, vectorize_text};
+use crate::analysis::diagnostics::{self, IntelligenceTier};
+use crate::analysis::extraction::{IntelligenceExtractor, ExtractionConfig};
+use crate::analysis::model_manager::ModelManager;
 
 use self::ocr::OcrEngine;
 use self::pdf::PdfAnalyzer;
@@ -23,15 +31,19 @@ pub struct AnalysisManager {
     library: Arc<LibraryManager>,
     ocr: OcrEngine,
     pdf: PdfAnalyzer,
+    extractor: IntelligenceExtractor,
+    models: ModelManager,
 }
 
 impl AnalysisManager {
     pub fn new(db: SqlitePool, library: Arc<LibraryManager>) -> Self {
         Self {
             db,
-            library,
+            library: library.clone(),
             ocr: OcrEngine::new(),
             pdf: PdfAnalyzer::new(),
+            extractor: IntelligenceExtractor::new().expect("failed to init Gemma backend"),
+            models: ModelManager::new(&library),
         }
     }
 
@@ -44,63 +56,115 @@ impl AnalysisManager {
             .as_deref()
             .ok_or_else(|| anyhow!("record has no local artifact; download or import evidence first"))?;
         let full_path = self.library.get_full_path(relative_path);
-        if !full_path.exists() {
-            return Err(anyhow!("local artifact is missing: {}", full_path.display()));
-        }
+        
+        // 1. Ensure Models
+        info!("Ensuring intelligence models are present...");
+        self.models.ensure_model("gemma-4-e2b.gguf", "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf").await?;
+        self.models.ensure_model("bge-small-en-v1.5.onnx", "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx").await?;
 
-        sqlx::query(
-            r#"
-            INSERT INTO analysis_results (record_id, ocr_text, status, processed_at)
-            VALUES (?, '', 'processing', CURRENT_TIMESTAMP)
-            ON CONFLICT(record_id) DO UPDATE SET status = 'processing', processed_at = CURRENT_TIMESTAMP
-            "#,
-        )
-        .bind(record_id)
-        .execute(&self.db)
-        .await?;
+        // 2. OCR / Text Extraction
+        info!("Step 1: Extracting text via {}", if cfg!(target_os = "macos") { "Vision" } else { "PaddleOCR/Tesseract" });
 
         let (text, engine) = match self.extract_text(&full_path).await {
-            Ok(result) => result,
-            Err(error) => {
-                sqlx::query(
-                    r#"
-                    INSERT INTO analysis_results (record_id, ocr_text, status, processed_at)
-                    VALUES (?, ?, 'failed', CURRENT_TIMESTAMP)
-                    ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'failed', processed_at = CURRENT_TIMESTAMP
-                    "#,
-                )
-                .bind(record_id)
-                .bind(error.to_string())
-                .execute(&self.db)
-                .await?;
-                return Err(error);
+            Ok(res) => res,
+            Err(e) => {
+                error!("Analysis failed at OCR step for {}: {}", record_id, e);
+                sqlx::query("UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?")
+                    .bind(e.to_string())
+                    .bind(record_id)
+                    .execute(&self.db)
+                    .await?;
+                return Err(e);
             }
         };
 
-        let context = format!(
-            "{}\n{}\n{}\n{}\n{}",
-            record.title,
-            record.summary.as_deref().unwrap_or(""),
-            record.agency.as_deref().unwrap_or(""),
-            record.incident_location.as_deref().unwrap_or(""),
-            text
-        );
-        let entities = extract_entities(&context);
+        // 2. Intelligence Extraction (Gemma 4)
+        info!("Step 2: Extracting structured intelligence using Gemma 4");
+        let specs = diagnostics::get_hardware_specs();
+        let intelligence_json = match self.extractor.load_and_extract(ExtractionConfig {
+            preferred_model_path: Some(Path::new("models/gemma-4-e4b.gguf").to_path_buf()),
+            fallback_model_path: Some(Path::new("models/gemma-4-e2b.gguf").to_path_buf()),
+            force_cpu: false,
+        }, &text).await {
+            Ok(json) => {
+                info!("Gemma 4 successfully extracted intelligence for {}", record_id);
+                Some(serde_json::to_string(&json)?)
+            },
+            Err(e) => {
+                warn!("Gemma 4 extraction skipped or failed for {}: {}", record_id, e);
+                None
+            },
+        };
+
+        // 3. Forensics (Redactions)
+        info!("Step 3: Analyzing document forensics (redactions)");
+        let redaction_score = self.ocr.analyze_redactions(&full_path).unwrap_or(0.0);
+        if redaction_score > 0.2 {
+            warn!("High redaction detected ({}%) in record {}", (redaction_score * 100.0) as u32, record_id);
+        }
+
+        // 4. Persistence
+        info!("Step 4: Persisting entities and indexing vectors");
+        let entities = extract_entities(&text);
         self.persist_entities(record_id, &entities).await?;
         let chunks_indexed = self.persist_chunks(record_id, &record.title, &text, &entities).await?;
 
+        // 5. Asset Extraction (Images from PDF)
+        let mut assets = Vec::new();
+        if extension == "pdf" {
+            info!("Step 5: Extracting images from PDF evidence...");
+            let asset_dir = self.library.get_full_path(&format!("assets/{}", record_id));
+            if let Ok(extracted_images) = self.pdf.extract_images(&full_path, &asset_dir).await {
+                for (filename, mime) in extracted_images {
+                    let asset_id = Uuid::new_v4().to_string();
+                    let relative_asset_path = format!("assets/{}/{}", record_id, filename);
+                    let file_size = fs::metadata(asset_dir.join(&filename)).await.map(|m| m.len() as i64).ok();
+                    
+                    sqlx::query(
+                        r#"
+                        INSERT INTO record_assets (id, record_id, asset_type, local_path, mime_type, file_size, created_at)
+                        VALUES (?, ?, 'image', ?, ?, ?, ?)
+                        "#,
+                    )
+                    .bind(&asset_id)
+                    .bind(record_id)
+                    .bind(&relative_asset_path)
+                    .bind(&mime)
+                    .bind(file_size)
+                    .bind(now())
+                    .execute(&self.db)
+                    .await?;
+
+                    assets.push(crate::models::RecordAsset {
+                        id: asset_id,
+                        record_id: record_id.to_string(),
+                        asset_type: "image".to_string(),
+                        local_path: relative_asset_path,
+                        mime_type: Some(mime),
+                        file_size,
+                        metadata_json: None,
+                        created_at: now(),
+                    });
+                }
+            }
+        }
+
+        info!("Analysis completed successfully for {}", record_id);
+
         sqlx::query(
             r#"
-            INSERT INTO analysis_results (record_id, ocr_text, status, processed_at)
-            VALUES (?, ?, 'completed', CURRENT_TIMESTAMP)
-            ON CONFLICT(record_id) DO UPDATE SET
-                ocr_text = excluded.ocr_text,
-                status = 'completed',
-                processed_at = CURRENT_TIMESTAMP
+            UPDATE records SET 
+                analysis_status = 'completed',
+                intelligence_json = ?,
+                redaction_score = ?,
+                analysis_error = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
             "#,
         )
+        .bind(&intelligence_json)
+        .bind(redaction_score)
         .bind(record_id)
-        .bind(&text)
         .execute(&self.db)
         .await?;
 
@@ -111,20 +175,29 @@ impl AnalysisManager {
             entities,
             chunks_indexed,
             engine,
+            intelligence_json,
+            assets,
         })
     }
 
     pub async fn get_analysis(&self, record_id: &str) -> Result<Option<AnalysisReport>> {
-        let row = sqlx::query_as::<_, (String, String)>(
-            "SELECT ocr_text, status FROM analysis_results WHERE record_id = ?",
+        let row = sqlx::query(
+            "SELECT r.intelligence_json, r.analysis_status, r.redaction_score, ar.ocr_text 
+             FROM records r 
+             LEFT JOIN analysis_results ar ON ar.record_id = r.id
+             WHERE r.id = ?",
         )
         .bind(record_id)
         .fetch_optional(&self.db)
         .await?;
 
-        let Some((ocr_text, status)) = row else {
+        let Some(row) = row else {
             return Ok(None);
         };
+
+        let status: String = row.get::<Option<String>, _>("analysis_status").unwrap_or_else(|| "pending".to_string());
+        let intelligence_json: Option<String> = row.get("intelligence_json");
+        let ocr_text: String = row.get::<Option<String>, _>("ocr_text").unwrap_or_default();
 
         let entities = load_entities(&self.db, record_id).await?;
         let chunks_indexed = sqlx::query_scalar::<_, i64>(
@@ -135,6 +208,13 @@ impl AnalysisManager {
         .await
         .unwrap_or(0);
 
+        let assets = sqlx::query_as::<_, crate::models::RecordAsset>(
+            "SELECT * FROM record_assets WHERE record_id = ? ORDER BY created_at ASC",
+        )
+        .bind(record_id)
+        .fetch_all(&self.db)
+        .await?;
+
         Ok(Some(AnalysisReport {
             record_id: record_id.to_string(),
             status,
@@ -142,6 +222,8 @@ impl AnalysisManager {
             entities,
             chunks_indexed: usize::try_from(chunks_indexed).unwrap_or(0),
             engine: "stored".to_string(),
+            intelligence_json,
+            assets,
         }))
     }
 
@@ -167,10 +249,26 @@ impl AnalysisManager {
                 }
             }
             "txt" | "md" | "csv" | "json" => Ok((fs::read_to_string(path).await?, "text-file".to_string())),
-            "png" | "jpg" | "jpeg" | "tif" | "tiff" | "bmp" => Ok((
-                self.ocr.extract_text_from_image(path).await?,
-                "tesseract".to_string(),
-            )),
+            "png" | "jpg" | "jpeg" | "tif" | "tiff" | "bmp" => {
+                #[cfg(target_os = "macos")]
+                {
+                    match self::native_macos::extract_text_macos(path).await {
+                        Ok(text) => return Ok((text, "macos-vision".to_string())),
+                        Err(_) => {} // Fallback to basic OCR if vision fails
+                    }
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    match self::native_windows::extract_text_windows(path).await {
+                        Ok(text) => return Ok((text, "windows-media".to_string())),
+                        Err(_) => {}
+                    }
+                }
+                Ok((
+                    self.ocr.extract_text_from_image(path).await?,
+                    "tesseract".to_string(),
+                ))
+            }
             _ => Err(anyhow!(
                 "unsupported analysis file type `{}` for {}",
                 extension,

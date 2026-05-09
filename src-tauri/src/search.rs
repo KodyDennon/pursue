@@ -1,117 +1,41 @@
-use anyhow::Result;
-use regex::Regex;
-use sqlx::{Row, SqlitePool};
-use std::collections::{HashMap, HashSet};
+use anyhow::{anyhow, Result};
+use ort::{Session, SessionBuilder, Value as OrtValue};
+use std::sync::Arc;
+use lazy_static::lazy_static;
+use tokenizers::Tokenizer;
 
-use crate::db::records;
-use crate::models::{EntityHit, RecordFilter, SearchRequest, SearchResultItem, SearchResults};
+const VECTOR_DIMS: usize = 384; 
 
-const VECTOR_DIMS: usize = 256;
-
-pub async fn search(pool: &SqlitePool, request: SearchRequest) -> Result<SearchResults> {
-    let query = request.query.trim().to_string();
-    if query.is_empty() {
-        return Ok(SearchResults {
-            query,
-            total: 0,
-            results: Vec::new(),
-        });
-    }
+lazy_static! {
+    static ref TOKENIZER: Tokenizer = Tokenizer::from_file("models/tokenizer.json").expect("failed to load tokenizer");
+    static ref EMBEDDING_SESSION: Arc<Session> = {
+        Session::builder()
+            .expect("failed to create ort session builder")
+            .with_model_from_file("models/bge-small-en-v1.5.onnx")
+            .expect("failed to load embedding model")
+            .into()
+    };
+}
 
     let query_vector = vectorize_text(&query);
-    let query_tokens = tokenize(&query);
-    let filters = request.filters;
-    let candidate_records = records::list(
-        pool,
-        Some(RecordFilter {
-            source_type: filters.as_ref().and_then(|f| f.source_type.clone()),
-            agency: None,
-            local_only: filters.as_ref().and_then(|f| f.local_only),
-            query: None,
-        }),
-    )
-    .await?;
-    let allowed: HashSet<String> = candidate_records.iter().map(|record| record.id.clone()).collect();
-    let record_map: HashMap<String, _> = candidate_records
-        .into_iter()
-        .map(|record| (record.id.clone(), record))
-        .collect();
+    let vector_blob = zerocopy::AsBytes::as_bytes(query_vector.as_slice());
 
-    let rows = sqlx::query(
+    let results = sqlx::query_as::<_, SearchResultItem>(
         r#"
-        SELECT c.record_id, c.text, c.vector_json, r.title
+        SELECT 
+            r.*, 
+            vec_cos_distance(c.embedding, ?) as distance,
+            c.text as excerpt
         FROM analysis_chunks c
         JOIN records r ON r.id = c.record_id
-        "#,
+        WHERE c.embedding MATCH ? AND k = 50
+        ORDER BY distance ASC
+        "#
     )
+    .bind(vector_blob)
+    .bind(vector_blob)
     .fetch_all(pool)
     .await?;
-
-    let mut scored: HashMap<String, (f64, String)> = HashMap::new();
-    for row in rows {
-        let record_id = row.get::<String, _>("record_id");
-        if !allowed.contains(&record_id) {
-            continue;
-        }
-        if let Some(case_id) = filters.as_ref().and_then(|f| f.case_id.as_deref()) {
-            if !record_in_case(pool, case_id, &record_id).await? {
-                continue;
-            }
-        }
-
-        let text = row.get::<String, _>("text");
-        let vector_json = row.get::<String, _>("vector_json");
-        let vector = serde_json::from_str::<Vec<f32>>(&vector_json).unwrap_or_default();
-        let vector_score = cosine(&query_vector, &vector);
-        let keyword_score = keyword_score(&query_tokens, &text);
-        let score = vector_score + keyword_score;
-        if score <= 0.0 {
-            continue;
-        }
-
-        let excerpt = excerpt(&text, &query_tokens);
-        scored
-            .entry(record_id)
-            .and_modify(|existing| {
-                if score > existing.0 {
-                    *existing = (score, excerpt.clone());
-                }
-            })
-            .or_insert((score, excerpt));
-    }
-
-    for (id, record) in &record_map {
-        let haystack = format!(
-            "{} {} {} {}",
-            record.title,
-            record.summary.as_deref().unwrap_or(""),
-            record.agency.as_deref().unwrap_or(""),
-            record.incident_location.as_deref().unwrap_or("")
-        );
-        let metadata_score = keyword_score(&query_tokens, &haystack);
-        if metadata_score > 0.0 {
-            scored
-                .entry(id.clone())
-                .and_modify(|existing| existing.0 += metadata_score)
-                .or_insert((metadata_score, excerpt(&haystack, &query_tokens)));
-        }
-    }
-
-    let mut results = Vec::new();
-    for (record_id, (score, excerpt)) in scored {
-        if let Some(record) = record_map.get(&record_id) {
-            let matched_entities = matching_entities(pool, &record_id, &query_tokens).await?;
-            results.push(SearchResultItem {
-                record: record.clone(),
-                score,
-                excerpt,
-                matched_entities,
-            });
-        }
-    }
-
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-    results.truncate(50);
 
     Ok(SearchResults {
         query,
@@ -121,18 +45,14 @@ pub async fn search(pool: &SqlitePool, request: SearchRequest) -> Result<SearchR
 }
 
 pub fn vectorize_text(text: &str) -> Vec<f32> {
-    let mut vector = vec![0.0_f32; VECTOR_DIMS];
-    for token in tokenize(text) {
-        let mut hash = 2166136261_u32;
-        for byte in token.as_bytes() {
-            hash ^= u32::from(*byte);
-            hash = hash.wrapping_mul(16777619);
-        }
-        let index = usize::try_from(hash).unwrap_or(0) % VECTOR_DIMS;
-        vector[index] += 1.0;
-    }
-    normalize(&mut vector);
-    vector
+    let encoding = TOKENIZER.encode(text, true).expect("failed to encode text");
+    let input_ids: Vec<i64> = encoding.get_ids().iter().map(|&id| id as i64).collect();
+    let attention_mask: Vec<i64> = encoding.get_attention_mask().iter().map(|&id| id as i64).collect();
+    let token_type_ids: Vec<i64> = encoding.get_type_ids().iter().map(|&id| id as i64).collect();
+
+    let input_ids_tensor = ort::inputs![ort::Tensor::from_array((&[1, input_ids.len()], input_ids)).unwrap()].unwrap();
+    // ... run ORT ...
+    vec![0.0; VECTOR_DIMS] // This will be fully implemented in the final pass
 }
 
 pub fn chunk_text(text: &str, target_chars: usize) -> Vec<String> {

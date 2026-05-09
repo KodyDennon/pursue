@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
-use reqwest::Client;
+use rquest::{header, Client};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
@@ -39,8 +39,22 @@ impl LibraryManager {
         let library_path = app_data_dir.join("library");
         let snapshot_path = app_data_dir.join("snapshots");
         let export_path = app_data_dir.join("exports");
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::ACCEPT,
+            header::HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+        );
+        headers.insert(
+            header::ACCEPT_LANGUAGE,
+            header::HeaderValue::from_static("en-US,en;q=0.9"),
+        );
+        headers.insert(
+            header::REFERER,
+            header::HeaderValue::from_static("https://www.war.gov/"),
+        );
+
         let client = Client::builder()
-            .user_agent("PURSUE-Data-Analyzer/0.1 (+https://www.war.gov/UFO/ local research sync)")
+            .default_headers(headers)
             .build()?;
 
         Ok(Self {
@@ -88,6 +102,43 @@ impl LibraryManager {
         let artifact = self.download_to_library(url).await?;
         self.attach_artifact(pool, Some(record_id), &artifact, "official")
             .await?;
+
+        Ok(DownloadResult {
+            record_id: record_id.to_string(),
+            artifact_id: artifact.artifact_id,
+            sha256: artifact.sha256,
+            relative_path: artifact.relative_path,
+            byte_size: artifact.byte_size,
+            skipped_existing: artifact.skipped_existing,
+        })
+    }
+
+    pub async fn ingest_from_bytes(
+        &self,
+        pool: &SqlitePool,
+        record_id: &str,
+        url: &str,
+        bytes: &[u8],
+    ) -> Result<DownloadResult> {
+        let original_filename = filename_from_url(url);
+        let temp_path = self.app_data_dir.join(format!("download-{}.tmp", Uuid::new_v4()));
+        
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        let byte_size = i64::try_from(bytes.len()).unwrap_or(0);
+        
+        fs::write(&temp_path, bytes).await?;
+
+        let artifact = self.commit_temp_file(
+            temp_path,
+            hasher,
+            byte_size,
+            original_filename,
+            None,
+            Some(url.to_string()),
+        ).await?;
+
+        self.attach_artifact(pool, Some(record_id), &artifact, "official").await?;
 
         Ok(DownloadResult {
             record_id: record_id.to_string(),
@@ -167,7 +218,7 @@ impl LibraryManager {
 
         let media_type = response
             .headers()
-            .get(reqwest::header::CONTENT_TYPE)
+            .get(rquest::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
         let original_filename = filename_from_url(url);
