@@ -23,39 +23,42 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-native-tls", "macros"] }
-rquest = { version = "5.1.0", features = ["stream", "cookies", "json"] }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-native-tls", "macros"] }
+rquest = { version = "5", features = ["stream", "cookies", "json"] }
 tokio = { version = "1", features = ["full"] }
 sysinfo = "0.33"
-lazy_static = "1.5.0"
-tokenizers = "0.20.0"
+lazy_static = "1"
+tokenizers = "0.20"
 ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
 # llama-cpp-2 is the robust rust wrapper for gemma/llama GGUF
-llama-cpp-2 = "0.1.11"
+llama-cpp-2 = "0.1"
 # sqlite-vec is the modern vector search extension
-sqlite-vec = "0.1.0"
-anyhow = "1.0"
+sqlite-vec = "0.1"
+anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
-csv = "1.3"
-tauri-plugin-sql = "2.2.1"
-tauri-plugin-fs = "2.2.0"
-tauri-plugin-shell = "2.2.0"
-tauri-plugin-log = "2.2.0"
-uuid = { version = "1.23.1", features = ["v4"] }
-sha2 = "0.10.9"
-hex = "0.4.3"
-futures-util = "0.3.32"
-lopdf = "0.40.0"
-regex = "1.12.2"
-url = "2.5.8"
-ocrs = "0.9.0"
-rten = "0.13.1"
-rten-tensor = "0.13.1"
-image = "0.25.1"
+csv = "1"
+tauri-plugin-sql = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-log = "2"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+hex = "0.4"
+futures-util = "0.3"
+lopdf = "0.40"
+regex = "1"
+url = "2"
+ocrs = "0.9"
+rten = "0.13"
+rten-tensor = "0.13"
+image = "0.25"
+strum = { version = "0.26", features = ["derive"] }
+encoding_rs = "0.8"
+
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-vision = "0.3"
-core-graphics = "0.24.0"
-core-foundation = "0.10.0"
+core-graphics = "0.25.0"
+core-foundation = "0.10.1"

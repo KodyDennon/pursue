@@ -16,7 +16,7 @@ use tauri_plugin_log::log::{error, info, warn};
 use tokio::fs;
 use uuid::Uuid;
 
-use crate::analysis::diagnostics::IntelligenceTier;
+use crate::analysis::diagnostics::{get_hardware_specs, IntelligenceTier};
 use crate::analysis::extraction::{ExtractionConfig, IntelligenceExtractor};
 use crate::analysis::model_manager::ModelManager;
 use crate::db::records;
@@ -62,15 +62,33 @@ impl AnalysisManager {
             .unwrap_or("")
             .to_lowercase();
 
-        // 1. Ensure Models
+        // 1. Hardware Check and Model Provisioning
+        let specs = get_hardware_specs();
+        info!("Hardware detected: {} RAM. Recommended Tier: {:?}", specs.total_memory_gb, specs.recommended_tier);
+
         info!("Ensuring intelligence models are present...");
-        self.models.ensure_model("gemma-4-e2b.gguf", "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf").await?;
+        
+        // Always need BGE for embeddings
         self.models
             .ensure_model(
                 "bge-small-en-v1.5.onnx",
                 "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx",
             )
             .await?;
+        self.models
+            .ensure_model(
+                "tokenizer.json",
+                "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json",
+            )
+            .await?;
+
+        // Gemma selection based on tier
+        let (preferred_model, preferred_url) = match specs.recommended_tier {
+            IntelligenceTier::Elite => ("gemma-4-e4b.gguf", "https://huggingface.co/google/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it.Q4_K_M.gguf"),
+            _ => ("gemma-4-e2b.gguf", "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf"),
+        };
+
+        self.models.ensure_model(preferred_model, preferred_url).await?;
 
         // 2. OCR / Text Extraction
         info!(
@@ -82,7 +100,7 @@ impl AnalysisManager {
             }
         );
 
-        let (text, engine) = match self.extract_text(&full_path).await {
+        let (text, _engine) = match self.extract_text(&full_path).await {
             Ok(res) => res,
             Err(e) => {
                 error!("Analysis failed at OCR step for {}: {}", record_id, e);
@@ -95,15 +113,15 @@ impl AnalysisManager {
             }
         };
 
-        // 2. Intelligence Extraction (Gemma 4)
-        info!("Step 2: Extracting structured intelligence using Gemma 4");
+        // 3. Intelligence Extraction (Gemma 4)
+        info!("Step 2: Extracting structured intelligence using Gemma 4 ({})", preferred_model);
         let intelligence_json = match self
             .extractor
             .load_and_extract(
                 ExtractionConfig {
-                    preferred_model_path: Some(Path::new("models/gemma-4-e4b.gguf").to_path_buf()),
+                    preferred_model_path: Some(Path::new("models").join(preferred_model)),
                     fallback_model_path: Some(Path::new("models/gemma-4-e2b.gguf").to_path_buf()),
-                    force_cpu: false,
+                    force_cpu: !specs.gpu_acceleration_available,
                 },
                 &text,
             )
@@ -125,18 +143,11 @@ impl AnalysisManager {
             }
         };
 
-        // 3. Forensics (Redactions)
+        // 4. Forensics (Redactions)
         info!("Step 3: Analyzing document forensics (redactions)");
         let redaction_score = self.ocr.analyze_redactions(&full_path).unwrap_or(0.0);
-        if redaction_score > 0.2 {
-            warn!(
-                "High redaction detected ({}%) in record {}",
-                (redaction_score * 100.0) as u32,
-                record_id
-            );
-        }
 
-        // 4. Persistence
+        // 5. Persistence
         info!("Step 4: Persisting entities and indexing vectors");
         let entities = extract_entities(&text);
         self.persist_entities(record_id, &entities).await?;
@@ -144,7 +155,7 @@ impl AnalysisManager {
             .persist_chunks(record_id, &record.title, &text, &entities)
             .await?;
 
-        // 5. Asset Extraction (Images from PDF)
+        // 6. Asset Extraction (Images from PDF)
         let mut assets = Vec::new();
         if extension == "pdf" {
             info!("Step 5: Extracting images from PDF evidence...");
@@ -212,7 +223,7 @@ impl AnalysisManager {
             ocr_text: text,
             entities,
             chunks_indexed,
-            engine,
+            engine: format!("gemma-4-{:?}", specs.recommended_tier),
             intelligence_json,
             assets,
         })
@@ -390,7 +401,15 @@ impl AnalysisManager {
 
         for (index, chunk) in chunks.iter().enumerate() {
             let chunk_id = Uuid::new_v4().to_string();
-            let vector_json = serde_json::to_string(&vectorize_text(chunk).await?)?;
+            let embedding = vectorize_text(chunk).await?;
+            let vector_json = serde_json::to_string(&embedding)?;
+            let vector_blob: &[u8] = unsafe {
+                std::slice::from_raw_parts(
+                    embedding.as_ptr() as *const u8,
+                    embedding.len() * std::mem::size_of::<f32>(),
+                )
+            };
+
             sqlx::query(
                 r#"
                 INSERT INTO analysis_chunks (id, record_id, chunk_index, text, vector_json, created_at)
@@ -405,6 +424,12 @@ impl AnalysisManager {
             .bind(now())
             .execute(&self.db)
             .await?;
+
+            sqlx::query("INSERT INTO vec_analysis_chunks (chunk_id, embedding) VALUES (?, ?)")
+                .bind(&chunk_id)
+                .bind(vector_blob)
+                .execute(&self.db)
+                .await?;
 
             sqlx::query(
                 "INSERT INTO analysis_chunks_fts (chunk_id, record_id, title, text, entities) VALUES (?, ?, ?, ?, ?)",

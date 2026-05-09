@@ -37,6 +37,10 @@ pub fn run() {
                     .init()
                     .await
                     .expect("failed to initialize evidence library");
+
+                // Initialize search engine with correct models path
+                crate::search::init_search_engine(library.app_data_dir().join("models"));
+
                 app.manage(AppState { db: pool, library });
             });
             Ok(())

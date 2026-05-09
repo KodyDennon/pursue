@@ -4,7 +4,7 @@ use std::path::Path;
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::*;
-    use objc2::rc::{Allocated, Id, Retained};
+    use objc2::rc::Retained;
     use objc2::AnyThread;
     use objc2_foundation::{NSArray, NSDictionary, NSString, NSURL};
     use objc2_vision::{

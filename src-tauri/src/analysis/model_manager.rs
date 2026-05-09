@@ -38,8 +38,4 @@ impl ModelManager {
 
         Ok(target_path)
     }
-
-    pub fn get_model_path(&self, model_name: &str) -> PathBuf {
-        self.models_dir.join(model_name)
-    }
 }

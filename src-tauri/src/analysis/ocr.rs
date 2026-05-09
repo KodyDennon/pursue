@@ -6,12 +6,6 @@ use uuid::Uuid;
 
 pub struct OcrEngine;
 
-#[derive(Debug, Default)]
-pub struct OcrMetadata {
-    pub redaction_score: f32,
-    pub is_blank: bool,
-}
-
 impl OcrEngine {
     pub fn new() -> Self {
         Self
@@ -97,31 +91,6 @@ impl OcrEngine {
 
         let ratio = (black_pixels as f32) / (total_pixels as f32);
         Ok(ratio)
-    }
-
-    pub async fn is_blank_page(&self, image_path: &Path) -> Result<bool> {
-        let img = image::open(image_path)?;
-        let luma = img.to_luma8();
-        let pixels: Vec<f32> = luma.pixels().map(|p| p.0[0] as f32).collect();
-
-        if pixels.is_empty() {
-            return Ok(true);
-        }
-
-        let mut mean = 0.0;
-        for &p in &pixels {
-            mean += p;
-        }
-        mean /= pixels.len() as f32;
-
-        let mut variance = 0.0;
-        for &p in &pixels {
-            variance += (p - mean).powi(2);
-        }
-        variance /= pixels.len() as f32;
-
-        // Very low variance usually means a blank white or solid color page
-        Ok(variance < 100.0)
     }
 }
 

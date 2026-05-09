@@ -1,11 +1,24 @@
 pub mod records;
 
-use sqlite_vec;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::fs;
 use tauri::{AppHandle, Manager};
 
+// Direct FFI to avoid libsqlite3-sys version conflicts with sqlx
+extern "C" {
+    fn sqlite3_auto_extension(
+        xEntryPoint: Option<unsafe extern "C" fn()>,
+    ) -> std::os::raw::c_int;
+}
+
 pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
+    // Register sqlite-vec extension globally before any connections are opened
+    unsafe {
+        sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    }
+
     let app_dir = app_handle.path().app_data_dir()?;
     if !app_dir.exists() {
         fs::create_dir_all(&app_dir)?;
@@ -18,16 +31,10 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
 
     let pool = SqlitePool::connect_with(options).await?;
 
-    // Load sqlite-vec extension
-    // let vec_path = sqlite_vec::path();
-    // sqlx::query("SELECT load_extension(?)")
-    //     .bind(vec_path)
-    //     .execute(&pool)
-    //     .await?;
-
     sqlx::query("PRAGMA foreign_keys = ON")
         .execute(&pool)
         .await?;
+    
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     Ok(pool)
