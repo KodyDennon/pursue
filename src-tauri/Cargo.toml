@@ -33,7 +33,7 @@ ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
 # llama-cpp-2 is the robust rust wrapper for gemma/llama GGUF
 llama-cpp-2 = "0.1.11"
 # sqlite-vec is the modern vector search extension
-sqlite-vec = "0.1.9"
+sqlite-vec = "0.1.0"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 csv = "1.3"

@@ -4,12 +4,11 @@ use std::path::Path;
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::*;
-    use objc2::rc::{Allocated, Id};
+    use objc2::rc::{Allocated, Id, Retained};
     use objc2::AnyThread;
-    use objc2_foundation::{NSArray, NSDictionary, NSError, NSString, NSURL};
+    use objc2_foundation::{NSArray, NSDictionary, NSString, NSURL};
     use objc2_vision::{
-        VNImageRequestHandler, VNRecognizeTextRequest, VNRecognizedTextObservation, VNRequest,
-        VNRequestTextRecognitionLevel,
+        VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel,
     };
 
     pub fn extract_text(path: &Path) -> Result<String> {
@@ -32,8 +31,9 @@ mod macos_impl {
             };
 
             // 3. Perform the request
-            let requests =
-                unsafe { NSArray::from_slice(&[&*Id::cast::<VNRequest>(request.clone())]) };
+            let requests = unsafe {
+                NSArray::from_slice(&[&*Retained::cast_unchecked::<VNRequest>(request.clone())])
+            };
             handler
                 .performRequests_error(&requests)
                 .map_err(|e| anyhow!("Vision request failed: {:?}", e))?;

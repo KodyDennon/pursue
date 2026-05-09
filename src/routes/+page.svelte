@@ -207,7 +207,7 @@
               <button class="result-item glass" onclick={async () => {
                 loading = true;
                 try {
-                  const fullRecord = await invoke<RecordSummary | null>("list_records", { filter: { query: result.id } });
+                  const fullRecord = await invoke<RecordSummary[]>("list_records", { filter: { query: result.id } });
                   if (fullRecord && fullRecord[0]) {
                     selectedRecord = fullRecord[0];
                   }

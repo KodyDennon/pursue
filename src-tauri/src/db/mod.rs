@@ -19,11 +19,11 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
     let pool = SqlitePool::connect_with(options).await?;
 
     // Load sqlite-vec extension
-    let vec_path = sqlite_vec::path();
-    sqlx::query("SELECT load_extension(?)")
-        .bind(vec_path)
-        .execute(&pool)
-        .await?;
+    // let vec_path = sqlite_vec::path();
+    // sqlx::query("SELECT load_extension(?)")
+    //     .bind(vec_path)
+    //     .execute(&pool)
+    //     .await?;
 
     sqlx::query("PRAGMA foreign_keys = ON")
         .execute(&pool)

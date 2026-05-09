@@ -138,10 +138,16 @@ export interface SearchRequest {
 }
 
 export interface SearchResultItem {
-  record: RecordSummary;
-  score: number;
+  id: string;
+  title: string;
+  agency: string | null;
+  release_date: string | null;
+  document_url: string | null;
+  local_path: string | null;
+  summary: string | null;
+  artifact_sha256: string | null;
+  distance: number;
   excerpt: string;
-  matched_entities: EntityHit[];
 }
 
 export interface SearchResults {

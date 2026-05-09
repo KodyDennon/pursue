@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Record {
