@@ -34,6 +34,9 @@ pub struct RecordSummary {
     pub artifact_sha256: Option<String>,
     pub artifact_size: Option<i64>,
     pub analysis_status: Option<String>,
+    pub intelligence_json: Option<String>,
+    pub redaction_score: Option<f64>,
+    pub analysis_error: Option<String>,
     pub entity_count: i64,
 }
 
@@ -133,6 +136,33 @@ pub struct BulkDownloadItem {
 pub struct BulkDownloadReport {
     pub job: BulkDownloadStatus,
     pub items: Vec<BulkDownloadItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseStatus {
+    pub app_data_dir: String,
+    pub database_path: String,
+    pub library_path: String,
+    pub snapshots_path: String,
+    pub exports_path: String,
+    pub total_records: i64,
+    pub official_records: i64,
+    pub manual_records: i64,
+    pub downloadable_records: i64,
+    pub local_records: i64,
+    pub artifact_count: i64,
+    pub artifact_bytes: i64,
+    pub analyzed_records: i64,
+    pub failed_analysis_records: i64,
+    pub analysis_chunks: i64,
+    pub vector_chunks: i64,
+    pub entity_count: i64,
+    pub case_count: i64,
+    pub source_snapshots: i64,
+    pub latest_snapshot_at: Option<String>,
+    pub latest_snapshot_url: Option<String>,
+    pub latest_snapshot_records: Option<i64>,
+    pub active_download_jobs: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

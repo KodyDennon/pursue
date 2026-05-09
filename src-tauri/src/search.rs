@@ -1,4 +1,4 @@
-use crate::models::{SearchRequest, SearchResultItem, SearchResults};
+use crate::models::{SearchFilters, SearchRequest, SearchResultItem, SearchResults};
 use anyhow::Result;
 #[cfg(not(target_os = "windows"))]
 use ort::session::Session;
@@ -70,10 +70,16 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
 }
 
 pub async fn search(pool: &SqlitePool, request: SearchRequest) -> Result<SearchResults> {
-    vector_search(pool, request.query).await
+    vector_search(pool, request).await
 }
 
-pub async fn vector_search(pool: &SqlitePool, query: String) -> Result<SearchResults> {
+pub async fn vector_search(pool: &SqlitePool, request: SearchRequest) -> Result<SearchResults> {
+    let query = request.query;
+    let filters = request.filters.unwrap_or(SearchFilters {
+        source_type: None,
+        case_id: None,
+        local_only: None,
+    });
     let query_vector = vectorize_text(&query).await?;
 
     let vector_blob: &[u8] = unsafe {
@@ -94,16 +100,33 @@ pub async fn vector_search(pool: &SqlitePool, query: String) -> Result<SearchRes
         JOIN analysis_chunks c ON c.id = v.chunk_id
         JOIN records r ON r.id = c.record_id
         WHERE v.embedding MATCH ? AND k = 20
+          AND (? IS NULL OR r.source_type = ?)
+          AND (? = 0 OR r.local_path IS NOT NULL)
+          AND (
+            ? IS NULL OR EXISTS (
+              SELECT 1 FROM case_records cr
+              WHERE cr.record_id = r.id AND cr.case_id = ?
+            )
+          )
         ORDER BY distance ASC
         "#,
     )
     .bind(vector_blob)
     .bind(vector_blob)
+    .bind(&filters.source_type)
+    .bind(&filters.source_type)
+    .bind(if filters.local_only.unwrap_or(false) {
+        1
+    } else {
+        0
+    })
+    .bind(&filters.case_id)
+    .bind(&filters.case_id)
     .fetch_all(pool)
     .await
     {
         Ok(res) => res,
-        Err(_) => keyword_search(pool, &query).await?,
+        Err(_) => keyword_search(pool, &query, &filters).await?,
     };
 
     Ok(SearchResults {
@@ -177,7 +200,11 @@ async fn vectorize_text_with_model(text: &str) -> Result<Vec<f32>> {
     Ok(mean_vec)
 }
 
-async fn keyword_search(pool: &SqlitePool, query: &str) -> Result<Vec<SearchResultItem>> {
+async fn keyword_search(
+    pool: &SqlitePool,
+    query: &str,
+    filters: &SearchFilters,
+) -> Result<Vec<SearchResultItem>> {
     sqlx::query_as::<_, SearchResultItem>(
         r#"
         SELECT
@@ -187,12 +214,29 @@ async fn keyword_search(pool: &SqlitePool, query: &str) -> Result<Vec<SearchResu
             c.text as excerpt
         FROM analysis_chunks c
         JOIN records r ON r.id = c.record_id
-        WHERE r.title LIKE ? OR c.text LIKE ?
+        WHERE (r.title LIKE ? OR c.text LIKE ?)
+          AND (? IS NULL OR r.source_type = ?)
+          AND (? = 0 OR r.local_path IS NOT NULL)
+          AND (
+            ? IS NULL OR EXISTS (
+              SELECT 1 FROM case_records cr
+              WHERE cr.record_id = r.id AND cr.case_id = ?
+            )
+          )
         LIMIT 20
         "#,
     )
     .bind(format!("%{}%", query))
     .bind(format!("%{}%", query))
+    .bind(&filters.source_type)
+    .bind(&filters.source_type)
+    .bind(if filters.local_only.unwrap_or(false) {
+        1
+    } else {
+        0
+    })
+    .bind(&filters.case_id)
+    .bind(&filters.case_id)
     .fetch_all(pool)
     .await
     .map_err(Into::into)

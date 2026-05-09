@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
-  import type { AnalysisReport, CaseSummary, ExportResult, RecordSummary } from "$lib/types";
-  import IntelligenceDossier from "./IntelligenceDossier.svelte";
+  import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+  import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+  import type { AnalysisReport, CaseSummary, DownloadResult, ExportResult, RecordSummary } from "$lib/types";
 
   let {
     record,
@@ -15,408 +14,285 @@
     cases: CaseSummary[];
     selectedCaseId: string | null;
     onBack: () => void;
-    onChanged: (record: RecordSummary) => void | Promise<void>;
+    onChanged: () => void | Promise<void>;
   }>();
 
-  let activeTab = $state<"intelligence" | "document" | "metadata" | "forensics">("intelligence");
+  let activeTab = $state<"overview" | "analysis" | "text" | "assets" | "case">("overview");
   let analysis = $state<AnalysisReport | null>(null);
   let busy = $state<string | null>(null);
-  let selectedTier = $state<"Draft" | "Deep" | "Elite">("Deep");
+  let error = $state<string | null>(null);
+  let noteBody = $state("");
+  let exportPath = $state<string | null>(null);
+
+  const selectedCase = $derived(cases.find((item: CaseSummary) => item.id === selectedCaseId) ?? null);
+  const imageAssets = $derived((analysis?.assets ?? []).filter((asset) => asset.asset_type === "image"));
 
   async function loadAnalysis() {
+    error = null;
     try {
       analysis = await invoke<AnalysisReport | null>("get_analysis_result", { id: record.id });
     } catch (e) {
-      console.error(e);
+      error = String(e);
     }
   }
 
-  async function analyze() {
-    busy = "analysis";
+  async function download() {
+    busy = "download";
+    error = null;
     try {
-      analysis = await invoke<AnalysisReport>("analyze_record", { id: record.id });
-      onChanged(record);
+      await invoke<DownloadResult>("download_record", { id: record.id });
+      await onChanged();
+      await loadAnalysis();
     } catch (e) {
-      alert(e);
+      error = String(e);
     } finally {
       busy = null;
     }
   }
 
-  onMount(() => {
+  async function analyze() {
+    busy = "analysis";
+    error = null;
+    try {
+      analysis = await invoke<AnalysisReport>("analyze_record", { id: record.id });
+      await onChanged();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function openSource() {
+    if (!record.document_url) return;
+    await openUrl(record.document_url);
+  }
+
+  async function revealLocal() {
+    if (!record.local_path) return;
+    busy = "open-path";
+    error = null;
+    try {
+      const path = await invoke<string>("get_record_artifact_path", { id: record.id });
+      await openPath(path);
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function addToCase() {
+    if (!selectedCaseId) return;
+    busy = "case-add";
+    error = null;
+    try {
+      await invoke("add_record_to_case", {
+        request: { case_id: selectedCaseId, record_id: record.id, notes: noteBody.trim() || null }
+      });
+      await onChanged();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function addNote() {
+    if (!selectedCaseId || !noteBody.trim()) return;
+    busy = "case-note";
+    error = null;
+    try {
+      await invoke("update_case_notes", {
+        request: { case_id: selectedCaseId, record_id: record.id, body: noteBody.trim() }
+      });
+      noteBody = "";
+      await onChanged();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function exportCase(format: "markdown" | "html") {
+    if (!selectedCaseId) return;
+    busy = `export-${format}`;
+    error = null;
+    try {
+      const result = await invoke<ExportResult>("export_case", {
+        request: { case_id: selectedCaseId, format }
+      });
+      exportPath = result.absolute_path;
+      await onChanged();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  function formatBytes(value: number | null | undefined) {
+    if (!value) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let next = value;
+    let unit = 0;
+    while (next >= 1024 && unit < units.length - 1) {
+      next /= 1024;
+      unit += 1;
+    }
+    return `${next.toFixed(next >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+  }
+
+  function short(value: string | null | undefined) {
+    return value ? value.slice(0, 16) : "not recorded";
+  }
+
+  function formatJson(value: string | null | undefined) {
+    if (!value) return "";
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2);
+    } catch {
+      return value;
+    }
+  }
+
+  $effect(() => {
+    record.id;
     void loadAnalysis();
   });
 </script>
 
-<div class="dossier-viewer glass">
-  <header class="dossier-head">
-    <button class="back-btn" onclick={onBack}>← Back to Terminal</button>
-    <div class="title-block">
-      <h1>{record.title}</h1>
-      <p>{record.agency} · Incident ID: {record.stable_key || 'UNKNOWN'}</p>
+<article class="archive-viewer">
+  <header class="viewer-head">
+    <div class="button-row">
+      <button onclick={onBack}>Close</button>
+      <button onclick={openSource} disabled={!record.document_url}>Source URL</button>
+      <button onclick={revealLocal} disabled={!record.local_path || busy === "open-path"}>Open Local File</button>
     </div>
-    <div class="dossier-actions">
-      <select bind:value={selectedTier} class="tier-select">
-        <option value="Draft">Draft</option>
-        <option value="Deep">Deep (E2B)</option>
-        <option value="Elite">Elite (26B)</option>
-      </select>
-      <button class="primary" onclick={analyze} disabled={busy === 'analysis'}>
-        {busy === 'analysis' ? 'Running Gemma 4...' : 'Analyze Intelligence'}
+
+    <h2>{record.title}</h2>
+    <p>{record.agency || "Unknown agency"} · {record.release_date || "undated"} · {record.incident_location || "no location"}</p>
+
+    <div class="viewer-actions">
+      <button class="primary" onclick={download} disabled={!!record.local_path || !record.document_url || busy === "download"}>
+        {record.local_path ? "Downloaded" : busy === "download" ? "Downloading" : "Download"}
+      </button>
+      <button class="primary" onclick={analyze} disabled={!record.local_path || busy === "analysis"}>
+        {busy === "analysis" ? "Analyzing" : record.analysis_status === "completed" ? "Re-analyze" : "Analyze"}
       </button>
     </div>
   </header>
 
-  <nav class="dossier-tabs">
-    <button class:active={activeTab === 'intelligence'} onclick={() => activeTab = 'intelligence'}>Intelligence</button>
-    <button class:active={activeTab === 'document'} onclick={() => activeTab = 'document'}>Evidence Sheet</button>
-    <button class:active={activeTab === 'metadata'} onclick={() => activeTab = 'metadata'}>Registry</button>
-    <button class:active={activeTab === 'forensics'} onclick={() => activeTab = 'forensics'}>Forensics</button>
+  {#if error}
+    <div class="notice error">
+      <strong>Record action failed</strong>
+      <span>{error}</span>
+      <button onclick={() => (error = null)}>Dismiss</button>
+    </div>
+  {/if}
+
+  <nav class="viewer-section tab-row" aria-label="Record detail tabs">
+    <button class:active={activeTab === "overview"} onclick={() => (activeTab = "overview")}>Overview</button>
+    <button class:active={activeTab === "analysis"} onclick={() => (activeTab = "analysis")}>Analysis</button>
+    <button class:active={activeTab === "text"} onclick={() => (activeTab = "text")}>Text</button>
+    <button class:active={activeTab === "assets"} onclick={() => (activeTab = "assets")}>Assets</button>
+    <button class:active={activeTab === "case"} onclick={() => (activeTab = "case")}>Case</button>
   </nav>
 
-  <div class="dossier-content">
-    {#if activeTab === 'intelligence'}
-      <IntelligenceDossier {record} assets={analysis?.assets || []} />
-    {:else if activeTab === 'document'}
-      <div class="evidence-container">
-        <div class="document-sheet glass">
-          <header class="sheet-head">
-            <div class="h-left">
-              <span class="classification">UNCLASSIFIED // FOUO</span>
-              <span class="artifact-id">REF: {record.stable_key || 'N/A'}</span>
-            </div>
-            <div class="h-right">
-              <span class="stamp">OFFICIAL PURSUE DIGITIZATION</span>
-            </div>
-          </header>
-          {#if analysis?.ocr_text}
-            <div class="digitized-text">
-              {@html analysis.ocr_text.split('\n').map(line => `<p>${line}</p>`).join('')}
-            </div>
-          {:else}
-            <div class="empty-doc">
-              <div class="scan-line"></div>
-              <p>Digitization required. Run Gemma 4 Analysis to populate evidence sheet.</p>
-            </div>
-          {/if}
-          <footer class="sheet-foot">
-            <div class="foot-meta">
-              <span>SCAN_VERIFIED: {analysis?.engine || 'PENDING'}</span>
-              <span>SHA256: {record.artifact_sha256?.slice(0, 16)}...</span>
-            </div>
-            <p>PURSUE Intelligence Platform · Ground Truth Extraction · Automated Forensic Digitization</p>
-          </footer>
-        </div>
-      </div>
-    {:else if activeTab === 'metadata'}
-      <div class="metadata-grid">
-        <div class="meta-item">
-          <span class="card-label">Source Agency</span>
-          <span>{record.agency}</span>
-        </div>
-        <div class="meta-item">
-          <span class="card-label">Release Date</span>
-          <span>{record.release_date || 'Classified'}</span>
-        </div>
-        <div class="meta-item">
-          <span class="card-label">SHA-256 Hash</span>
-          <code class="hash">{record.artifact_sha256 || 'Unverified'}</code>
-        </div>
-        <div class="meta-item">
-          <span class="card-label">Stable Key</span>
-          <span>{record.stable_key}</span>
-        </div>
-        <div class="meta-item">
-          <span class="card-label">Provenance</span>
-          <span>Official Department of War Source (WAR.GOV)</span>
-        </div>
-      </div>
-    {:else if activeTab === 'forensics'}
-      <div class="forensics-panel glass">
-        <div class="forensics-header">
-          <h3>Forensic Density Analysis</h3>
-          <p>Analyzing document for withheld or redacted information.</p>
-        </div>
-        <div class="metric-group">
-          <div class="metric">
-            <div class="m-head">
-              <span class="card-label">Redaction Density</span>
-              <span>{(record.redaction_score || 0).toFixed(2)}%</span>
-            </div>
-            <div class="progress-bar">
-              <div class="fill" style="width: {(record.redaction_score || 0) * 100}%"></div>
-            </div>
+  <div class="viewer-body">
+    {#if activeTab === "overview"}
+      <section class="viewer-section">
+        <h3>Record Metadata</h3>
+        <dl class="record-meta">
+          <div><dt>Record ID</dt><dd>{record.id}</dd></div>
+          <div><dt>Stable Key</dt><dd>{record.stable_key || "not recorded"}</dd></div>
+          <div><dt>Source Type</dt><dd>{record.source_type}</dd></div>
+          <div><dt>File Type</dt><dd>{record.file_type || "unknown"}</dd></div>
+          <div><dt>Artifact Size</dt><dd>{formatBytes(record.artifact_size)}</dd></div>
+          <div><dt>Artifact SHA-256</dt><dd>{short(record.artifact_sha256)}</dd></div>
+          <div><dt>Content Hash</dt><dd>{short(record.content_hash)}</dd></div>
+          <div><dt>Analysis Status</dt><dd>{record.analysis_status || "pending"}</dd></div>
+          <div><dt>Entities</dt><dd>{record.entity_count}</dd></div>
+        </dl>
+      </section>
+
+      <section class="viewer-section">
+        <h3>Summary</h3>
+        <p>{record.summary || "No source summary supplied."}</p>
+        {#if record.analysis_error}
+          <p class="status failed">Last analysis error: {record.analysis_error}</p>
+        {/if}
+      </section>
+    {:else if activeTab === "analysis"}
+      <section class="viewer-section">
+        <h3>Indexed Intelligence</h3>
+        <dl class="record-meta">
+          <div><dt>Status</dt><dd>{analysis?.status || record.analysis_status || "pending"}</dd></div>
+          <div><dt>Engine</dt><dd>{analysis?.engine || "not run"}</dd></div>
+          <div><dt>Chunks Indexed</dt><dd>{analysis?.chunks_indexed ?? 0}</dd></div>
+          <div><dt>Redaction Score</dt><dd>{record.redaction_score == null ? "not analyzed" : `${(record.redaction_score * 100).toFixed(2)}%`}</dd></div>
+        </dl>
+      </section>
+
+      <section class="viewer-section">
+        <h3>Entities</h3>
+        {#if analysis?.entities.length}
+          <div class="entity-grid">
+            {#each analysis.entities as entity}
+              <span class="entity-pill">{entity.entity_type}: {entity.name} ({entity.confidence.toFixed(2)})</span>
+            {/each}
           </div>
-          <div class="metric">
-            <span class="card-label">Analysis Status</span>
-            <span class="value status-{record.analysis_status}">{record.analysis_status || 'Pending'}</span>
+        {:else}
+          <p>No entities indexed yet.</p>
+        {/if}
+      </section>
+
+      <section class="viewer-section">
+        <h3>Structured JSON</h3>
+        {#if analysis?.intelligence_json || record.intelligence_json}
+          <pre class="ocr-text">{formatJson(analysis?.intelligence_json || record.intelligence_json)}</pre>
+        {:else}
+          <p>No structured extraction stored.</p>
+        {/if}
+      </section>
+    {:else if activeTab === "text"}
+      <section class="viewer-section">
+        <h3>Extracted Text</h3>
+        {#if analysis?.ocr_text}
+          <pre class="ocr-text">{analysis.ocr_text}</pre>
+        {:else}
+          <p>No extracted text stored. Download/import the artifact, then run analysis.</p>
+        {/if}
+      </section>
+    {:else if activeTab === "assets"}
+      <section class="viewer-section">
+        <h3>Extracted Assets</h3>
+        {#if imageAssets.length}
+          <div class="asset-grid">
+            {#each imageAssets as asset}
+              <img src={convertFileSrc(asset.local_path)} alt="Extracted evidence asset" />
+            {/each}
           </div>
-          <div class="metric">
-            <span class="card-label">Intelligence Engine</span>
-            <span class="value">Gemma 4 (Local Metal Inference)</span>
-          </div>
+        {:else}
+          <p>No image assets extracted yet.</p>
+        {/if}
+      </section>
+    {:else if activeTab === "case"}
+      <section class="viewer-section">
+        <h3>Case Work</h3>
+        <p>{selectedCase ? `Selected case: ${selectedCase.title}` : "Create or select a case from the Cases view."}</p>
+        <textarea bind:value={noteBody} rows="5" placeholder="Record note for the selected case"></textarea>
+        <div class="button-row">
+          <button onclick={addToCase} disabled={!selectedCaseId || busy === "case-add"}>Add Record</button>
+          <button onclick={addNote} disabled={!selectedCaseId || !noteBody.trim() || busy === "case-note"}>Add Note</button>
+          <button onclick={() => exportCase("markdown")} disabled={!selectedCaseId || busy === "export-markdown"}>Export MD</button>
+          <button onclick={() => exportCase("html")} disabled={!selectedCaseId || busy === "export-html"}>Export HTML</button>
         </div>
-      </div>
+        {#if exportPath}
+          <p class="path-line">Export written: {exportPath}</p>
+        {/if}
+      </section>
     {/if}
   </div>
-</div>
-
-<style>
-  .dossier-viewer {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    border-radius: 24px;
-    border: 1px solid var(--border-dim);
-    overflow: hidden;
-  }
-
-  .dossier-head {
-    padding: 32px;
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 32px;
-    align-items: center;
-    border-bottom: 1px solid var(--border-dim);
-  }
-
-  .back-btn {
-    background: transparent;
-    border-color: var(--border-dim);
-    color: var(--text-secondary);
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 28px;
-    font-weight: 800;
-  }
-
-  .title-block p {
-    margin: 4px 0 0;
-    color: var(--text-secondary);
-    font-size: 14px;
-  }
-
-  .dossier-actions {
-    display: flex;
-    gap: 12px;
-  }
-
-  .tier-select {
-    background: var(--bg-secondary);
-    color: white;
-    border: 1px solid var(--border-dim);
-    border-radius: 8px;
-    padding: 0 12px;
-    outline: none;
-  }
-
-  .dossier-tabs {
-    display: flex;
-    padding: 0 32px;
-    background: rgba(0,0,0,0.2);
-    border-bottom: 1px solid var(--border-dim);
-  }
-
-  .dossier-tabs button {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    border-radius: 0;
-    padding: 16px 24px;
-    color: var(--text-secondary);
-  }
-
-  .dossier-tabs button.active {
-    color: var(--accent-gold);
-    border-bottom-color: var(--accent-gold);
-  }
-
-  .dossier-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 40px;
-    background: radial-gradient(circle at top right, rgba(231, 196, 107, 0.05), transparent);
-  }
-
-  .evidence-container {
-    padding: 20px;
-    background: #000;
-    border-radius: 12px;
-    box-shadow: inset 0 0 40px rgba(0,0,0,1);
-  }
-
-  .document-sheet {
-    background: #fdfaf3;
-    color: #1a1a1a;
-    padding: 60px 80px;
-    border-radius: 2px;
-    box-shadow: 0 40px 100px rgba(0,0,0,0.8);
-    max-width: 850px;
-    margin: 0 auto;
-    min-height: 1100px;
-    position: relative;
-    border: 1px solid #dcd3b6;
-  }
-
-  .sheet-head {
-    display: flex;
-    justify-content: space-between;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    border-bottom: 2px solid #1a1a1a;
-    padding-bottom: 12px;
-    margin-bottom: 40px;
-    color: #555;
-  }
-
-  .classification {
-    display: block;
-    font-weight: 800;
-    color: #000;
-    font-size: 11px;
-    margin-bottom: 4px;
-  }
-
-  .stamp {
-    border: 2px solid #dcd3b6;
-    padding: 4px 8px;
-    color: #dcd3b6;
-    font-size: 9px;
-    font-weight: 800;
-    text-transform: uppercase;
-    transform: rotate(-5deg);
-    display: inline-block;
-  }
-
-  .sheet-foot {
-    position: absolute;
-    bottom: 40px;
-    left: 80px;
-    right: 80px;
-    border-top: 1px solid #ccc;
-    padding-top: 12px;
-    font-size: 9px;
-    color: #888;
-    text-align: center;
-  }
-
-  .foot-meta {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .digitized-text {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 13px;
-    line-height: 1.6;
-    color: #1a1a1a;
-  }
-
-  .scan-line {
-    width: 100%;
-    height: 2px;
-    background: var(--accent-gold);
-    box-shadow: 0 0 15px var(--accent-gold);
-    animation: scan 3s infinite linear;
-    position: absolute;
-    top: 0;
-  }
-
-  @keyframes scan {
-    from { top: 10%; opacity: 0; }
-    50% { opacity: 1; }
-    to { top: 90%; opacity: 0; }
-  }
-
-  .metadata-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 24px;
-  }
-
-  .meta-item {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 20px;
-    background: var(--bg-secondary);
-    border-radius: 12px;
-    border: 1px solid var(--border-dim);
-  }
-
-  .card-label {
-    font-size: 11px;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    letter-spacing: 0.1em;
-  }
-
-  .hash {
-    font-size: 12px;
-    color: var(--accent-gold);
-    word-break: break-all;
-  }
-
-  .forensics-panel {
-    padding: 32px;
-    display: flex;
-    flex-direction: column;
-    gap: 32px;
-  }
-
-  .forensics-header h3 {
-    margin: 0 0 8px;
-    font-size: 20px;
-  }
-
-  .forensics-header p {
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: 14px;
-  }
-
-  .metric-group {
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-  }
-
-  .metric {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .m-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .progress-bar {
-    height: 8px;
-    background: var(--bg-primary);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  .fill {
-    height: 100%;
-    background: var(--accent-gold);
-    box-shadow: 0 0 10px var(--accent-gold);
-  }
-
-  .status-completed { color: #4df3a9; }
-  .status-pending { color: var(--text-secondary); }
-
-  .empty-doc {
-    height: 400px;
-    display: grid;
-    place-items: center;
-    color: #9da3ad;
-  }
-</style>
+</article>

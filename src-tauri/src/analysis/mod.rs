@@ -49,6 +49,23 @@ impl AnalysisManager {
     }
 
     pub async fn analyze_record(&self, record_id: &str) -> Result<AnalysisReport> {
+        self.mark_analysis_processing(record_id).await?;
+        match self.analyze_record_inner(record_id).await {
+            Ok(report) => Ok(report),
+            Err(error) => {
+                let message = error.to_string();
+                if let Err(status_error) = self.mark_analysis_failed(record_id, &message).await {
+                    warn!(
+                        "Failed to persist analysis failure for {}: {}",
+                        record_id, status_error
+                    );
+                }
+                Err(error)
+            }
+        }
+    }
+
+    async fn analyze_record_inner(&self, record_id: &str) -> Result<AnalysisReport> {
         let record = records::find_by_id(&self.db, record_id)
             .await?
             .ok_or_else(|| anyhow!("record not found: {record_id}"))?;
@@ -109,11 +126,6 @@ impl AnalysisManager {
             Ok(res) => res,
             Err(e) => {
                 error!("Analysis failed at OCR step for {}: {}", record_id, e);
-                sqlx::query("UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?")
-                    .bind(e.to_string())
-                    .bind(record_id)
-                    .execute(&self.db)
-                    .await?;
                 return Err(e);
             }
         };
@@ -225,6 +237,22 @@ impl AnalysisManager {
         .execute(&self.db)
         .await?;
 
+        sqlx::query(
+            r#"
+            INSERT INTO analysis_results (record_id, ocr_text, status, processed_at)
+            VALUES (?, ?, 'completed', ?)
+            ON CONFLICT(record_id) DO UPDATE SET
+                ocr_text = excluded.ocr_text,
+                status = excluded.status,
+                processed_at = excluded.processed_at
+            "#,
+        )
+        .bind(record_id)
+        .bind(&text)
+        .bind(now())
+        .execute(&self.db)
+        .await?;
+
         Ok(AnalysisReport {
             record_id: record_id.to_string(),
             status: "completed".to_string(),
@@ -267,12 +295,19 @@ impl AnalysisManager {
         .await
         .unwrap_or(0);
 
-        let assets = sqlx::query_as::<_, crate::models::RecordAsset>(
+        let mut assets = sqlx::query_as::<_, crate::models::RecordAsset>(
             "SELECT * FROM record_assets WHERE record_id = ? ORDER BY created_at ASC",
         )
         .bind(record_id)
         .fetch_all(&self.db)
         .await?;
+        for asset in &mut assets {
+            asset.local_path = self
+                .library
+                .get_full_path(&asset.local_path)
+                .to_string_lossy()
+                .into_owned();
+        }
 
         Ok(Some(AnalysisReport {
             record_id: record_id.to_string(),
@@ -284,6 +319,49 @@ impl AnalysisManager {
             intelligence_json,
             assets,
         }))
+    }
+
+    async fn mark_analysis_processing(&self, record_id: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO analysis_results (record_id, status, processed_at)
+            VALUES (?, 'processing', ?)
+            ON CONFLICT(record_id) DO UPDATE SET status = 'processing', processed_at = excluded.processed_at
+            "#,
+        )
+        .bind(record_id)
+        .bind(now())
+        .execute(&self.db)
+        .await?;
+        sqlx::query(
+            "UPDATE records SET analysis_status = 'processing', analysis_error = NULL WHERE id = ?",
+        )
+        .bind(record_id)
+        .execute(&self.db)
+        .await?;
+        Ok(())
+    }
+
+    async fn mark_analysis_failed(&self, record_id: &str, error: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?",
+        )
+        .bind(error)
+        .bind(record_id)
+        .execute(&self.db)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO analysis_results (record_id, status, processed_at)
+            VALUES (?, 'failed', ?)
+            ON CONFLICT(record_id) DO UPDATE SET status = 'failed', processed_at = excluded.processed_at
+            "#,
+        )
+        .bind(record_id)
+        .bind(now())
+        .execute(&self.db)
+        .await?;
+        Ok(())
     }
 
     async fn extract_text(&self, path: &Path) -> Result<(String, String)> {

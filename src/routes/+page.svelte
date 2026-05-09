@@ -5,6 +5,7 @@
   import type {
     BulkDownloadReport,
     CaseSummary,
+    DatabaseStatus,
     RecordFilter,
     RecordSummary,
     SearchResults,
@@ -13,38 +14,34 @@
   import ArchiveViewer from "$lib/components/ArchiveViewer.svelte";
   import Map from "$lib/components/Map.svelte";
 
+  type ViewMode = "records" | "search" | "map" | "database" | "cases";
+  type SourceFilter = "all" | "official" | "manual" | "local";
+
   let records = $state<RecordSummary[]>([]);
   let cases = $state<CaseSummary[]>([]);
   let selectedRecord = $state<RecordSummary | null>(null);
   let selectedCaseId = $state<string | null>(null);
-  let viewMode = $state<"dossiers" | "map" | "search" | "dashboard">("dashboard");
-  let sourceFilter = $state<"all" | "official" | "manual" | "local">("all");
+  let databaseStatus = $state<DatabaseStatus | null>(null);
+  let viewMode = $state<ViewMode>("records");
+  let sourceFilter = $state<SourceFilter>("all");
   let query = $state("");
   let loading = $state(false);
-  let syncing = $state(false);
+  let busy = $state<string | null>(null);
   let syncReport = $state<SyncReport | null>(null);
   let bulkReport = $state<BulkDownloadReport | null>(null);
+  let activeDownloadJobId = $state<string | null>(null);
   let searchResults = $state<SearchResults | null>(null);
   let error = $state<string | null>(null);
   let diagnostics = $state<any>(null);
+  let caseTitle = $state("");
+  let lastExportPath = $state<string | null>(null);
+  let pollHandle: ReturnType<typeof setInterval> | null = null;
 
-  const localCount = $derived(records.filter((r) => r.local_path).length);
-  const analyzedCount = $derived(records.filter((r) => r.analysis_status === "completed").length);
-
-  async function loadInitialData() {
-    loading = true;
-    try {
-      [records, cases, diagnostics] = await Promise.all([
-        invoke<RecordSummary[]>("list_records", { filter: recordFilter() }),
-        invoke<CaseSummary[]>("list_cases"),
-        invoke<any>("get_hardware_diagnostics")
-      ]);
-    } catch (e) {
-      error = String(e);
-    } finally {
-      loading = false;
-    }
-  }
+  const selectedCase = $derived(cases.find((item) => item.id === selectedCaseId) ?? null);
+  const localCount = $derived(records.filter((record) => record.local_path).length);
+  const analyzedCount = $derived(records.filter((record) => record.analysis_status === "completed").length);
+  const failedCount = $derived(records.filter((record) => record.analysis_status === "failed").length);
+  const remoteCount = $derived(records.filter((record) => !record.local_path && record.document_url).length);
 
   function recordFilter(): RecordFilter {
     return {
@@ -54,23 +51,155 @@
     };
   }
 
+  async function loadInitialData() {
+    loading = true;
+    error = null;
+    try {
+      const [nextRecords, nextCases, nextStatus, nextDiagnostics] = await Promise.all([
+        invoke<RecordSummary[]>("list_records", { filter: recordFilter() }),
+        invoke<CaseSummary[]>("list_cases"),
+        invoke<DatabaseStatus>("get_database_status"),
+        invoke<any>("get_hardware_diagnostics")
+      ]);
+      records = nextRecords;
+      cases = nextCases;
+      databaseStatus = nextStatus;
+      diagnostics = nextDiagnostics;
+      if (selectedRecord) {
+        selectedRecord = nextRecords.find((record) => record.id === selectedRecord?.id) ?? selectedRecord;
+      } else if (nextRecords.length > 0) {
+        selectedRecord = nextRecords[0];
+      }
+      if (!selectedCaseId && nextCases.length > 0) {
+        selectedCaseId = nextCases[0].id;
+      }
+    } catch (e) {
+      error = String(e);
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function refreshRecord(id: string) {
+    const record = await invoke<RecordSummary | null>("get_record", { id });
+    if (record) {
+      selectedRecord = record;
+      records = records.map((item) => (item.id === id ? record : item));
+    }
+  }
+
   async function sync() {
-    syncing = true;
+    busy = "sync";
+    error = null;
     try {
       syncReport = await invoke<SyncReport>("sync_official_source");
       await loadInitialData();
     } catch (e) {
       error = String(e);
     } finally {
-      syncing = false;
+      busy = null;
+    }
+  }
+
+  async function importFile() {
+    busy = "import";
+    error = null;
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [
+          {
+            name: "Evidence",
+            extensions: ["pdf", "txt", "md", "csv", "json", "png", "jpg", "jpeg", "tif", "tiff", "bmp"]
+          }
+        ]
+      });
+      if (typeof selected !== "string") return;
+      const record = await invoke<RecordSummary>("import_manual_file", {
+        request: { path: selected, title: null, notes: null }
+      });
+      await loadInitialData();
+      selectedRecord = record;
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function startBulkDownload() {
+    busy = "bulk-download";
+    error = null;
+    try {
+      activeDownloadJobId = await invoke<string>("download_missing_records");
+      await pollBulkDownload();
+      startPolling();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function pollBulkDownload() {
+    if (!activeDownloadJobId) return;
+    try {
+      bulkReport = await invoke<BulkDownloadReport>("get_bulk_download_status", { id: activeDownloadJobId });
+      const status = bulkReport.job.status;
+      if (!["queued", "running"].includes(status)) {
+        stopPolling();
+        await loadInitialData();
+      }
+    } catch (e) {
+      error = String(e);
+      stopPolling();
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollHandle = setInterval(() => {
+      void pollBulkDownload();
+    }, 1500);
+  }
+
+  function stopPolling() {
+    if (pollHandle) {
+      clearInterval(pollHandle);
+      pollHandle = null;
+    }
+  }
+
+  async function cancelBulkDownload() {
+    if (!activeDownloadJobId) return;
+    busy = "cancel-download";
+    try {
+      await invoke("cancel_bulk_download", { id: activeDownloadJobId });
+      await pollBulkDownload();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
     }
   }
 
   async function runSearch() {
-    if (!query.trim()) return;
+    if (!query.trim()) {
+      await loadInitialData();
+      return;
+    }
     loading = true;
+    error = null;
     try {
-      searchResults = await invoke<SearchResults>("search", { request: { query: query.trim() } });
+      searchResults = await invoke<SearchResults>("search", {
+        request: {
+          query: query.trim(),
+          filters: {
+            source_type: sourceFilter === "official" || sourceFilter === "manual" ? sourceFilter : null,
+            local_only: sourceFilter === "local" ? true : null
+          }
+        }
+      });
       viewMode = "search";
     } catch (e) {
       error = String(e);
@@ -79,464 +208,373 @@
     }
   }
 
+  async function selectRecordById(id: string) {
+    const existing = records.find((record) => record.id === id);
+    if (existing) {
+      selectedRecord = existing;
+      return;
+    }
+    await refreshRecord(id);
+  }
+
+  async function createCase() {
+    if (!caseTitle.trim()) return;
+    busy = "create-case";
+    error = null;
+    try {
+      const created = await invoke<CaseSummary>("create_case", {
+        request: { title: caseTitle.trim(), description: null }
+      });
+      caseTitle = "";
+      await loadInitialData();
+      selectedCaseId = created.id;
+      viewMode = "cases";
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function exportSelectedCase(format: "markdown" | "html") {
+    if (!selectedCaseId) return;
+    busy = `export-${format}`;
+    error = null;
+    try {
+      const result = await invoke<{ absolute_path: string }>("export_case", {
+        request: { case_id: selectedCaseId, format }
+      });
+      lastExportPath = result.absolute_path;
+      await loadInitialData();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  function setFilter(next: SourceFilter) {
+    sourceFilter = next;
+    void loadInitialData();
+  }
+
+  function statusText(record: RecordSummary) {
+    if (record.analysis_status === "completed") return "Indexed";
+    if (record.analysis_status === "processing") return "Processing";
+    if (record.analysis_status === "failed") return "Failed";
+    return record.local_path ? "Local" : "Remote";
+  }
+
+  function formatBytes(value: number | null | undefined) {
+    if (!value) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let next = value;
+    let unit = 0;
+    while (next >= 1024 && unit < units.length - 1) {
+      next /= 1024;
+      unit += 1;
+    }
+    return `${next.toFixed(next >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+  }
+
+  function shortHash(value: string | null) {
+    return value ? value.slice(0, 12) : "unverified";
+  }
+
   onMount(() => {
     void loadInitialData();
   });
+
+  onDestroy(() => {
+    stopPolling();
+  });
 </script>
 
-<div class="terminal-shell">
-  <nav class="side-nav glass">
-    <div class="logo">
-      <div class="pulse"></div>
-      <span>PURSUE</span>
-    </div>
-    
-    <div class="nav-links">
-      <button class:active={viewMode === 'dashboard'} onclick={() => viewMode = 'dashboard'}>
-        <span class="icon">⊞</span> Dashboard
-      </button>
-      <button class:active={viewMode === 'dossiers'} onclick={() => viewMode = 'dossiers'}>
-        <span class="icon">📁</span> Dossiers
-      </button>
-      <button class:active={viewMode === 'map'} onclick={() => viewMode = 'map'}>
-        <span class="icon">🌍</span> Tactical Map
-      </button>
-    </div>
+<svelte:head>
+  <title>PURSUE Data Analyzer</title>
+</svelte:head>
 
-    <div class="telemetry">
-      <div class="label">Hardware Intelligence</div>
-      {#if diagnostics}
-        <div class="stat">
-          <span>Tier</span>
-          <span class="value">{diagnostics.tier}</span>
-        </div>
-        <div class="stat">
-          <span>GPU</span>
-          <span class="value">{diagnostics.gpu_info.name}</span>
-        </div>
-      {/if}
-    </div>
-  </nav>
-
-  <main class="content-area">
-    <header class="content-header glass">
-      <div class="search-bar">
-        <input bind:value={query} placeholder="Search semantic intelligence..." onkeydown={(e) => e.key === 'Enter' && runSearch()} />
+<div class="workstation">
+  <aside class="sidebar">
+    <header class="brand">
+      <div>
+        <span class="eyebrow">PURSUE</span>
+        <h1>Evidence Workstation</h1>
       </div>
-      <div class="header-actions">
-        <button class="secondary" onclick={sync} disabled={syncing}>
-          {syncing ? 'Syncing...' : 'Sync Source'}
+      <span class="version">0.2.1</span>
+    </header>
+
+    <nav class="nav-list" aria-label="Workspace views">
+      <button class:active={viewMode === "records"} onclick={() => (viewMode = "records")}>Records</button>
+      <button class:active={viewMode === "search"} onclick={() => (viewMode = "search")}>Search</button>
+      <button class:active={viewMode === "map"} onclick={() => (viewMode = "map")}>Map</button>
+      <button class:active={viewMode === "cases"} onclick={() => (viewMode = "cases")}>Cases</button>
+      <button class:active={viewMode === "database"} onclick={() => (viewMode = "database")}>Database</button>
+    </nav>
+
+    <section class="sidebar-section">
+      <h2>Filters</h2>
+      <div class="segmented">
+        <button class:active={sourceFilter === "all"} onclick={() => setFilter("all")}>All</button>
+        <button class:active={sourceFilter === "official"} onclick={() => setFilter("official")}>Official</button>
+        <button class:active={sourceFilter === "manual"} onclick={() => setFilter("manual")}>Manual</button>
+        <button class:active={sourceFilter === "local"} onclick={() => setFilter("local")}>Local</button>
+      </div>
+    </section>
+
+    <section class="sidebar-section">
+      <h2>Library</h2>
+      <dl class="metric-list">
+        <div><dt>Records</dt><dd>{databaseStatus?.total_records ?? records.length}</dd></div>
+        <div><dt>Local Files</dt><dd>{databaseStatus?.local_records ?? localCount}</dd></div>
+        <div><dt>Remote Files</dt><dd>{remoteCount}</dd></div>
+        <div><dt>Indexed</dt><dd>{databaseStatus?.analyzed_records ?? analyzedCount}</dd></div>
+        <div><dt>Chunks</dt><dd>{databaseStatus?.analysis_chunks ?? 0}</dd></div>
+        <div><dt>Vectors</dt><dd>{databaseStatus?.vector_chunks ?? 0}</dd></div>
+      </dl>
+    </section>
+
+    <section class="sidebar-section">
+      <h2>Storage</h2>
+      <p class="path-line">{databaseStatus?.database_path ?? "Database not loaded"}</p>
+      <p class="path-line">{databaseStatus?.library_path ?? "Library not loaded"}</p>
+    </section>
+  </aside>
+
+  <main class="main-panel">
+    <header class="topbar">
+      <div class="search-box">
+        <input
+          bind:value={query}
+          placeholder="Search titles, metadata, and indexed text"
+          onkeydown={(event) => event.key === "Enter" && runSearch()}
+        />
+        <button class="primary" onclick={runSearch} disabled={loading}>Search</button>
+      </div>
+      <div class="top-actions">
+        <button onclick={sync} disabled={busy === "sync"}>{busy === "sync" ? "Syncing" : "Sync WAR.gov"}</button>
+        <button onclick={importFile} disabled={busy === "import"}>{busy === "import" ? "Importing" : "Import File"}</button>
+        <button onclick={startBulkDownload} disabled={busy === "bulk-download"}>
+          {busy === "bulk-download" ? "Starting" : "Download Missing"}
         </button>
       </div>
     </header>
 
-    <div class="scroll-container">
-      {#if selectedRecord}
-        <ArchiveViewer
-          record={selectedRecord}
-          cases={cases}
-          selectedCaseId={selectedCaseId}
-          onBack={() => selectedRecord = null}
-          onChanged={() => loadInitialData()}
-        />
-      {:else if viewMode === 'dashboard'}
-        <div class="dashboard-grid">
-          <div class="stats-row">
-            <div class="card glass">
-              <span class="card-label">Total Evidence</span>
-              <div class="val">{records.length}</div>
-            </div>
-            <div class="card glass">
-              <span class="card-label">Intelligence Indexed</span>
-              <div class="val">{analyzedCount}</div>
-            </div>
-            <div class="card glass">
-              <span class="card-label">Local Cache</span>
-              <div class="val">{localCount}</div>
-            </div>
-          </div>
+    {#if error}
+      <div class="notice error" role="alert">
+        <strong>Operation failed</strong>
+        <span>{error}</span>
+        <button onclick={() => (error = null)}>Dismiss</button>
+      </div>
+    {/if}
 
-          <div class="recent-intel">
-            <h2>Recent Intelligence Dossiers</h2>
-            <div class="intel-list">
-              {#each records.slice(0, 10) as record}
-                <button class="dossier-card glass" onclick={() => selectedRecord = record}>
-                  <div class="d-header">
-                    <strong>{record.title}</strong>
-                    <span class="pill">{record.agency}</span>
-                  </div>
-                  <p>{record.summary || 'No summary available'}</p>
+    <section class="status-strip" aria-label="Operational status">
+      <div>
+        <span>Total</span>
+        <strong>{records.length}</strong>
+      </div>
+      <div>
+        <span>Local</span>
+        <strong>{localCount}</strong>
+      </div>
+      <div>
+        <span>Indexed</span>
+        <strong>{analyzedCount}</strong>
+      </div>
+      <div>
+        <span>Failed</span>
+        <strong>{failedCount}</strong>
+      </div>
+      <div>
+        <span>Artifacts</span>
+        <strong>{databaseStatus?.artifact_count ?? 0}</strong>
+      </div>
+      <div>
+        <span>Artifact Size</span>
+        <strong>{formatBytes(databaseStatus?.artifact_bytes)}</strong>
+      </div>
+      <div>
+        <span>Hardware</span>
+        <strong>{diagnostics?.tier ?? "Detecting"}</strong>
+      </div>
+    </section>
+
+    {#if syncReport}
+      <div class="notice">
+        <strong>Last sync</strong>
+        <span>{syncReport.record_count} records, {syncReport.added} added, {syncReport.changed} changed, {syncReport.removed} removed</span>
+      </div>
+    {/if}
+
+    {#if bulkReport}
+      <section class="download-panel">
+        <div>
+          <h2>Bulk Download</h2>
+          <p>{bulkReport.job.status}: {bulkReport.job.completed} completed, {bulkReport.job.failed} failed, {bulkReport.job.skipped} skipped</p>
+        </div>
+        <progress max={Math.max(bulkReport.job.queued, bulkReport.job.completed + bulkReport.job.failed, 1)} value={bulkReport.job.completed + bulkReport.job.failed}></progress>
+        <button onclick={cancelBulkDownload} disabled={!["queued", "running"].includes(bulkReport.job.status) || busy === "cancel-download"}>Cancel</button>
+      </section>
+    {/if}
+
+    <div class="workspace-grid">
+      <section class="workspace">
+        {#if viewMode === "records"}
+          <header class="section-head">
+            <div>
+              <h2>Evidence Records</h2>
+              <p>All synced and manually imported records. Select a row to work the file.</p>
+            </div>
+            <button onclick={loadInitialData} disabled={loading}>{loading ? "Loading" : "Refresh"}</button>
+          </header>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Agency</th>
+                  <th>Release</th>
+                  <th>Source</th>
+                  <th>File</th>
+                  <th>Analysis</th>
+                  <th>Entities</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each records as record}
+                  <tr class:selected={selectedRecord?.id === record.id} onclick={() => (selectedRecord = record)}>
+                    <td>
+                      <strong>{record.title}</strong>
+                      <small>{record.incident_location || record.stable_key || "No location/key"}</small>
+                    </td>
+                    <td>{record.agency || "Unknown"}</td>
+                    <td>{record.release_date || "Undated"}</td>
+                    <td><span class="badge">{record.source_type}</span></td>
+                    <td>{record.local_path ? formatBytes(record.artifact_size) : "remote"}</td>
+                    <td><span class="status {record.analysis_status || 'pending'}">{statusText(record)}</span></td>
+                    <td>{record.entity_count}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {:else if viewMode === "search"}
+          <header class="section-head">
+            <div>
+              <h2>Semantic and Text Search</h2>
+              <p>Search returns indexed chunks after analysis, with keyword fallback when vector search is unavailable.</p>
+            </div>
+            <button onclick={runSearch} disabled={loading}>{loading ? "Searching" : "Run Search"}</button>
+          </header>
+          {#if searchResults}
+            <div class="search-results">
+              {#each searchResults.results as result}
+                <button class="result-row" onclick={() => selectRecordById(result.id)}>
+                  <span>{result.agency || "Unknown"} · {(Math.max(0, 1 - result.distance) * 100).toFixed(1)}%</span>
+                  <strong>{result.title}</strong>
+                  <p>{result.excerpt}</p>
                 </button>
               {/each}
+              {#if searchResults.results.length === 0}
+                <div class="empty-state">No indexed matches. Download and analyze records, then search again.</div>
+              {/if}
             </div>
-          </div>
-        </div>
-      {:else if viewMode === 'map'}
-        <div class="map-container glass">
-          <Map {records} onSelect={(record) => { selectedRecord = record; viewMode = 'dashboard'; }} />
-        </div>
-      {:else if viewMode === 'dossiers'}
-        <div class="table-container glass">
-          <table>
-            <thead>
-              <tr>
-                <th>Record</th>
-                <th>Status</th>
-                <th>Tier</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each records as record}
-                <tr onclick={() => selectedRecord = record}>
-                  <td>{record.title}</td>
-                  <td><span class="pill {record.analysis_status}">{record.analysis_status || 'Pending'}</span></td>
-                  <td>{record.local_path ? 'Local' : 'Remote'}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {:else if viewMode === 'search'}
-        <div class="search-results-panel">
-          <header class="results-header">
-            <h2>Intelligence Search Results</h2>
-            <p>Found {searchResults?.total || 0} relevant matches for "{searchResults?.query}"</p>
+          {:else}
+            <div class="empty-state">Enter a query and run search.</div>
+          {/if}
+        {:else if viewMode === "map"}
+          <header class="section-head">
+            <div>
+              <h2>Incident Map</h2>
+              <p>Records with recognizable incident locations are plotted here.</p>
+            </div>
           </header>
-          <div class="results-grid">
-            {#each searchResults?.results || [] as result}
-              <button class="result-item glass" onclick={async () => {
-                loading = true;
-                try {
-                  const fullRecord = await invoke<RecordSummary[]>("list_records", { filter: { query: result.id } });
-                  if (fullRecord && fullRecord[0]) {
-                    selectedRecord = fullRecord[0];
-                  }
-                } finally {
-                  loading = false;
-                }
-              }}>
-                <div class="r-meta">
-                  <span class="r-agency">{result.agency}</span>
-                  <span class="r-score">{(100 - (result.distance * 100)).toFixed(1)}% Match</span>
-                </div>
-                <h3>{result.title}</h3>
-                <p class="excerpt">...{@html result.excerpt}...</p>
-              </button>
-            {/each}
+          <div class="map-frame">
+            <Map {records} onSelect={(record) => (selectedRecord = record)} />
           </div>
-        </div>
-      {/if}
+        {:else if viewMode === "cases"}
+          <header class="section-head">
+            <div>
+              <h2>Cases and Exports</h2>
+              <p>Create working cases, add selected records, and export Markdown or HTML dossiers.</p>
+            </div>
+          </header>
+
+          <div class="case-workspace">
+            <form class="inline-form" onsubmit={(event) => { event.preventDefault(); void createCase(); }}>
+              <input bind:value={caseTitle} placeholder="New case title" />
+              <button class="primary" disabled={!caseTitle.trim() || busy === "create-case"}>Create Case</button>
+            </form>
+
+            <div class="case-list">
+              {#each cases as item}
+                <button class:selected={selectedCaseId === item.id} onclick={() => (selectedCaseId = item.id)}>
+                  <strong>{item.title}</strong>
+                  <span>{item.record_count} records · {item.note_count} notes</span>
+                </button>
+              {/each}
+              {#if cases.length === 0}
+                <div class="empty-state">No cases yet.</div>
+              {/if}
+            </div>
+
+            <div class="case-actions">
+              <span>{selectedCase ? selectedCase.title : "No case selected"}</span>
+              <button onclick={() => exportSelectedCase("markdown")} disabled={!selectedCaseId || busy === "export-markdown"}>Export MD</button>
+              <button onclick={() => exportSelectedCase("html")} disabled={!selectedCaseId || busy === "export-html"}>Export HTML</button>
+            </div>
+            {#if lastExportPath}
+              <p class="path-line">Last export: {lastExportPath}</p>
+            {/if}
+          </div>
+        {:else if viewMode === "database"}
+          <header class="section-head">
+            <div>
+              <h2>Database and Indexes</h2>
+              <p>Local SQLite, artifact library, snapshots, exports, chunks, vectors, and entity counts.</p>
+            </div>
+            <button onclick={loadInitialData}>Refresh</button>
+          </header>
+
+          <div class="database-grid">
+            <dl>
+              <div><dt>Database</dt><dd>{databaseStatus?.database_path}</dd></div>
+              <div><dt>Library</dt><dd>{databaseStatus?.library_path}</dd></div>
+              <div><dt>Snapshots</dt><dd>{databaseStatus?.snapshots_path}</dd></div>
+              <div><dt>Exports</dt><dd>{databaseStatus?.exports_path}</dd></div>
+              <div><dt>Latest Snapshot</dt><dd>{databaseStatus?.latest_snapshot_at || "No sync yet"}</dd></div>
+              <div><dt>Source URL</dt><dd>{databaseStatus?.latest_snapshot_url || "No upstream recorded"}</dd></div>
+            </dl>
+            <dl>
+              <div><dt>Official</dt><dd>{databaseStatus?.official_records ?? 0}</dd></div>
+              <div><dt>Manual</dt><dd>{databaseStatus?.manual_records ?? 0}</dd></div>
+              <div><dt>Downloadable</dt><dd>{databaseStatus?.downloadable_records ?? 0}</dd></div>
+              <div><dt>Artifacts</dt><dd>{databaseStatus?.artifact_count ?? 0}</dd></div>
+              <div><dt>Analysis Chunks</dt><dd>{databaseStatus?.analysis_chunks ?? 0}</dd></div>
+              <div><dt>Vector Rows</dt><dd>{databaseStatus?.vector_chunks ?? 0}</dd></div>
+              <div><dt>Entities</dt><dd>{databaseStatus?.entity_count ?? 0}</dd></div>
+            </dl>
+          </div>
+        {/if}
+      </section>
+
+      <aside class="detail-panel">
+        {#if selectedRecord}
+          <ArchiveViewer
+            record={selectedRecord}
+            cases={cases}
+            selectedCaseId={selectedCaseId}
+            onBack={() => (selectedRecord = null)}
+            onChanged={async () => {
+              await refreshRecord(selectedRecord?.id || "");
+              await loadInitialData();
+            }}
+          />
+        {:else}
+          <div class="empty-state">Select a record to see actions, metadata, analysis, and case tools.</div>
+        {/if}
+      </aside>
     </div>
   </main>
 </div>
-
-<style>
-  .terminal-shell {
-    display: grid;
-    grid-template-columns: 260px 1fr;
-    height: 100vh;
-    background: radial-gradient(circle at 50% 50%, #1a1c22 0%, #0a0b0d 100%);
-  }
-
-  .side-nav {
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 32px;
-    border-right: 1px solid var(--border-dim);
-  }
-
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 20px;
-    font-weight: 800;
-    letter-spacing: 0.2em;
-    color: var(--accent-gold);
-  }
-
-  .pulse {
-    width: 12px;
-    height: 12px;
-    background: var(--accent-gold);
-    border-radius: 50%;
-    box-shadow: 0 0 10px var(--accent-gold);
-    animation: pulse 2s infinite;
-  }
-
-  @keyframes pulse {
-    0% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.5); opacity: 0.5; }
-    100% { transform: scale(1); opacity: 1; }
-  }
-
-  .nav-links {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .nav-links button {
-    justify-content: flex-start;
-    background: transparent;
-    border: none;
-    text-align: left;
-    padding: 12px;
-    font-size: 15px;
-    color: var(--text-secondary);
-  }
-
-  .nav-links button.active {
-    color: var(--accent-gold);
-    background: var(--accent-gold-dim);
-    border-left: 2px solid var(--accent-gold);
-  }
-
-  .telemetry {
-    margin-top: auto;
-    padding: 16px;
-    background: rgba(0,0,0,0.2);
-    border-radius: 12px;
-  }
-
-  .telemetry .label {
-    font-size: 10px;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    margin-bottom: 12px;
-  }
-
-  .stat {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    margin-bottom: 6px;
-  }
-
-  .stat .value {
-    color: var(--accent-gold);
-  }
-
-  .content-area {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-
-  .content-header {
-    height: 72px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 24px;
-    border-bottom: 1px solid var(--border-dim);
-    z-index: 10;
-  }
-
-  .search-bar {
-    flex: 1;
-    max-width: 600px;
-  }
-
-  .search-bar input {
-    width: 100%;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid var(--border-dim);
-    padding: 12px 16px;
-    border-radius: 8px;
-    color: white;
-    outline: none;
-  }
-
-  .search-bar input:focus {
-    border-color: var(--accent-gold);
-  }
-
-  .scroll-container {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px;
-  }
-
-  .dashboard-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 32px;
-  }
-
-  .stats-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 24px;
-  }
-
-  .card {
-    padding: 24px;
-    border-radius: 16px;
-  }
-
-  .card-label {
-    font-size: 12px;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-
-  .card .val {
-    font-size: 36px;
-    font-weight: 800;
-    margin-top: 8px;
-    color: var(--accent-gold);
-  }
-
-  .recent-intel h2 {
-    margin-bottom: 24px;
-    font-size: 18px;
-    color: var(--text-secondary);
-  }
-
-  .intel-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 16px;
-  }
-
-  .dossier-card {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: transparent;
-    border: 1px solid var(--border-dim);
-    border-radius: 16px;
-    padding: 20px;
-    cursor: pointer;
-    transition: transform 0.2s, border-color 0.2s;
-  }
-
-  .dossier-card:hover {
-    transform: scale(1.02);
-    border-color: var(--accent-gold);
-  }
-
-  .d-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 12px;
-  }
-
-  .pill {
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 99px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-dim);
-  }
-
-  .pill.completed { background: #1a4d2e; color: #a8d9bb; }
-  .pill.processing { background: #1a364d; color: #a8cde7; }
-
-  .map-container {
-    height: 700px;
-    border-radius: 20px;
-    overflow: hidden;
-  }
-
-  .table-container {
-    border-radius: 16px;
-    overflow: hidden;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  th, td {
-    padding: 16px;
-    text-align: left;
-    border-bottom: 1px solid var(--border-dim);
-  }
-
-  th {
-    font-size: 12px;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-  }
-
-  tr:hover {
-    background: rgba(255,255,255,0.03);
-    cursor: pointer;
-  }
-
-  .search-results-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 32px;
-  }
-
-  .results-header h2 {
-    margin: 0 0 8px;
-    font-size: 24px;
-    color: var(--accent-gold);
-  }
-
-  .results-header p {
-    margin: 0;
-    color: var(--text-secondary);
-  }
-
-  .results-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .result-item {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: rgba(255,255,255,0.02);
-    border: 1px solid var(--border-dim);
-    border-radius: 12px;
-    padding: 24px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .result-item:hover {
-    border-color: var(--accent-gold);
-    background: rgba(255,255,255,0.04);
-    transform: translateX(4px);
-  }
-
-  .r-meta {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 12px;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-
-  .r-agency {
-    color: var(--accent-gold);
-  }
-
-  .r-score {
-    color: var(--text-secondary);
-  }
-
-  .result-item h3 {
-    margin: 0 0 12px;
-    font-size: 18px;
-  }
-
-  .excerpt {
-    font-size: 14px;
-    color: var(--text-secondary);
-    line-height: 1.6;
-    margin: 0;
-  }
-</style>

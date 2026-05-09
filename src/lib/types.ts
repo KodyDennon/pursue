@@ -18,6 +18,7 @@ export interface RecordSummary {
   analysis_status: string | null;
   intelligence_json: string | null;
   redaction_score: number | null;
+  analysis_error: string | null;
   entity_count: number;
 }
 
@@ -90,6 +91,32 @@ export interface BulkDownloadItem {
 export interface BulkDownloadReport {
   job: BulkDownloadStatus;
   items: BulkDownloadItem[];
+}
+
+export interface DatabaseStatus {
+  app_data_dir: string;
+  database_path: string;
+  library_path: string;
+  snapshots_path: string;
+  exports_path: string;
+  total_records: number;
+  official_records: number;
+  manual_records: number;
+  downloadable_records: number;
+  local_records: number;
+  artifact_count: number;
+  artifact_bytes: number;
+  analyzed_records: number;
+  failed_analysis_records: number;
+  analysis_chunks: number;
+  vector_chunks: number;
+  entity_count: number;
+  case_count: number;
+  source_snapshots: number;
+  latest_snapshot_at: string | null;
+  latest_snapshot_url: string | null;
+  latest_snapshot_records: number | null;
+  active_download_jobs: number;
 }
 
 export interface ManualImportRequest {

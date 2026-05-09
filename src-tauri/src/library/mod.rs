@@ -78,6 +78,10 @@ impl LibraryManager {
         &self.app_data_dir
     }
 
+    pub fn library_dir(&self) -> &Path {
+        &self.library_path
+    }
+
     pub fn snapshots_dir(&self) -> &Path {
         &self.snapshot_path
     }

@@ -31,7 +31,10 @@ pub async fn list(
             r.removed_from_source_at,
             a.sha256 AS artifact_sha256,
             a.byte_size AS artifact_size,
-            ar.status AS analysis_status,
+            COALESCE(ar.status, r.analysis_status) AS analysis_status,
+            r.intelligence_json,
+            r.redaction_score,
+            r.analysis_error,
             COUNT(re.entity_id) AS entity_count
         FROM records r
         LEFT JOIN artifacts a ON a.record_id = r.id

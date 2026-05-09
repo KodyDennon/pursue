@@ -14,9 +14,9 @@ use crate::exports;
 use crate::library::LibraryManager;
 use crate::models::{
     AddRecordToCaseRequest, AnalysisReport, BulkDownloadItem, BulkDownloadReport,
-    BulkDownloadStatus, CaseNotesRequest, CaseSummary, CreateCaseRequest, DownloadResult,
-    ExportCaseRequest, ExportResult, ManualImportRequest, RecordFilter, RecordSummary,
-    SearchRequest, SearchResults, SyncReport,
+    BulkDownloadStatus, CaseNotesRequest, CaseSummary, CreateCaseRequest, DatabaseStatus,
+    DownloadResult, ExportCaseRequest, ExportResult, ManualImportRequest, RecordFilter,
+    RecordSummary, SearchRequest, SearchResults, SyncReport,
 };
 use crate::sources::war_gov;
 
@@ -51,6 +51,23 @@ pub async fn list_records(
 }
 
 #[tauri::command]
+pub async fn get_record(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<RecordSummary>, String> {
+    records::find_summary_by_id(&state.db, &id)
+        .await
+        .map_err(to_error)
+}
+
+#[tauri::command]
+pub async fn get_database_status(state: State<'_, AppState>) -> Result<DatabaseStatus, String> {
+    database_status(&state.db, &state.library)
+        .await
+        .map_err(to_error)
+}
+
+#[tauri::command]
 pub async fn download_record(
     id: String,
     state: State<'_, AppState>,
@@ -58,6 +75,26 @@ pub async fn download_record(
     download_one(&state.db, &state.library, &id)
         .await
         .map_err(to_error)
+}
+
+#[tauri::command]
+pub async fn get_record_artifact_path(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let record = records::find_by_id(&state.db, &id)
+        .await
+        .map_err(to_error)?
+        .ok_or_else(|| format!("record not found: {id}"))?;
+    let relative_path = record
+        .local_path
+        .as_deref()
+        .ok_or_else(|| "record has no local artifact".to_string())?;
+    Ok(state
+        .library
+        .get_full_path(relative_path)
+        .to_string_lossy()
+        .into_owned())
 }
 
 #[tauri::command]
@@ -289,6 +326,86 @@ async fn create_download_job(db: &SqlitePool) -> Result<String> {
     .execute(db)
     .await?;
     Ok(job_id)
+}
+
+async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Result<DatabaseStatus> {
+    let latest_snapshot = sqlx::query(
+        r#"
+        SELECT fetched_at, upstream_url, record_count
+        FROM source_snapshots
+        WHERE status = 'completed'
+        ORDER BY fetched_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    Ok(DatabaseStatus {
+        app_data_dir: library.app_data_dir().to_string_lossy().into_owned(),
+        database_path: library
+            .app_data_dir()
+            .join("pursue.db")
+            .to_string_lossy()
+            .into_owned(),
+        library_path: library.library_dir().to_string_lossy().into_owned(),
+        snapshots_path: library.snapshots_dir().to_string_lossy().into_owned(),
+        exports_path: library.exports_dir().to_string_lossy().into_owned(),
+        total_records: count_scalar(db, "SELECT COUNT(*) FROM records").await?,
+        official_records: count_scalar(
+            db,
+            "SELECT COUNT(*) FROM records WHERE source_type = 'official'",
+        )
+        .await?,
+        manual_records: count_scalar(
+            db,
+            "SELECT COUNT(*) FROM records WHERE source_type = 'manual'",
+        )
+        .await?,
+        downloadable_records: count_scalar(
+            db,
+            "SELECT COUNT(*) FROM records WHERE source_type = 'official' AND document_url IS NOT NULL AND document_url != ''",
+        )
+        .await?,
+        local_records: count_scalar(db, "SELECT COUNT(*) FROM records WHERE local_path IS NOT NULL")
+            .await?,
+        artifact_count: count_scalar(db, "SELECT COUNT(*) FROM artifacts").await?,
+        artifact_bytes: count_scalar(db, "SELECT COALESCE(SUM(byte_size), 0) FROM artifacts")
+            .await?,
+        analyzed_records: count_scalar(
+            db,
+            "SELECT COUNT(*) FROM records WHERE analysis_status = 'completed'",
+        )
+        .await?,
+        failed_analysis_records: count_scalar(
+            db,
+            "SELECT COUNT(*) FROM records WHERE analysis_status = 'failed'",
+        )
+        .await?,
+        analysis_chunks: count_scalar(db, "SELECT COUNT(*) FROM analysis_chunks").await?,
+        vector_chunks: count_scalar(db, "SELECT COUNT(*) FROM vec_analysis_chunks").await?,
+        entity_count: count_scalar(db, "SELECT COUNT(*) FROM entities").await?,
+        case_count: count_scalar(db, "SELECT COUNT(*) FROM cases").await?,
+        source_snapshots: count_scalar(db, "SELECT COUNT(*) FROM source_snapshots").await?,
+        latest_snapshot_at: latest_snapshot
+            .as_ref()
+            .map(|row| row.get::<String, _>("fetched_at")),
+        latest_snapshot_url: latest_snapshot
+            .as_ref()
+            .map(|row| row.get::<String, _>("upstream_url")),
+        latest_snapshot_records: latest_snapshot
+            .as_ref()
+            .map(|row| row.get::<i64, _>("record_count")),
+        active_download_jobs: count_scalar(
+            db,
+            "SELECT COUNT(*) FROM download_jobs WHERE status IN ('queued', 'running')",
+        )
+        .await?,
+    })
+}
+
+async fn count_scalar(db: &SqlitePool, sql: &str) -> Result<i64> {
+    Ok(sqlx::query_scalar::<_, i64>(sql).fetch_one(db).await?)
 }
 
 async fn run_download_job(
