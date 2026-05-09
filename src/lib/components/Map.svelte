@@ -1,76 +1,91 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
-  import type { Record } from "$lib/types";
+  import { onDestroy, onMount } from "svelte";
+  import type { RecordSummary } from "$lib/types";
   import L from "leaflet";
   import "leaflet/dist/leaflet.css";
 
-  let { records = [] } = $props<{ records: Record[] }>();
+  let { records = [] } = $props<{ records: RecordSummary[] }>();
   let mapElement: HTMLDivElement;
-  let map: L.Map;
+  let map: L.Map | null = null;
+  let markerLayer: L.LayerGroup | null = null;
+
+  const knownLocations: Array<[RegExp, [number, number]]> = [
+    [/kazakhstan/i, [48.0196, 66.9237]],
+    [/papua new guinea/i, [-6.315, 143.9555]],
+    [/\bgeorgia\b/i, [32.1656, -82.9001]],
+    [/mexico/i, [23.6345, -102.5528]],
+    [/middle east/i, [29.2985, 42.551]],
+    [/united states|usa|u\.s\./i, [37.0902, -95.7129]],
+    [/nevada/i, [38.8026, -116.4194]],
+    [/new mexico/i, [34.5199, -105.8701]],
+    [/arizona/i, [34.0489, -111.0937]],
+    [/california/i, [36.7783, -119.4179]],
+    [/florida/i, [27.6648, -81.5158]],
+    [/atlantic/i, [31.0, -45.0]],
+    [/pacific/i, [8.7832, -124.5085]]
+  ];
 
   onMount(() => {
     map = L.map(mapElement, {
-      center: [20, 0],
+      center: [24, -34],
       zoom: 2,
       zoomControl: false,
       attributionControl: false
     });
 
-    // Dark theme for OSM using CartoDB
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
       maxZoom: 19
     }).addTo(map);
 
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-    updateMarkers();
+    L.control.zoom({ position: "bottomright" }).addTo(map);
+    markerLayer = L.layerGroup().addTo(map);
+    updateMarkers(records);
   });
 
-  function updateMarkers() {
-    if (!map) return;
-    
-    // Clear existing markers if needed (simplified for now)
-    
-    records.forEach(record => {
-      if (record.incident_location && record.incident_location !== "N/A") {
-        // In a real app, we'd geocode these. For now, we'll look for coords in the text or mock.
-        // For the demo, let's randomly place them if they have a location but no coords.
-        // The government CSV doesn't have lat/long yet, so we'll need a geocoder or pre-mapped data.
-        
-        // Mocking coordinates for demo if location is "Kazakhstan", "Moon", etc.
-        let coords: [number, number] | null = null;
-        if (record.incident_location.includes("Kazakhstan")) coords = [48.0196, 66.9237];
-        if (record.incident_location.includes("Papua New Guinea")) coords = [-6.314993, 143.95555];
-        if (record.incident_location.includes("Georgia")) coords = [42.3154, 43.3569];
-        if (record.incident_location.includes("Mexico")) coords = [23.6345, -102.5528];
-        if (record.incident_location.includes("Middle East")) coords = [29.2985, 42.5510];
-        if (record.incident_location.includes("United States")) coords = [37.0902, -95.7129];
-        
-        if (coords) {
-          const markerIcon = L.divIcon({
-            className: 'custom-div-icon',
-            html: `<div class='marker-pin bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]'></div>`,
-            iconSize: [12, 12],
-            iconAnchor: [6, 6]
-          });
+  function coordinatesFor(location: string | null): [number, number] | null {
+    if (!location) return null;
+    for (const [pattern, coords] of knownLocations) {
+      if (pattern.test(location)) return coords;
+    }
+    return null;
+  }
 
-          L.marker(coords, { icon: markerIcon })
-            .addTo(map)
-            .bindPopup(`
-              <div class="bg-zinc-900 text-white p-2 border border-zinc-700 rounded-md">
-                <h3 class="font-bold text-blue-400">${record.title}</h3>
-                <p class="text-xs text-zinc-400">${record.agency} | ${record.incident_date}</p>
-              </div>
-            `);
-        }
-      }
-    });
+  function updateMarkers(nextRecords: RecordSummary[]) {
+    if (!map || !markerLayer) return;
+    markerLayer.clearLayers();
+
+    for (const record of nextRecords) {
+      const coords = coordinatesFor(record.incident_location);
+      if (!coords) continue;
+
+      const markerIcon = L.divIcon({
+        className: "custom-div-icon",
+        html: "<div class='marker-pin'></div>",
+        iconSize: [14, 14],
+        iconAnchor: [7, 7]
+      });
+
+      L.marker(coords, { icon: markerIcon })
+        .addTo(markerLayer)
+        .bindPopup(`
+          <div class="pursue-popup">
+            <strong>${escapeHtml(record.title)}</strong>
+            <span>${escapeHtml(record.agency || "UNKNOWN")} · ${escapeHtml(record.incident_date || "N/A")}</span>
+          </div>
+        `);
+    }
+  }
+
+  function escapeHtml(value: string): string {
+    return value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
   }
 
   $effect(() => {
-    if (records.length > 0) {
-      updateMarkers();
-    }
+    updateMarkers(records);
   });
 
   onDestroy(() => {
@@ -78,25 +93,53 @@
   });
 </script>
 
-<div bind:this={mapElement} class="w-full h-full bg-zinc-900"></div>
+<div bind:this={mapElement} class="map"></div>
 
 <style>
+  .map {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    background: #101114;
+  }
+
   :global(.custom-div-icon) {
     background: transparent;
     border: none;
   }
+
   :global(.marker-pin) {
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    border: 2px solid white;
+    background: #e7c46b;
+    border: 2px solid #101114;
+    box-shadow: 0 0 0 2px rgba(231, 196, 107, 0.28), 0 0 18px rgba(231, 196, 107, 0.72);
   }
+
   :global(.leaflet-popup-content-wrapper) {
     background: transparent !important;
     box-shadow: none !important;
     padding: 0 !important;
   }
+
   :global(.leaflet-popup-tip) {
     display: none !important;
+  }
+
+  :global(.pursue-popup) {
+    display: grid;
+    gap: 4px;
+    min-width: 210px;
+    color: #f4f1e8;
+    background: #17191e;
+    border: 1px solid #3a3d45;
+    border-radius: 6px;
+    padding: 10px;
+  }
+
+  :global(.pursue-popup span) {
+    color: #9da3ad;
+    font-size: 12px;
   }
 </style>

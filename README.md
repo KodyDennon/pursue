@@ -1,41 +1,82 @@
 # PURSUE Data Analyzer
 
-A professional-grade OSINT (Open Source Intelligence) and evidence management platform for declassified UAP/UFO data.
+PURSUE Data Analyzer is a local-first Tauri v2 desktop app for syncing, preserving, analyzing, searching, and exporting WAR.gov UFO/PURSUE evidence.
 
-## 🛸 Project Vision
-Built as a response to the "Presidential Unsealing and Reporting System for UAP Encounters" (PURSUE), this application transforms raw government data into a searchable, relational, and geospatially indexed intelligence portal. It is designed for deep investigation, maintaining data integrity against government redactions, and enabling portable case sharing.
+The app stores official source snapshots, records diffs between rolling releases, downloads evidence into a SHA-256 content-addressed local library, imports manual evidence, extracts local text/OCR where native tools are installed, indexes deterministic entities and local vector chunks, supports cases and notes, and exports Markdown or self-contained HTML dossiers.
 
-## 🏗️ Architecture
-- **Framework:** Tauri v2 (Rust Backend + Web Frontend)
-- **Frontend:** Svelte 5 (Runes) + Tailwind CSS v4
-- **Database:** SQLite (SQLx) for relational metadata + LanceDB for local Vector Search.
-- **Geospatial:** OpenStreetMap (Leaflet) with offline tile caching.
-- **Analysis Engine:** Rust-based concurrent scraper and indexing pipeline.
+## Stack
 
-## 🚀 Getting Started
-### Prerequisites
-- [Bun](https://bun.sh/)
-- [Rust](https://www.rust-lang.org/)
-- Native dependencies (for OCR/Vectors): `brew install tesseract protobuf`
+- Tauri v2 desktop shell with Rust backend
+- Svelte 5 frontend with Bun
+- SQLite via SQLx migrations
+- Local files under the app data directory: `pursue.db`, `library/`, `snapshots/`, and `exports/`
+- Local OCR tools only: no API keys, hosted AI, hosted OCR, or paid services
 
-### Development
+## Setup
+
+Install the required development tools:
+
 ```bash
-# Install dependencies
-bun install
+brew install bun rustup
+rustup default stable
+```
 
-# Run the portal in development mode
+Install optional local analysis tools:
+
+```bash
+brew install tesseract ocrmypdf poppler
+```
+
+Windows builds require Rust, Bun, WebView2, and the Windows installers for Tesseract and OCRmyPDF if image/scanned-PDF OCR is needed. Digital PDF/text extraction, source sync, downloads, cases, search over indexed text, and exports do not require hosted services.
+
+Install dependencies:
+
+```bash
+bun install
+```
+
+## Development
+
+```bash
+bun run dev
 bun tauri dev
 ```
 
-## 📂 Repository Structure
-- `src/`: Svelte 5 Frontend
-  - `lib/components/`: Reusable UI modules (Map, ArchiveViewer, etc.)
-  - `lib/types.ts`: Shared TypeScript interfaces.
-- `src-tauri/`: Rust Core Engine
-  - `src/db.rs`: SQLite initialization and migrations.
-  - `src/scraper.rs`: Official government data ingestion logic.
-  - `src/models.rs`: Rust data structures matching the database schema.
-  - `migrations/`: Version-controlled SQL schema.
+Use `bun run dev` for the Vite/Svelte dev server only. Use `bun tauri dev` for the full desktop app with the Rust backend and SQLite app data.
 
-## 🛡️ Data Integrity
-The portal uses an **Internal Library** approach. When you sync or ingest evidence, the files are indexed into a local managed library. This ensures that even if official files are modified or removed from government servers, your local investigation remains intact.
+## Verification
+
+```bash
+bun run check
+bun run build
+cd src-tauri && cargo check
+cd src-tauri && cargo test
+```
+
+## Implemented Commands
+
+- `sync_official_source`
+- `list_records`
+- `download_record`
+- `download_missing_records`
+- `get_bulk_download_status`
+- `cancel_bulk_download`
+- `import_manual_file`
+- `analyze_record`
+- `get_analysis_result`
+- `search`
+- `list_cases`
+- `create_case`
+- `update_case_notes`
+- `add_record_to_case`
+- `export_case`
+
+## Data Integrity
+
+Every ingested artifact is streamed or copied through SHA-256 hashing before it is committed to the managed library. Repeated downloads/imports deduplicate by hash. Official syncs write immutable raw CSV snapshots and compute added, changed, and removed records against the previous completed snapshot.
+
+## Installer Builds
+
+GitHub Actions runs Svelte checks, frontend build, Rust check/test, and Tauri installer builds for macOS and Windows. Release builds are unsigned unless signing/notarization secrets are configured in the repository.
+
+Unsigned macOS and Windows builds may show operating-system warnings. Signed builds use the same workflow when `APPLE_*` or `TAURI_SIGNING_*` secrets are present.
