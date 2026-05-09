@@ -53,17 +53,6 @@ It updates `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `
 
 ## Signing
 
-Release builds are unsigned unless signing secrets are present.
+The public release workflow intentionally publishes unsigned installers by default. Invalid or incomplete signing secrets must not block downloadable releases.
 
-Supported signing/notarization secret names:
-
-- `APPLE_CERTIFICATE`
-- `APPLE_CERTIFICATE_PASSWORD`
-- `APPLE_SIGNING_IDENTITY`
-- `APPLE_ID`
-- `APPLE_PASSWORD`
-- `APPLE_TEAM_ID`
-- `TAURI_SIGNING_PRIVATE_KEY`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-
-Unsigned builds can still be downloaded from GitHub Releases, but macOS and Windows may show trust warnings during install.
+Unsigned builds can still be downloaded from GitHub Releases, but macOS and Windows may show trust warnings during install. Add a separate signed release lane only after Apple Developer ID, notarization, and Tauri signing secrets have been verified in CI.

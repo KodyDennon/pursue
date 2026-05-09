@@ -22,7 +22,7 @@ Last updated: May 9, 2026
 - OCR requires local native tools. Digital PDF/text analysis works without OCR tools when text is embedded in the artifact.
 - macOS release artifacts target macOS 26 or newer on Apple Silicon only.
 - Windows release artifacts target 64-bit Windows through Tauri's default Windows target.
-- Release artifacts are unsigned unless signing/notarization secrets are configured.
+- Release artifacts are unsigned by default so publishing is not blocked by invalid signing secrets.
 
 ## Verification Gates
 
