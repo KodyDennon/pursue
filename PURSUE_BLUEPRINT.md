@@ -37,5 +37,9 @@ PURSUE Data Analyzer is a local-first OSINT desktop app for WAR.gov UFO/PURSUE e
 ## Release Rules
 
 - CI verifies frontend checks/build and Rust check/test.
-- macOS and Windows installer builds use `tauri-apps/tauri-action`.
+- CI uses Bun 1.3.9, Node 26, Rust stable, and `tauri-apps/tauri-action`.
+- macOS installer builds target macOS 26 or newer on Apple Silicon only.
+- Windows installer builds target 64-bit Windows through Tauri's default Windows target.
+- Tags matching `v*` publish non-draft GitHub Releases with downloadable installer assets.
+- `release: patch`, `release: minor`, `release: major`, and `release: x.y.z` commits on `main` can bump app versions and create the matching tag.
 - Signing and notarization are automatic only when repository secrets are present.

@@ -2,6 +2,7 @@
 logs
 *.log
 npm-debug.log*
+package-lock.json
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
@@ -136,8 +137,8 @@ Temporary Items
 # target/ is the default Rust build directory
 target/
 
-# Rust specific
-Cargo.lock
+# Generated local command captures
+src-tauri/check_output*.txt
 
 # SvelteKit specific
 .svelte-kit/

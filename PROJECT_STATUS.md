@@ -13,12 +13,15 @@ Last updated: May 9, 2026
 - Local chunk indexing with SQLite FTS plus deterministic local vector scoring; no hosted embeddings or API inference.
 - Case creation, case membership, investigator notes, and Markdown/HTML dossier exports.
 - Desktop UI for sync, import, filters, map, search, downloads, analysis, cases, notes, and exports.
-- macOS and Windows installer workflow using `tauri-apps/tauri-action`.
+- Public GitHub repository metadata, docs, and release automation.
+- macOS 26 Apple Silicon and Windows installer workflow using `tauri-apps/tauri-action`.
 
 ## Runtime Requirements
 
 - Network is used only for official WAR.gov sync and official evidence downloads.
 - OCR requires local native tools. Digital PDF/text analysis works without OCR tools when text is embedded in the artifact.
+- macOS release artifacts target macOS 26 or newer on Apple Silicon only.
+- Windows release artifacts target 64-bit Windows through Tauri's default Windows target.
 - Release artifacts are unsigned unless signing/notarization secrets are configured.
 
 ## Verification Gates
@@ -27,3 +30,4 @@ Last updated: May 9, 2026
 - `bun run build`
 - `cd src-tauri && cargo check`
 - `cd src-tauri && cargo test`
+- GitHub Actions `build-installers` on `main`, pull requests, manual dispatch, and `v*` tags

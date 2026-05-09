@@ -1,33 +1,61 @@
 # PURSUE Data Analyzer
 
-PURSUE Data Analyzer is a local-first Tauri v2 desktop app for syncing, preserving, analyzing, searching, and exporting WAR.gov UFO/PURSUE evidence.
+[![Installer builds](https://github.com/KodyDennon/pursue/actions/workflows/release.yml/badge.svg)](https://github.com/KodyDennon/pursue/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-The app stores official source snapshots, records diffs between rolling releases, downloads evidence into a SHA-256 content-addressed local library, imports manual evidence, extracts local text/OCR where native tools are installed, indexes deterministic entities and local vector chunks, supports cases and notes, and exports Markdown or self-contained HTML dossiers.
+PURSUE Data Analyzer is a local-first desktop OSINT app for syncing, preserving, analyzing, searching, and exporting WAR.gov UFO/PURSUE evidence.
 
-## Stack
+The app keeps official source snapshots, tracks changes between source releases, downloads evidence into a SHA-256 content-addressed local library, imports manual files, extracts local text/OCR when native tools are installed, indexes deterministic entities and local vector chunks, supports case notes, and exports Markdown or self-contained HTML dossiers.
 
-- Tauri v2 desktop shell with Rust backend
-- Svelte 5 frontend with Bun
-- SQLite via SQLx migrations
-- Local files under the app data directory: `pursue.db`, `library/`, `snapshots/`, and `exports/`
-- Local OCR tools only: no API keys, hosted AI, hosted OCR, or paid services
+## Download
 
-## Setup
+Installers are published from GitHub Releases:
 
-Install the required development tools:
+https://github.com/KodyDennon/pursue/releases/latest
 
-```bash
-brew install bun rustup
-rustup default stable
-```
+Supported release targets:
 
-Install optional local analysis tools:
+- macOS 26 or newer on Apple Silicon (`aarch64-apple-darwin`).
+- Windows x64 through the default Tauri Windows installer target.
+
+Release artifacts are unsigned unless signing and notarization secrets are configured in the repository. Unsigned macOS and Windows builds can trigger operating-system warnings.
+
+## Features
+
+- Sync official WAR.gov UFO/PURSUE CSV data with a real user agent.
+- Preserve immutable raw source snapshots and added/changed/removed diffs.
+- Download official evidence files and deduplicate local artifacts by SHA-256.
+- Import investigator-provided local evidence.
+- Extract digital PDF text, plain text, image OCR, and scanned-PDF OCR through local tools.
+- Index chunks, entities, metadata, and deterministic local vectors in SQLite.
+- Search records and analyzed content without hosted APIs.
+- Build cases with notes and selected records.
+- Export portable Markdown and self-contained HTML dossiers.
+
+## Privacy And Data Boundaries
+
+PURSUE Data Analyzer is local-first. App data is stored under the operating system app data directory and includes `pursue.db`, `library/`, `snapshots/`, and `exports/`.
+
+Network access is used for official WAR.gov source sync and evidence downloads. The app does not require hosted OCR, hosted embeddings, paid AI APIs, or third-party inference services.
+
+## Requirements
+
+For development:
+
+- Bun 1.3.9 or newer.
+- Node.js 24 LTS or newer, with CI pinned to Node 26.
+- Rust stable.
+- Platform build tools for Tauri.
+
+Optional local OCR tools:
 
 ```bash
 brew install tesseract ocrmypdf poppler
 ```
 
-Windows builds require Rust, Bun, WebView2, and the Windows installers for Tesseract and OCRmyPDF if image/scanned-PDF OCR is needed. Digital PDF/text extraction, source sync, downloads, cases, search over indexed text, and exports do not require hosted services.
+Windows builds can run source sync, downloads, imports, digital text extraction, search, cases, and exports without hosted services. Image/scanned-PDF OCR requires local OCR tools available on the Windows machine.
+
+## Development
 
 Install dependencies:
 
@@ -35,16 +63,19 @@ Install dependencies:
 bun install
 ```
 
-## Development
+Run the frontend-only dev server:
 
 ```bash
 bun run dev
+```
+
+Run the full desktop app:
+
+```bash
 bun tauri dev
 ```
 
-Use `bun run dev` for the Vite/Svelte dev server only. Use `bun tauri dev` for the full desktop app with the Rust backend and SQLite app data.
-
-## Verification
+Validation gates:
 
 ```bash
 bun run check
@@ -53,30 +84,28 @@ cd src-tauri && cargo check
 cd src-tauri && cargo test
 ```
 
-## Implemented Commands
+More details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-- `sync_official_source`
-- `list_records`
-- `download_record`
-- `download_missing_records`
-- `get_bulk_download_status`
-- `cancel_bulk_download`
-- `import_manual_file`
-- `analyze_record`
-- `get_analysis_result`
-- `search`
-- `list_cases`
-- `create_case`
-- `update_case_notes`
-- `add_record_to_case`
-- `export_case`
+## Releases
 
-## Data Integrity
+The release workflow verifies the frontend and Rust backend, then builds installers for macOS 26 Apple Silicon and Windows. Tags matching `v*` publish non-draft GitHub Releases with downloadable installer assets.
 
-Every ingested artifact is streamed or copied through SHA-256 hashing before it is committed to the managed library. Repeated downloads/imports deduplicate by hash. Official syncs write immutable raw CSV snapshots and compute added, changed, and removed records against the previous completed snapshot.
+Release documentation is in [docs/RELEASES.md](docs/RELEASES.md).
 
-## Installer Builds
+## Project Layout
 
-GitHub Actions runs Svelte checks, frontend build, Rust check/test, and Tauri installer builds for macOS and Windows. Release builds are unsigned unless signing/notarization secrets are configured in the repository.
+- `src/routes/`: SvelteKit route entry points.
+- `src/lib/components/`: reusable Svelte UI components.
+- `src/lib/types.ts`: shared frontend TypeScript shapes.
+- `src-tauri/src/`: Rust application core.
+- `src-tauri/migrations/`: SQLite schema migrations.
+- `src-tauri/capabilities/`: Tauri permissions.
+- `.github/workflows/`: verification, installer, and release automation.
 
-Unsigned macOS and Windows builds may show operating-system warnings. Signed builds use the same workflow when `APPLE_*` or `TAURI_SIGNING_*` secrets are present.
+## Status
+
+Current implementation status is tracked in [PROJECT_STATUS.md](PROJECT_STATUS.md). Product and data contracts are tracked in [PURSUE_BLUEPRINT.md](PURSUE_BLUEPRINT.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
