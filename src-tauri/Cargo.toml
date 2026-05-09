@@ -26,9 +26,9 @@ serde_json = "1"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-native-tls", "macros"] }
 rquest = { version = "5", features = ["stream", "cookies", "json"] }
 tokio = { version = "1", features = ["full"] }
-sysinfo = "0.33"
+sysinfo = "0.39"
 lazy_static = "1"
-tokenizers = "0.20"
+tokenizers = "0.23"
 ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
 # llama-cpp-2 is the robust rust wrapper for gemma/llama GGUF
 llama-cpp-2 = "0.1"
@@ -42,17 +42,17 @@ tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-log = "2"
 uuid = { version = "1", features = ["v4"] }
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 futures-util = "0.3"
 lopdf = "0.40"
 regex = "1"
 url = "2"
-ocrs = "0.9"
-rten = "0.13"
-rten-tensor = "0.13"
+ocrs = "0.12"
+rten = "0.24"
+rten-tensor = "0.24"
 image = "0.25"
-strum = { version = "0.26", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 encoding_rs = "0.8"
 
 
