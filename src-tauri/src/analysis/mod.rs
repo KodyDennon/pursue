@@ -64,10 +64,13 @@ impl AnalysisManager {
 
         // 1. Hardware Check and Model Provisioning
         let specs = get_hardware_specs();
-        info!("Hardware detected: {} RAM. Recommended Tier: {:?}", specs.total_memory_gb, specs.recommended_tier);
+        info!(
+            "Hardware detected: {} RAM. Recommended Tier: {:?}",
+            specs.total_memory_gb, specs.recommended_tier
+        );
 
         info!("Ensuring intelligence models are present...");
-        
+
         // Always need BGE for embeddings
         self.models
             .ensure_model(
@@ -88,7 +91,9 @@ impl AnalysisManager {
             _ => ("gemma-4-e2b.gguf", "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf"),
         };
 
-        self.models.ensure_model(preferred_model, preferred_url).await?;
+        self.models
+            .ensure_model(preferred_model, preferred_url)
+            .await?;
 
         // 2. OCR / Text Extraction
         info!(
@@ -114,7 +119,10 @@ impl AnalysisManager {
         };
 
         // 3. Intelligence Extraction (Gemma 4)
-        info!("Step 2: Extracting structured intelligence using Gemma 4 ({})", preferred_model);
+        info!(
+            "Step 2: Extracting structured intelligence using Gemma 4 ({})",
+            preferred_model
+        );
         let intelligence_json = match self
             .extractor
             .load_and_extract(

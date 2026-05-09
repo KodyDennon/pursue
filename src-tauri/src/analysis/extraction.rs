@@ -38,7 +38,9 @@ impl IntelligenceExtractor {
                 anyhow::bail!("Preferred model missing and no fallback provided");
             }
         } else {
-            config.fallback_model_path.ok_or_else(|| anyhow!("No model path provided"))?
+            config
+                .fallback_model_path
+                .ok_or_else(|| anyhow!("No model path provided"))?
         };
 
         self.extract_metadata(model_path, text).await

@@ -6,9 +6,7 @@ use tauri::{AppHandle, Manager};
 
 // Direct FFI to avoid libsqlite3-sys version conflicts with sqlx
 extern "C" {
-    fn sqlite3_auto_extension(
-        xEntryPoint: Option<unsafe extern "C" fn()>,
-    ) -> std::os::raw::c_int;
+    fn sqlite3_auto_extension(xEntryPoint: Option<unsafe extern "C" fn()>) -> std::os::raw::c_int;
 }
 
 pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
@@ -34,7 +32,7 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
     sqlx::query("PRAGMA foreign_keys = ON")
         .execute(&pool)
         .await?;
-    
+
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     Ok(pool)

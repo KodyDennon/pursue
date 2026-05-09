@@ -1,17 +1,25 @@
 use crate::models::{SearchRequest, SearchResultItem, SearchResults};
 use anyhow::Result;
+#[cfg(not(target_os = "windows"))]
 use ort::session::Session;
+#[cfg(not(target_os = "windows"))]
 use ort::value::Value;
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
+#[cfg(target_os = "windows")]
+use std::sync::OnceLock;
+#[cfg(not(target_os = "windows"))]
 use std::sync::{Mutex, OnceLock};
+#[cfg(not(target_os = "windows"))]
 use tokenizers::Tokenizer;
 
-#[cfg(test)]
 const VECTOR_DIMS: usize = 384;
 
 static MODELS_DIR: OnceLock<PathBuf> = OnceLock::new();
+#[cfg(not(target_os = "windows"))]
 static TOKENIZER: OnceLock<Tokenizer> = OnceLock::new();
+#[cfg(not(target_os = "windows"))]
 static EMBEDDING_SESSION: OnceLock<Mutex<Session>> = OnceLock::new();
 
 pub fn init_search_engine(models_path: PathBuf) {
@@ -25,6 +33,7 @@ fn get_models_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("models"))
 }
 
+#[cfg(not(target_os = "windows"))]
 fn get_tokenizer() -> Result<&'static Tokenizer> {
     if let Some(tokenizer) = TOKENIZER.get() {
         return Ok(tokenizer);
@@ -40,6 +49,7 @@ fn get_tokenizer() -> Result<&'static Tokenizer> {
     Ok(TOKENIZER.get().unwrap())
 }
 
+#[cfg(not(target_os = "windows"))]
 fn get_embedding_session() -> Result<&'static Mutex<Session>> {
     if let Some(session) = EMBEDDING_SESSION.get() {
         return Ok(session);
@@ -90,28 +100,10 @@ pub async fn vector_search(pool: &SqlitePool, query: String) -> Result<SearchRes
     .bind(vector_blob)
     .bind(vector_blob)
     .fetch_all(pool)
-    .await {
+    .await
+    {
         Ok(res) => res,
-        Err(_) => {
-            // Fallback to simple keyword search
-            sqlx::query_as::<_, SearchResultItem>(
-                r#"
-                SELECT 
-                    r.id, r.title, r.agency, r.release_date, r.document_url, r.local_path, 
-                    r.intelligence_json as summary, r.artifact_sha256,
-                    0.0 as distance,
-                    c.text as excerpt
-                FROM analysis_chunks c
-                JOIN records r ON r.id = c.record_id
-                WHERE r.title LIKE ? OR c.text LIKE ?
-                LIMIT 20
-                "#,
-            )
-            .bind(format!("%{}%", query))
-            .bind(format!("%{}%", query))
-            .fetch_all(pool)
-            .await?
-        }
+        Err(_) => keyword_search(pool, &query).await?,
     };
 
     Ok(SearchResults {
@@ -122,6 +114,16 @@ pub async fn vector_search(pool: &SqlitePool, query: String) -> Result<SearchRes
 }
 
 pub async fn vectorize_text(text: &str) -> Result<Vec<f32>> {
+    #[cfg(not(target_os = "windows"))]
+    if let Ok(vector) = vectorize_text_with_model(text).await {
+        return Ok(vector);
+    }
+
+    Ok(deterministic_embedding(text))
+}
+
+#[cfg(not(target_os = "windows"))]
+async fn vectorize_text_with_model(text: &str) -> Result<Vec<f32>> {
     let tokenizer = get_tokenizer()?;
     let encoding = tokenizer
         .encode(text, true)
@@ -175,6 +177,62 @@ pub async fn vectorize_text(text: &str) -> Result<Vec<f32>> {
     Ok(mean_vec)
 }
 
+async fn keyword_search(pool: &SqlitePool, query: &str) -> Result<Vec<SearchResultItem>> {
+    sqlx::query_as::<_, SearchResultItem>(
+        r#"
+        SELECT
+            r.id, r.title, r.agency, r.release_date, r.document_url, r.local_path,
+            r.intelligence_json as summary, r.artifact_sha256,
+            0.0 as distance,
+            c.text as excerpt
+        FROM analysis_chunks c
+        JOIN records r ON r.id = c.record_id
+        WHERE r.title LIKE ? OR c.text LIKE ?
+        LIMIT 20
+        "#,
+    )
+    .bind(format!("%{}%", query))
+    .bind(format!("%{}%", query))
+    .fetch_all(pool)
+    .await
+    .map_err(Into::into)
+}
+
+fn deterministic_embedding(text: &str) -> Vec<f32> {
+    let mut vector = vec![0.0f32; VECTOR_DIMS];
+    let mut saw_token = false;
+
+    for token in text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+    {
+        saw_token = true;
+        let token = token.to_ascii_lowercase();
+        let digest = Sha256::digest(token.as_bytes());
+        let weight = 1.0 + (token.len() as f32).ln();
+
+        for chunk in digest.chunks_exact(4) {
+            let slot = u16::from_le_bytes([chunk[0], chunk[1]]) as usize % VECTOR_DIMS;
+            let sign = if chunk[2] & 1 == 0 { 1.0 } else { -1.0 };
+            vector[slot] += sign * weight;
+        }
+    }
+
+    if !saw_token {
+        vector[0] = 1.0;
+        return vector;
+    }
+
+    let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for value in &mut vector {
+            *value /= norm;
+        }
+    }
+
+    vector
+}
+
 pub fn chunk_text(text: &str, target_chars: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut current = String::new();
@@ -194,7 +252,7 @@ pub fn chunk_text(text: &str, target_chars: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{vectorize_text, VECTOR_DIMS};
+    use super::{deterministic_embedding, vectorize_text, VECTOR_DIMS};
 
     #[tokio::test]
     async fn vectorize_is_stable() {
@@ -203,7 +261,10 @@ mod tests {
             Err(e) => {
                 let err_msg = e.to_string();
                 if err_msg.contains("not found") || err_msg.contains("No such file") {
-                    println!("Skipping vectorize_is_stable because model files are missing: {}", err_msg);
+                    println!(
+                        "Skipping vectorize_is_stable because model files are missing: {}",
+                        err_msg
+                    );
                     return;
                 }
                 panic!("vectorize_text failed unexpectedly: {}", e);
@@ -212,5 +273,17 @@ mod tests {
         assert_eq!(v1.len(), VECTOR_DIMS);
         let v2 = vectorize_text("AARO sensor").await.unwrap();
         assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn deterministic_embedding_is_stable_and_normalized() {
+        let v1 = deterministic_embedding("AARO sensor");
+        let v2 = deterministic_embedding("AARO sensor");
+
+        assert_eq!(v1, v2);
+        assert_eq!(v1.len(), VECTOR_DIMS);
+
+        let norm = v1.iter().map(|value| value * value).sum::<f32>().sqrt();
+        assert!((norm - 1.0).abs() < 0.0001);
     }
 }
