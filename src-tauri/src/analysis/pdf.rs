@@ -73,7 +73,15 @@ impl PdfAnalyzer {
                     };
 
                     let stream = doc.get_object(*object_id)?.as_stream()?;
-                    let data = stream.content.clone();
+                    let mut data = stream.content.clone();
+
+                    if let Ok(filter) = dict.get(b"Filter").and_then(|f| f.as_name()) {
+                        if filter == b"FlateDecode" {
+                            if let Ok(decompressed) = miniz_oxide::inflate::decompress_to_vec_zlib(&data) {
+                                data = decompressed;
+                            }
+                        }
+                    }
 
                     if data.len() < 1024 {
                         continue;

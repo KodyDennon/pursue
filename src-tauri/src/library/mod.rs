@@ -368,7 +368,7 @@ fn filename_from_url(raw_url: &str) -> Option<String> {
 }
 
 fn percent_decode(value: &str) -> String {
-    value.replace("%20", " ")
+    percent_encoding::percent_decode_str(value).decode_utf8_lossy().into_owned()
 }
 
 fn now() -> String {

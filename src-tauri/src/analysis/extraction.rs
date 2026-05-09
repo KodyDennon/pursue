@@ -100,13 +100,40 @@ impl IntelligenceExtractor {
                 n_cur += 1;
             }
 
-            // Simple JSON extractor
-            if let Some(start) = response.find('{') {
-                if let Some(end) = response.rfind('}') {
-                    let json_str = &response[start..=end];
-                    if let Ok(val) = serde_json::from_str(json_str) {
-                        return Ok(val);
+            // Robust JSON extractor that handles markdown blocks and trailing text
+            let response_text = response.trim();
+            let mut balance = 0;
+            let mut start_idx = None;
+            let mut end_idx = None;
+            
+            // Strip markdown JSON block ticks if present
+            let cleaned = if response_text.starts_with("```json") {
+                response_text.trim_start_matches("```json").trim_end_matches("```").trim()
+            } else if response_text.starts_with("```") {
+                response_text.trim_start_matches("```").trim_end_matches("```").trim()
+            } else {
+                response_text
+            };
+
+            for (i, c) in cleaned.char_indices() {
+                if c == '{' {
+                    if balance == 0 {
+                        start_idx = Some(i);
                     }
+                    balance += 1;
+                } else if c == '}' {
+                    balance -= 1;
+                    if balance == 0 && start_idx.is_some() {
+                        end_idx = Some(i);
+                        break;
+                    }
+                }
+            }
+
+            if let (Some(start), Some(end)) = (start_idx, end_idx) {
+                let json_str = &cleaned[start..=end];
+                if let Ok(val) = serde_json::from_str(json_str) {
+                    return Ok(val);
                 }
             }
 

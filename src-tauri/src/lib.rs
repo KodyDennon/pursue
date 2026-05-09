@@ -58,6 +58,7 @@ pub fn run() {
             get_bulk_download_status,
             cancel_bulk_download,
             import_manual_file,
+            ingest_web_page,
             analyze_record,
             get_analysis_result,
             search,

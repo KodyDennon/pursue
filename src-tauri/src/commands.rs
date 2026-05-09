@@ -120,6 +120,7 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
 
     tauri::async_runtime::spawn(async move {
         if let Err(error) = run_download_job(db.clone(), library, &job_id_for_task).await {
+            log::error!("Background download job failed: {}", error);
             let summary = serde_json::json!({ "error": error.to_string() });
             let _ = sqlx::query(
                 "UPDATE download_jobs SET status = 'failed', summary_json = ?, updated_at = ? WHERE id = ?",
@@ -218,6 +219,50 @@ pub async fn import_manual_file(
         .await
         .map_err(to_error)?
         .ok_or_else(|| "manual record disappeared after import".to_string())
+}
+
+#[tauri::command]
+pub async fn ingest_web_page(
+    url: String,
+    state: State<'_, AppState>,
+) -> Result<RecordSummary, String> {
+    let record_id = Uuid::new_v4().to_string();
+    let temp_path = state.library.app_data_dir().join(format!("web-{}.txt", record_id));
+    
+    crate::sources::web::scrape_and_save(&url, &temp_path)
+        .await
+        .map_err(to_error)?;
+        
+    let stable_key = format!("web:{}", record_id);
+    sqlx::query(
+        r#"
+        INSERT INTO records (
+            id, title, file_type, source_type, document_url, stable_key, content_hash
+        )
+        VALUES (?, ?, 'txt', 'manual', ?, ?, ?)
+        "#,
+    )
+    .bind(&record_id)
+    .bind(&url)
+    .bind(&url)
+    .bind(&stable_key)
+    .bind(&stable_key)
+    .execute(&state.db)
+    .await
+    .map_err(to_error)?;
+
+    state
+        .library
+        .ingest_manual_file(&state.db, &record_id, &temp_path)
+        .await
+        .map_err(to_error)?;
+        
+    let _ = tokio::fs::remove_file(&temp_path).await;
+
+    records::find_summary_by_id(&state.db, &record_id)
+        .await
+        .map_err(to_error)?
+        .ok_or_else(|| "web record disappeared after import".to_string())
 }
 
 #[tauri::command]
@@ -565,7 +610,9 @@ async fn run_download_job(
 }
 
 fn to_error(error: impl std::fmt::Display) -> String {
-    error.to_string()
+    let msg = error.to_string();
+    log::error!("Backend command failed: {}", msg);
+    msg
 }
 
 fn now() -> String {

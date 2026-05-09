@@ -52,6 +52,9 @@ rten-tensor = "0.24"
 image = "0.25"
 strum = { version = "0.28", features = ["derive"] }
 encoding_rs = "0.8"
+percent-encoding = "2.3.2"
+miniz_oxide = "0.9.1"
+scraper = "0.26.0"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tokenizers = "0.23"

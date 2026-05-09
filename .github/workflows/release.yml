@@ -13,15 +13,15 @@ permissions:
 
 env:
   BUN_VERSION: "1.3.9"
-  NODE_VERSION: "26"
+  NODE_VERSION: "22"
 
 jobs:
   verify:
     name: verify
-    runs-on: macos-26
+    runs-on: macos-14
     steps:
-      - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-node@v6.4.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: oven-sh/setup-bun@v2.2.0
@@ -48,16 +48,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-26
+          - platform: macos-14
             args: --target aarch64-apple-darwin
           - platform: windows-latest
             args: ""
     runs-on: ${{ matrix.platform }}
     env:
-      MACOSX_DEPLOYMENT_TARGET: "26.0"
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
-      - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-node@v6.4.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: oven-sh/setup-bun@v2.2.0
@@ -71,12 +71,12 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Build Tauri installer
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: tauri-apps/tauri-action@action-v0.6.2
+        uses: tauri-apps/tauri-action@v0
         with:
           args: ${{ matrix.args }}
       - name: Build release installer
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        uses: tauri-apps/tauri-action@action-v0.6.2
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

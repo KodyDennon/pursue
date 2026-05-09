@@ -231,7 +231,13 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
 
     let mut records = Vec::new();
     for result in reader.deserialize() {
-        let csv: CsvRecord = result?;
+        let csv: CsvRecord = match result {
+            Ok(csv) => csv,
+            Err(e) => {
+                tauri_plugin_log::log::warn!("Skipping malformed CSV record: {}", e);
+                continue;
+            }
+        };
         if csv.title.trim().is_empty() {
             continue;
         }
