@@ -4641,6 +4641,7 @@ dependencies = [
  "image",
  "lazy_static",
  "llama-cpp-2",
+ "log",
  "lopdf",
  "miniz_oxide 0.9.1",
  "objc2",

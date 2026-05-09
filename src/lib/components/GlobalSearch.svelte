@@ -26,7 +26,7 @@
 
   $effect(() => {
     if ($globalSearchOpen && searchInput) {
-      setTimeout(() => searchInput.focus(), 50);
+      setTimeout(() => searchInput?.focus(), 50);
     }
   });
 

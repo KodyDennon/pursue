@@ -1,0 +1,8 @@
+[package]
+name = "test_rquest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rquest = { version = "5", features = ["stream", "cookies", "json"] }
+tokio = { version = "1", features = ["full", "macros", "rt-multi-thread"] }
