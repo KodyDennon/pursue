@@ -106,6 +106,17 @@ export interface EntityHit {
   source: string;
 }
 
+export interface RecordAsset {
+  id: string;
+  record_id: string;
+  asset_type: string;
+  local_path: string;
+  mime_type: string | null;
+  file_size: number | null;
+  metadata_json: string | null;
+  created_at: string;
+}
+
 export interface AnalysisReport {
   record_id: string;
   status: string;
@@ -114,6 +125,7 @@ export interface AnalysisReport {
   chunks_indexed: number;
   engine: string;
   intelligence_json?: string | null;
+  assets: RecordAsset[];
 }
 
 export interface SearchRequest {

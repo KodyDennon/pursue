@@ -66,6 +66,19 @@
     }
   }
 
+  async function runSearch() {
+    if (!query.trim()) return;
+    loading = true;
+    try {
+      searchResults = await invoke<SearchResults>("search", { request: { query: query.trim() } });
+      viewMode = "search";
+    } catch (e) {
+      error = String(e);
+    } finally {
+      loading = false;
+    }
+  }
+
   onMount(() => {
     void loadInitialData();
   });
@@ -108,7 +121,7 @@
   <main class="content-area">
     <header class="content-header glass">
       <div class="search-bar">
-        <input bind:value={query} placeholder="Search semantic intelligence..." onkeydown={(e) => e.key === 'Enter' && (viewMode = 'search')} />
+        <input bind:value={query} placeholder="Search semantic intelligence..." onkeydown={(e) => e.key === 'Enter' && runSearch()} />
       </div>
       <div class="header-actions">
         <button class="secondary" onclick={sync} disabled={syncing}>
@@ -128,35 +141,35 @@
         />
       {:else if viewMode === 'dashboard'}
         <div class="dashboard-grid">
-          <section class="hero-stats">
+          <div class="stats-row">
             <div class="card glass">
-              <label>Total Evidence</label>
+              <span class="card-label">Total Evidence</span>
               <div class="val">{records.length}</div>
             </div>
             <div class="card glass">
-              <label>Intelligence Indexed</label>
+              <span class="card-label">Intelligence Indexed</span>
               <div class="val">{analyzedCount}</div>
             </div>
             <div class="card glass">
-              <label>Local Cache</label>
+              <span class="card-label">Local Cache</span>
               <div class="val">{localCount}</div>
             </div>
-          </section>
+          </div>
 
-          <section class="recent-dossiers">
-            <h3>Recent Dossiers</h3>
-            <div class="dossier-list">
+          <div class="recent-intel">
+            <h2>Recent Intelligence Dossiers</h2>
+            <div class="intel-list">
               {#each records.slice(0, 10) as record}
-                <div class="dossier-card glass" onclick={() => selectedRecord = record}>
+                <button class="dossier-card glass" onclick={() => selectedRecord = record}>
                   <div class="d-header">
                     <strong>{record.title}</strong>
                     <span class="pill">{record.agency}</span>
                   </div>
                   <p>{record.summary || 'No summary available'}</p>
-                </div>
+                </button>
               {/each}
             </div>
-          </section>
+          </div>
         </div>
       {:else if viewMode === 'map'}
         <div class="map-container glass">
@@ -182,6 +195,35 @@
               {/each}
             </tbody>
           </table>
+        </div>
+      {:else if viewMode === 'search'}
+        <div class="search-results-panel">
+          <header class="results-header">
+            <h2>Intelligence Search Results</h2>
+            <p>Found {searchResults?.total || 0} relevant matches for "{searchResults?.query}"</p>
+          </header>
+          <div class="results-grid">
+            {#each searchResults?.results || [] as result}
+              <button class="result-item glass" onclick={async () => {
+                loading = true;
+                try {
+                  const fullRecord = await invoke<RecordSummary | null>("list_records", { filter: { query: result.id } });
+                  if (fullRecord && fullRecord[0]) {
+                    selectedRecord = fullRecord[0];
+                  }
+                } finally {
+                  loading = false;
+                }
+              }}>
+                <div class="r-meta">
+                  <span class="r-agency">{result.agency}</span>
+                  <span class="r-score">{(100 - (result.distance * 100)).toFixed(1)}% Match</span>
+                </div>
+                <h3>{result.title}</h3>
+                <p class="excerpt">...{@html result.excerpt}...</p>
+              </button>
+            {/each}
+          </div>
         </div>
       {/if}
     </div>
@@ -323,7 +365,7 @@
     gap: 32px;
   }
 
-  .hero-stats {
+  .stats-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 24px;
@@ -334,7 +376,7 @@
     border-radius: 16px;
   }
 
-  .card label {
+  .card-label {
     font-size: 12px;
     color: var(--text-secondary);
     text-transform: uppercase;
@@ -348,22 +390,28 @@
     color: var(--accent-gold);
   }
 
-  .recent-dossiers h3 {
-    margin-bottom: 16px;
+  .recent-intel h2 {
+    margin-bottom: 24px;
     font-size: 18px;
     color: var(--text-secondary);
   }
 
-  .dossier-list {
+  .intel-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
   }
 
   .dossier-card {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 1px solid var(--border-dim);
+    border-radius: 16px;
     padding: 20px;
     cursor: pointer;
-    transition: transform 0.2s;
+    transition: transform 0.2s, border-color 0.2s;
   }
 
   .dossier-card:hover {
@@ -420,5 +468,75 @@
   tr:hover {
     background: rgba(255,255,255,0.03);
     cursor: pointer;
+  }
+
+  .search-results-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .results-header h2 {
+    margin: 0 0 8px;
+    font-size: 24px;
+    color: var(--accent-gold);
+  }
+
+  .results-header p {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+
+  .results-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .result-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border-dim);
+    border-radius: 12px;
+    padding: 24px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .result-item:hover {
+    border-color: var(--accent-gold);
+    background: rgba(255,255,255,0.04);
+    transform: translateX(4px);
+  }
+
+  .r-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .r-agency {
+    color: var(--accent-gold);
+  }
+
+  .r-score {
+    color: var(--text-secondary);
+  }
+
+  .result-item h3 {
+    margin: 0 0 12px;
+    font-size: 18px;
+  }
+
+  .excerpt {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin: 0;
   }
 </style>

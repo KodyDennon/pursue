@@ -1,7 +1,10 @@
 use crate::models::{Record, RecordFilter, RecordSummary};
 use sqlx::SqlitePool;
 
-pub async fn list(pool: &SqlitePool, filter: Option<RecordFilter>) -> sqlx::Result<Vec<RecordSummary>> {
+pub async fn list(
+    pool: &SqlitePool,
+    filter: Option<RecordFilter>,
+) -> sqlx::Result<Vec<RecordSummary>> {
     let filter = filter.unwrap_or(RecordFilter {
         source_type: None,
         agency: None,
@@ -50,7 +53,11 @@ pub async fn list(pool: &SqlitePool, filter: Option<RecordFilter>) -> sqlx::Resu
     )
     .bind(filter.source_type)
     .bind(filter.agency)
-    .bind(if filter.local_only.unwrap_or(false) { 1 } else { 0 })
+    .bind(if filter.local_only.unwrap_or(false) {
+        1
+    } else {
+        0
+    })
     .bind(filter.query)
     .fetch_all(pool)
     .await?;
@@ -78,7 +85,10 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Reco
     .await
 }
 
-pub async fn find_summary_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<RecordSummary>> {
+pub async fn find_summary_by_id(
+    pool: &SqlitePool,
+    id: &str,
+) -> sqlx::Result<Option<RecordSummary>> {
     let records = list(
         pool,
         Some(RecordFilter {

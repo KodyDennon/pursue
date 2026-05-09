@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Context, Result};
+use image::GenericImageView;
 use std::path::Path;
 use tokio::process::Command;
 use uuid::Uuid;
-use image::GenericImageView;
 
 pub struct OcrEngine;
 
@@ -43,7 +43,10 @@ impl OcrEngine {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    pub async fn extract_text_from_scanned_pdf<P: AsRef<Path>>(&self, pdf_path: P) -> Result<String> {
+    pub async fn extract_text_from_scanned_pdf<P: AsRef<Path>>(
+        &self,
+        pdf_path: P,
+    ) -> Result<String> {
         if !command_available("ocrmypdf").await {
             return Err(anyhow!(
                 "scanned PDF OCR requires the local ocrmypdf binary. Install it with `brew install ocrmypdf` on macOS or the Windows package, then rerun analysis."
@@ -72,7 +75,9 @@ impl OcrEngine {
             ));
         }
 
-        let text = tokio::fs::read_to_string(&sidecar).await.unwrap_or_default();
+        let text = tokio::fs::read_to_string(&sidecar)
+            .await
+            .unwrap_or_default();
         let _ = tokio::fs::remove_file(&sidecar).await;
         Ok(text)
     }
@@ -84,7 +89,8 @@ impl OcrEngine {
 
         let luma = img.to_luma8();
         for pixel in luma.pixels() {
-            if pixel.0 < 10 { // Very dark/Black
+            if pixel.0[0] < 10 {
+                // Very dark/Black
                 black_pixels += 1;
             }
         }
@@ -96,9 +102,11 @@ impl OcrEngine {
     pub async fn is_blank_page(&self, image_path: &Path) -> Result<bool> {
         let img = image::open(image_path)?;
         let luma = img.to_luma8();
-        let pixels: Vec<f32> = luma.pixels().map(|p| p.0 as f32).collect();
-        
-        if pixels.is_empty() { return Ok(true); }
+        let pixels: Vec<f32> = luma.pixels().map(|p| p.0[0] as f32).collect();
+
+        if pixels.is_empty() {
+            return Ok(true);
+        }
 
         let mut mean = 0.0;
         for &p in &pixels {

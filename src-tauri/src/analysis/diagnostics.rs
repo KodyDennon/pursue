@@ -1,11 +1,11 @@
-use sysinfo::{System, Disks, Components, Networks, Users};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use sysinfo::{Components, Disks, Networks, System, Users};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum IntelligenceTier {
-    Draft,   // Basic OCR + Heuristic Extraction
-    Deep,    // PaddleOCR + Gemma 4 E2B (8GB RAM)
-    Elite,   // PaddleOCR + Gemma 4 E4B/26B (16GB+ RAM)
+    Draft, // Basic OCR + Heuristic Extraction
+    Deep,  // PaddleOCR + Gemma 4 E2B (8GB RAM)
+    Elite, // PaddleOCR + Gemma 4 E4B/26B (16GB+ RAM)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -31,8 +31,12 @@ pub fn get_hardware_specs() -> HardwareSpecs {
     } else {
         "Unknown".to_string()
     };
-    
-    let os_info = format!("{} {}", System::name().unwrap_or_default(), System::os_version().unwrap_or_default());
+
+    let os_info = format!(
+        "{} {}",
+        System::name().unwrap_or_default(),
+        System::os_version().unwrap_or_default()
+    );
 
     // Basic heuristic for GPU acceleration detection
     // In a real implementation, we'd check for CUDA, Metal, or DirectML explicitly

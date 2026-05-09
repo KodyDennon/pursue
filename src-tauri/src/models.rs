@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Record {
@@ -188,12 +189,18 @@ pub struct SearchRequest {
     pub filters: Option<SearchFilters>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SearchResultItem {
-    pub record: RecordSummary,
-    pub score: f64,
+    pub id: String,
+    pub title: String,
+    pub agency: Option<String>,
+    pub release_date: Option<String>,
+    pub document_url: Option<String>,
+    pub local_path: Option<String>,
+    pub summary: Option<String>,
+    pub artifact_sha256: Option<String>,
+    pub distance: f64,
     pub excerpt: String,
-    pub matched_entities: Vec<EntityHit>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

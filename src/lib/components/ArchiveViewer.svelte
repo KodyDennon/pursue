@@ -111,23 +111,23 @@
     {:else if activeTab === 'metadata'}
       <div class="metadata-grid">
         <div class="meta-item">
-          <label>Source Agency</label>
+          <span class="card-label">Source Agency</span>
           <span>{record.agency}</span>
         </div>
         <div class="meta-item">
-          <label>Release Date</label>
+          <span class="card-label">Release Date</span>
           <span>{record.release_date || 'Classified'}</span>
         </div>
         <div class="meta-item">
-          <label>SHA-256 Hash</label>
+          <span class="card-label">SHA-256 Hash</span>
           <code class="hash">{record.artifact_sha256 || 'Unverified'}</code>
         </div>
         <div class="meta-item">
-          <label>Stable Key</label>
+          <span class="card-label">Stable Key</span>
           <span>{record.stable_key}</span>
         </div>
         <div class="meta-item">
-          <label>Provenance</label>
+          <span class="card-label">Provenance</span>
           <span>Official Department of War Source (WAR.GOV)</span>
         </div>
       </div>
@@ -140,7 +140,7 @@
         <div class="metric-group">
           <div class="metric">
             <div class="m-head">
-              <label>Redaction Density</label>
+              <span class="card-label">Redaction Density</span>
               <span>{(record.redaction_score || 0).toFixed(2)}%</span>
             </div>
             <div class="progress-bar">
@@ -148,11 +148,11 @@
             </div>
           </div>
           <div class="metric">
-            <label>Analysis Status</label>
+            <span class="card-label">Analysis Status</span>
             <span class="value status-{record.analysis_status}">{record.analysis_status || 'Pending'}</span>
           </div>
           <div class="metric">
-            <label>Intelligence Engine</label>
+            <span class="card-label">Intelligence Engine</span>
             <span class="value">Gemma 4 (Local Metal Inference)</span>
           </div>
         </div>
@@ -316,10 +316,6 @@
     color: #1a1a1a;
   }
 
-  .digitized-text p {
-    margin-bottom: 1em;
-  }
-
   .scan-line {
     width: 100%;
     height: 2px;
@@ -352,7 +348,7 @@
     border: 1px solid var(--border-dim);
   }
 
-  .meta-item label {
+  .card-label {
     font-size: 11px;
     text-transform: uppercase;
     color: var(--text-secondary);

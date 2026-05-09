@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Result};
-use std::path::{Path, PathBuf};
-use tokio::fs;
 use crate::library::LibraryManager;
-use rquest::Client;
+use anyhow::Result;
 use futures_util::StreamExt;
+use rquest::Client;
+use std::path::PathBuf;
+use tokio::fs;
 
 pub struct ModelManager {
     client: Client,
@@ -26,8 +26,8 @@ impl ModelManager {
         }
 
         fs::create_dir_all(&self.models_dir).await?;
-        
-        let mut response = self.client.get(url).send().await?;
+
+        let response = self.client.get(url).send().await?;
         let mut stream = response.bytes_stream();
         let mut file = fs::File::create(&target_path).await?;
 

@@ -78,17 +78,41 @@ async fn build_markdown(
         let title = record.get::<String, _>("title");
         output.push_str(&format!("### {}\n\n", title));
         output.push_str(&format!("- Record ID: `{}`\n", record_id));
-        write_optional(&mut output, "Agency", record.get::<Option<String>, _>("agency"));
-        write_optional(&mut output, "Release Date", record.get::<Option<String>, _>("release_date"));
-        write_optional(&mut output, "Incident Date", record.get::<Option<String>, _>("incident_date"));
+        write_optional(
+            &mut output,
+            "Agency",
+            record.get::<Option<String>, _>("agency"),
+        );
+        write_optional(
+            &mut output,
+            "Release Date",
+            record.get::<Option<String>, _>("release_date"),
+        );
+        write_optional(
+            &mut output,
+            "Incident Date",
+            record.get::<Option<String>, _>("incident_date"),
+        );
         write_optional(
             &mut output,
             "Incident Location",
             record.get::<Option<String>, _>("incident_location"),
         );
-        write_optional(&mut output, "Source URL", record.get::<Option<String>, _>("document_url"));
-        write_optional(&mut output, "Local Path", record.get::<Option<String>, _>("local_path"));
-        write_optional(&mut output, "Case Notes", record.get::<Option<String>, _>("case_record_notes"));
+        write_optional(
+            &mut output,
+            "Source URL",
+            record.get::<Option<String>, _>("document_url"),
+        );
+        write_optional(
+            &mut output,
+            "Local Path",
+            record.get::<Option<String>, _>("local_path"),
+        );
+        write_optional(
+            &mut output,
+            "Case Notes",
+            record.get::<Option<String>, _>("case_record_notes"),
+        );
 
         if let Some(summary) = record.get::<Option<String>, _>("summary") {
             output.push_str("\n");
@@ -129,7 +153,13 @@ async fn build_markdown(
         if let Some(analysis) = analysis.filter(|text| !text.trim().is_empty()) {
             output.push_str("\nAnalysis Excerpt:\n\n");
             output.push_str("> ");
-            output.push_str(&analysis.replace('\n', "\n> ").chars().take(1600).collect::<String>());
+            output.push_str(
+                &analysis
+                    .replace('\n', "\n> ")
+                    .chars()
+                    .take(1600)
+                    .collect::<String>(),
+            );
             output.push_str("\n\n");
         } else {
             output.push_str("\n");

@@ -50,7 +50,11 @@ impl PdfAnalyzer {
 
         Ok(text)
     }
-    pub async fn extract_images<P: AsRef<Path>>(&self, path: P, output_dir: &Path) -> Result<Vec<(String, String)>> {
+    pub async fn extract_images<P: AsRef<Path>>(
+        &self,
+        path: P,
+        output_dir: &Path,
+    ) -> Result<Vec<(String, String)>> {
         let path = path.as_ref();
         let doc = Document::load(path)?;
         let mut extracted = Vec::new();
@@ -61,22 +65,24 @@ impl PdfAnalyzer {
 
         for (object_id, object) in doc.objects.iter() {
             if let Ok(dict) = object.as_dict() {
-                if dict.get(b"Subtype").map(|s| s.as_name()) == Some(Ok(b"Image")) {
-                    let extension = match dict.get(b"Filter").map(|f| f.as_name()) {
-                        Some(Ok(b"DCTDecode")) => "jpg",
-                        Some(Ok(b"JPXDecode")) => "jp2",
+                if dict.get(b"Subtype").and_then(|s| s.as_name()).ok() == Some(b"Image") {
+                    let extension = match dict.get(b"Filter").and_then(|f| f.as_name()).ok() {
+                        Some(b"DCTDecode") => "jpg",
+                        Some(b"JPXDecode") => "jp2",
                         _ => "png",
                     };
 
                     let stream = doc.get_object(*object_id)?.as_stream()?;
                     let data = stream.content.clone();
-                    
-                    if data.len() < 1024 { continue; } // Skip icons/small assets
+
+                    if data.len() < 1024 {
+                        continue;
+                    } // Skip icons/small assets
 
                     let filename = format!("img_{}_{}.{}", object_id.0, object_id.1, extension);
                     let file_path = output_dir.join(&filename);
                     std::fs::write(&file_path, data)?;
-                    
+
                     extracted.push((filename, format!("image/{}", extension)));
                 }
             }

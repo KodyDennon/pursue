@@ -42,7 +42,9 @@ impl LibraryManager {
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::ACCEPT,
-            header::HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+            header::HeaderValue::from_static(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            ),
         );
         headers.insert(
             header::ACCEPT_LANGUAGE,
@@ -53,9 +55,7 @@ impl LibraryManager {
             header::HeaderValue::from_static("https://www.war.gov/"),
         );
 
-        let client = Client::builder()
-            .default_headers(headers)
-            .build()?;
+        let client = Client::builder().default_headers(headers).build()?;
 
         Ok(Self {
             app_data_dir,
@@ -72,6 +72,10 @@ impl LibraryManager {
         fs::create_dir_all(&self.snapshot_path).await?;
         fs::create_dir_all(&self.export_path).await?;
         Ok(())
+    }
+
+    pub fn app_data_dir(&self) -> &Path {
+        &self.app_data_dir
     }
 
     pub fn snapshots_dir(&self) -> &Path {
@@ -121,24 +125,29 @@ impl LibraryManager {
         bytes: &[u8],
     ) -> Result<DownloadResult> {
         let original_filename = filename_from_url(url);
-        let temp_path = self.app_data_dir.join(format!("download-{}.tmp", Uuid::new_v4()));
-        
+        let temp_path = self
+            .app_data_dir
+            .join(format!("download-{}.tmp", Uuid::new_v4()));
+
         let mut hasher = Sha256::new();
         hasher.update(bytes);
         let byte_size = i64::try_from(bytes.len()).unwrap_or(0);
-        
+
         fs::write(&temp_path, bytes).await?;
 
-        let artifact = self.commit_temp_file(
-            temp_path,
-            hasher,
-            byte_size,
-            original_filename,
-            None,
-            Some(url.to_string()),
-        ).await?;
+        let artifact = self
+            .commit_temp_file(
+                temp_path,
+                hasher,
+                byte_size,
+                original_filename,
+                None,
+                Some(url.to_string()),
+            )
+            .await?;
 
-        self.attach_artifact(pool, Some(record_id), &artifact, "official").await?;
+        self.attach_artifact(pool, Some(record_id), &artifact, "official")
+            .await?;
 
         Ok(DownloadResult {
             record_id: record_id.to_string(),
@@ -196,11 +205,13 @@ impl LibraryManager {
         .await?;
 
         if let Some(record_id) = record_id {
-            sqlx::query("UPDATE records SET local_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-                .bind(&artifact.relative_path)
-                .bind(record_id)
-                .execute(pool)
-                .await?;
+            sqlx::query(
+                "UPDATE records SET local_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            )
+            .bind(&artifact.relative_path)
+            .bind(record_id)
+            .execute(pool)
+            .await?;
         }
 
         Ok(())
@@ -223,7 +234,9 @@ impl LibraryManager {
             .map(str::to_string);
         let original_filename = filename_from_url(url);
 
-        let temp_path = self.app_data_dir.join(format!("download-{}.tmp", Uuid::new_v4()));
+        let temp_path = self
+            .app_data_dir
+            .join(format!("download-{}.tmp", Uuid::new_v4()));
         let mut temp_file = fs::File::create(&temp_path).await?;
         let mut hasher = Sha256::new();
         let mut byte_size = 0_i64;
@@ -253,8 +266,12 @@ impl LibraryManager {
             return Err(anyhow!("file does not exist: {}", path.display()));
         }
 
-        let original_filename = path.file_name().map(|name| name.to_string_lossy().into_owned());
-        let temp_path = self.app_data_dir.join(format!("manual-{}.tmp", Uuid::new_v4()));
+        let original_filename = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        let temp_path = self
+            .app_data_dir
+            .join(format!("manual-{}.tmp", Uuid::new_v4()));
         let mut source = fs::File::open(path).await?;
         let mut dest = fs::File::create(&temp_path).await?;
         let mut hasher = Sha256::new();

@@ -1,5 +1,6 @@
 pub mod records;
 
+use sqlite_vec;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::fs;
 use tauri::{AppHandle, Manager};
@@ -16,15 +17,17 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
         .create_if_missing(true);
 
     let pool = SqlitePool::connect_with(options).await?;
-    
+
     // Load sqlite-vec extension
-    let vec_path = sqlite_vec::loadable_path();
+    let vec_path = sqlite_vec::path();
     sqlx::query("SELECT load_extension(?)")
         .bind(vec_path)
         .execute(&pool)
         .await?;
 
-    sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await?;
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     Ok(pool)

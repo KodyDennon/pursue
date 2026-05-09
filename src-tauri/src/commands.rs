@@ -5,6 +5,8 @@ use std::sync::Arc;
 use tauri::State;
 use uuid::Uuid;
 
+use crate::analysis::diagnostics;
+use crate::analysis::diagnostics::HardwareSpecs;
 use crate::analysis::AnalysisManager;
 use crate::cases;
 use crate::db::records;
@@ -17,7 +19,6 @@ use crate::models::{
     SearchRequest, SearchResults, SyncReport,
 };
 use crate::sources::war_gov;
-use crate::analysis::diagnostics::{self, HardwareSpecs};
 
 pub struct AppState {
     pub db: SqlitePool,
@@ -54,7 +55,9 @@ pub async fn download_record(
     id: String,
     state: State<'_, AppState>,
 ) -> Result<DownloadResult, String> {
-    download_one(&state.db, &state.library, &id).await.map_err(to_error)
+    download_one(&state.db, &state.library, &id)
+        .await
+        .map_err(to_error)
 }
 
 #[tauri::command]
@@ -139,7 +142,10 @@ pub async fn import_manual_file(
         .filter(|value| !value.trim().is_empty())
         .map(str::trim)
         .map(str::to_string)
-        .or_else(|| path.file_stem().map(|name| name.to_string_lossy().into_owned()))
+        .or_else(|| {
+            path.file_stem()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
         .ok_or_else(|| "manual import requires a title or filename".to_string())?;
     let record_id = Uuid::new_v4().to_string();
     let extension = path
@@ -220,7 +226,9 @@ pub async fn create_case(
     request: CreateCaseRequest,
     state: State<'_, AppState>,
 ) -> Result<CaseSummary, String> {
-    cases::create_case(&state.db, request).await.map_err(to_error)
+    cases::create_case(&state.db, request)
+        .await
+        .map_err(to_error)
 }
 
 #[tauri::command]
@@ -348,24 +356,29 @@ async fn run_download_job(
     let mut completed = 0_i64;
     let mut failed = 0_i64;
     for item in items {
-        let cancel_req = sqlx::query_scalar::<_, i64>("SELECT cancel_requested FROM download_jobs WHERE id = ?")
-            .bind(job_id)
-            .fetch_one(&db)
-            .await?;
-        if cancel_req != 0 {
-            sqlx::query("UPDATE download_jobs SET status = 'cancelled', updated_at = ? WHERE id = ?")
-                .bind(now())
+        let cancel_req =
+            sqlx::query_scalar::<_, i64>("SELECT cancel_requested FROM download_jobs WHERE id = ?")
                 .bind(job_id)
-                .execute(&db)
+                .fetch_one(&db)
                 .await?;
+        if cancel_req != 0 {
+            sqlx::query(
+                "UPDATE download_jobs SET status = 'cancelled', updated_at = ? WHERE id = ?",
+            )
+            .bind(now())
+            .bind(job_id)
+            .execute(&db)
+            .await?;
             return Ok(());
         }
 
-        sqlx::query("UPDATE download_job_items SET status = 'downloading', updated_at = ? WHERE id = ?")
-            .bind(now())
-            .bind(&item.id)
-            .execute(&db)
-            .await?;
+        sqlx::query(
+            "UPDATE download_job_items SET status = 'downloading', updated_at = ? WHERE id = ?",
+        )
+        .bind(now())
+        .bind(&item.id)
+        .execute(&db)
+        .await?;
 
         match download_one(&db, &library, &item.record_id).await {
             Ok(result) => {
@@ -409,7 +422,11 @@ async fn run_download_job(
         .await?;
     }
 
-    let status = if failed == 0 { "completed" } else { "completed_with_errors" };
+    let status = if failed == 0 {
+        "completed"
+    } else {
+        "completed_with_errors"
+    };
     let summary = serde_json::json!({
         "completed": completed,
         "failed": failed,

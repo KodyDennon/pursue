@@ -10,7 +10,7 @@ mod sources;
 
 use std::sync::Arc;
 
-use commands::AppState;
+use crate::commands::*;
 use library::LibraryManager;
 use tauri::Manager;
 
@@ -25,35 +25,41 @@ pub fn run() {
         .plugin(tauri_plugin_log::Builder::default().build())
         .setup(|app| {
             let handle = app.handle().clone();
-            let library =
-                Arc::new(LibraryManager::new(&handle).expect("failed to initialize library manager"));
+            let library = Arc::new(
+                LibraryManager::new(&handle).expect("failed to initialize library manager"),
+            );
 
             tauri::async_runtime::block_on(async move {
-                let pool = db::init_db(&handle).await.expect("failed to initialize database");
-                library.init().await.expect("failed to initialize evidence library");
+                let pool = db::init_db(&handle)
+                    .await
+                    .expect("failed to initialize database");
+                library
+                    .init()
+                    .await
+                    .expect("failed to initialize evidence library");
                 app.manage(AppState { db: pool, library });
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::sync_official_source,
-            commands::sync_official_source_with_csv,
-            commands::list_records,
-            commands::download_record,
-            commands::download_record_with_bytes,
-            commands::download_missing_records,
-            commands::get_bulk_download_status,
-            commands::cancel_bulk_download,
-            commands::import_manual_file,
-            commands::analyze_record,
-            commands::get_analysis_result,
-            commands::search,
-            commands::list_cases,
-            commands::create_case,
-            commands::update_case_notes,
-            commands::add_record_to_case,
-            commands::export_case,
-            commands::get_hardware_diagnostics
+            sync_official_source,
+            sync_official_source_with_csv,
+            list_records,
+            download_record,
+            download_record_with_bytes,
+            download_missing_records,
+            get_bulk_download_status,
+            cancel_bulk_download,
+            import_manual_file,
+            analyze_record,
+            get_analysis_result,
+            search,
+            list_cases,
+            create_case,
+            update_case_notes,
+            add_record_to_case,
+            export_case,
+            get_hardware_diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

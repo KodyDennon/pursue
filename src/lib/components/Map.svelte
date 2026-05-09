@@ -86,7 +86,7 @@
 
   onMount(() => {
     window.addEventListener('select-record', ((e: CustomEvent<string>) => {
-      const record = records.find(r => r.id === e.detail);
+      const record = records.find((r: RecordSummary) => r.id === e.detail);
       if (record && onSelect) onSelect(record);
     }) as EventListener);
   });

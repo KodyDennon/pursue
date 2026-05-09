@@ -5,7 +5,7 @@
   let { record, assets = [] } = $props<{ record: RecordSummary; assets: RecordAsset[] }>();
   
   const intelligence = $derived(record.intelligence_json ? JSON.parse(record.intelligence_json) : null);
-  const images = $derived(assets.filter(a => a.asset_type === 'image'));
+  const images = $derived(assets.filter((a: RecordAsset) => a.asset_type === 'image'));
 </script>
 
 <div class="intel-dossier">
@@ -13,12 +13,12 @@
     <div class="dossier-grid">
       <section class="intel-card full hero">
         <div class="card-glow"></div>
-        <label>Executive Intelligence Summary</label>
+        <span class="card-label">Executive Intelligence Summary</span>
         <p class="summary-text">{intelligence.object_description || 'No detailed description extracted.'}</p>
       </section>
 
       <section class="intel-card">
-        <label>Primary Engagement Data</label>
+        <span class="card-label">Primary Engagement Data</span>
         <div class="metrics-grid">
           <div class="m-item">
             <span class="m-label">Incident Date</span>
@@ -32,7 +32,7 @@
       </section>
 
       <section class="intel-card">
-        <label>Agencies Involved</label>
+        <span class="card-label">Agencies Involved</span>
         <div class="tag-cloud">
           {#each (intelligence.agencies || []) as agency}
             <span class="intel-tag">{agency}</span>
@@ -45,7 +45,7 @@
 
       <section class="intel-card full observations">
         <header class="obs-head">
-          <label>Pilot & Personnel Observations</label>
+          <span class="card-label">Pilot & Personnel Observations</span>
           <span class="live-indicator">GROUND TRUTH EXTRACED</span>
         </header>
         <div class="obs-content">
@@ -56,14 +56,14 @@
 
       {#if images.length > 0}
         <section class="intel-card full gallery">
-          <label>Evidence Gallery (Extracted from PDF)</label>
+          <span class="card-label">Evidence Gallery (Extracted from PDF)</span>
           <div class="gallery-grid">
             {#each images as asset}
               <div class="evidence-frame glass">
                 <img src={convertFileSrc(asset.local_path)} alt="Extracted Evidence" />
                 <div class="frame-meta">
                   <span>{asset.mime_type}</span>
-                  <span>{(asset.file_size / 1024).toFixed(0)} KB</span>
+                  <span>{asset.file_size ? (asset.file_size / 1024).toFixed(0) : 0} KB</span>
                 </div>
               </div>
             {/each}
@@ -73,7 +73,7 @@
 
       <section class="intel-card full forensics">
         <div class="f-header">
-          <label>Intelligence Confidence & Integrity</label>
+          <span class="card-label">Intelligence Confidence & Integrity</span>
           <span class="engine-tag">Gemma 4 Elite</span>
         </div>
         <div class="f-body">
@@ -145,7 +145,7 @@
     pointer-events: none;
   }
 
-  label {
+  .card-label {
     display: block;
     font-size: 10px;
     text-transform: uppercase;

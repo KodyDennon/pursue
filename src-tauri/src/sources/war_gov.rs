@@ -20,11 +20,16 @@ struct ParsedOfficialRecord {
     content_hash: String,
 }
 
-pub async fn sync_official_source(pool: &SqlitePool, library: &LibraryManager) -> Result<SyncReport> {
+pub async fn sync_official_source(
+    pool: &SqlitePool,
+    library: &LibraryManager,
+) -> Result<SyncReport> {
     let mut headers = header::HeaderMap::new();
     headers.insert(
         header::ACCEPT,
-        header::HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+        header::HeaderValue::from_static(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        ),
     );
     headers.insert(
         header::ACCEPT_LANGUAGE,
@@ -163,7 +168,9 @@ async fn sync_official_source_from_bytes_inner(
     for (stable_key, previous_hash) in previous {
         if !current_keys.contains(&stable_key) {
             removed += 1;
-            let title = prior_title(pool, &stable_key).await?.unwrap_or_else(|| stable_key.clone());
+            let title = prior_title(pool, &stable_key)
+                .await?
+                .unwrap_or_else(|| stable_key.clone());
             insert_diff(
                 pool,
                 &snapshot_id,
@@ -238,13 +245,19 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
     }
 
     if records.is_empty() {
-        return Err(anyhow!("WAR.gov CSV parsed successfully but contained no usable records"));
+        return Err(anyhow!(
+            "WAR.gov CSV parsed successfully but contained no usable records"
+        ));
     }
 
     Ok(records)
 }
 
-async fn upsert_record(pool: &SqlitePool, snapshot_id: &str, record: &ParsedOfficialRecord) -> Result<()> {
+async fn upsert_record(
+    pool: &SqlitePool,
+    snapshot_id: &str,
+    record: &ParsedOfficialRecord,
+) -> Result<()> {
     let id = existing_record_id(pool, &record.stable_key).await?;
     let record_id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
     sqlx::query(
@@ -316,7 +329,12 @@ async fn previous_snapshot_records(pool: &SqlitePool) -> Result<HashMap<String, 
 
     Ok(rows
         .into_iter()
-        .map(|row| (row.get::<String, _>("stable_key"), row.get::<String, _>("content_hash")))
+        .map(|row| {
+            (
+                row.get::<String, _>("stable_key"),
+                row.get::<String, _>("content_hash"),
+            )
+        })
         .collect())
 }
 
@@ -363,7 +381,11 @@ async fn prior_title(pool: &SqlitePool, stable_key: &str) -> Result<Option<Strin
 }
 
 fn stable_key(record: &CsvRecord) -> String {
-    if let Some(url) = record.document_url.as_deref().filter(|url| !url.trim().is_empty()) {
+    if let Some(url) = record
+        .document_url
+        .as_deref()
+        .filter(|url| !url.trim().is_empty())
+    {
         return format!("url:{}", url.trim());
     }
     let raw = format!(

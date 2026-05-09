@@ -2,9 +2,7 @@ use anyhow::{anyhow, Result};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
-use crate::models::{
-    AddRecordToCaseRequest, CaseNotesRequest, CaseSummary, CreateCaseRequest,
-};
+use crate::models::{AddRecordToCaseRequest, CaseNotesRequest, CaseSummary, CreateCaseRequest};
 
 pub async fn list_cases(pool: &SqlitePool) -> Result<Vec<CaseSummary>> {
     Ok(sqlx::query_as::<_, CaseSummary>(
@@ -36,7 +34,12 @@ pub async fn create_case(pool: &SqlitePool, request: CreateCaseRequest) -> Resul
     sqlx::query("INSERT INTO cases (id, title, description, created_at) VALUES (?, ?, ?, ?)")
         .bind(&id)
         .bind(title)
-        .bind(request.description.as_deref().filter(|value| !value.trim().is_empty()))
+        .bind(
+            request
+                .description
+                .as_deref()
+                .filter(|value| !value.trim().is_empty()),
+        )
         .bind(now())
         .execute(pool)
         .await?;
@@ -114,7 +117,10 @@ pub async fn get_case(pool: &SqlitePool, case_id: &str) -> Result<CaseSummary> {
     .ok_or_else(|| anyhow!("case not found: {case_id}"))
 }
 
-pub async fn case_records(pool: &SqlitePool, case_id: &str) -> Result<Vec<sqlx::sqlite::SqliteRow>> {
+pub async fn case_records(
+    pool: &SqlitePool,
+    case_id: &str,
+) -> Result<Vec<sqlx::sqlite::SqliteRow>> {
     ensure_case(pool, case_id).await?;
     Ok(sqlx::query(
         r#"
