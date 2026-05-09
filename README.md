@@ -18,7 +18,36 @@ Supported release targets:
 - macOS 26 or newer on Apple Silicon (`aarch64-apple-darwin`).
 - Windows x64 through the default Tauri Windows installer target.
 
-Release artifacts are unsigned unless signing and notarization secrets are configured in the repository. Unsigned macOS and Windows builds can trigger operating-system warnings.
+Release artifacts are unsigned. Unsigned macOS and Windows builds can trigger operating-system warnings.
+
+### macOS Install Notes
+
+Download `PURSUE.Data.Analyzer_0.2.1_aarch64.dmg`, open it, and drag `PURSUE Data Analyzer.app` to `/Applications`.
+
+Because the current build is unsigned and not notarized, macOS may say the app is damaged or cannot be opened. If you trust the release you downloaded from this repository, remove the quarantine attribute after installing it:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/PURSUE Data Analyzer.app"
+```
+
+Then open the app again from Finder or Spotlight.
+
+Alternative macOS path:
+
+1. Open System Settings.
+2. Go to Privacy & Security.
+3. If macOS shows a blocked app message for PURSUE Data Analyzer, choose Open Anyway.
+
+### Windows Install Notes
+
+Download one Windows installer from the release:
+
+- `PURSUE.Data.Analyzer_0.2.1_x64-setup.exe`: normal interactive installer.
+- `PURSUE.Data.Analyzer_0.2.1_x64_en-US.msi`: Windows Installer package, better for managed installs.
+
+Windows may show a Microsoft Defender SmartScreen warning because the build is unsigned. Choose More info, then Run anyway if you trust the release from this repository.
+
+The app uses the system WebView2 runtime through Tauri. Modern Windows 10 and Windows 11 installations usually already include WebView2. If the app does not open because WebView2 is missing, install the Microsoft Edge WebView2 Runtime from Microsoft and run the installer again.
 
 ## Features
 

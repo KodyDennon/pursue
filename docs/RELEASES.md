@@ -9,6 +9,45 @@ Releases are published through GitHub Actions and GitHub Releases.
 
 There is no Intel macOS or universal macOS release target.
 
+## Installing On macOS
+
+Use the DMG asset:
+
+- `PURSUE.Data.Analyzer_0.2.1_aarch64.dmg`
+
+Open the DMG and drag `PURSUE Data Analyzer.app` to `/Applications`.
+
+The public build is unsigned and not notarized. macOS may report that the app is damaged or cannot be opened because the downloaded app is quarantined. If the app came from the official GitHub Release and you trust that download, remove the quarantine attribute:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/PURSUE Data Analyzer.app"
+```
+
+Then open the app again.
+
+You can also try the graphical Gatekeeper override:
+
+1. Try to open the app once.
+2. Open System Settings.
+3. Go to Privacy & Security.
+4. Use Open Anyway for PURSUE Data Analyzer if macOS shows the blocked app prompt.
+
+## Installing On Windows
+
+Use one Windows asset:
+
+- `PURSUE.Data.Analyzer_0.2.1_x64-setup.exe`: interactive setup executable for normal installs.
+- `PURSUE.Data.Analyzer_0.2.1_x64_en-US.msi`: MSI package for Windows Installer and managed deployment flows.
+
+The Windows build is unsigned. Microsoft Defender SmartScreen may warn that the app is from an unknown publisher. If you trust the release from this repository, choose More info, then Run anyway.
+
+Runtime notes:
+
+- The app targets 64-bit Windows.
+- Tauri uses Microsoft Edge WebView2. Current Windows 10 and Windows 11 systems usually include it already.
+- If Windows reports a missing WebView2 runtime, install Microsoft Edge WebView2 Runtime from Microsoft and run the PURSUE installer again.
+- Local image OCR or scanned-PDF OCR requires local OCR tools. Source sync, downloads, imports, embedded-text extraction, search, cases, and exports do not require hosted services.
+
 ## Release Automation
 
 The `build-installers` workflow runs on pushes, pull requests, manual dispatch, and tags matching `v*`.
@@ -55,4 +94,4 @@ It updates `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `
 
 The public release workflow intentionally publishes unsigned installers by default. Invalid or incomplete signing secrets must not block downloadable releases.
 
-Unsigned builds can still be downloaded from GitHub Releases, but macOS and Windows may show trust warnings during install. Add a separate signed release lane only after Apple Developer ID, notarization, and Tauri signing secrets have been verified in CI.
+Unsigned builds can still be downloaded from GitHub Releases, but macOS and Windows may show trust warnings during install. Add a separate signed release lane only after Apple Developer ID, notarization, Windows code signing, and Tauri signing secrets have been verified in CI.
