@@ -16,24 +16,6 @@ pub struct Config {
     pub rope_theta: f32,
 }
 
-impl Config {
-    pub fn gemma_4_e4b() -> Self {
-        Self {
-            vocab_size: 262144,
-            hidden_size: 2560,
-            intermediate_size: 10240,
-            num_hidden_layers: 42,
-            num_attention_heads: 8,
-            num_key_value_heads: 2,
-            head_dim: 256,
-            rms_norm_eps: 1e-6,
-            hidden_size_per_layer_input: 256,
-            max_position_embeddings: 131072,
-            rope_theta: 10000.0,
-        }
-    }
-}
-
 struct MLP {
     gate_proj: Linear,
     up_proj: Linear,
