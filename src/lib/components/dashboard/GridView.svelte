@@ -1,12 +1,13 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
   import type { RecordSummary } from "$lib/types";
-  import { FileText, MapPin, Calendar, CheckCircle2, Clock, Zap } from "lucide-svelte";
+  import { FileText, MapPin, Calendar, CheckCircle2, Clock, Zap, Maximize2 } from "lucide-svelte";
 
-  let { records, selectedRecordId = null, onSelect } = $props<{
+  let { records, selectedRecordId = null, onSelect, onView } = $props<{
     records: RecordSummary[];
     selectedRecordId?: string | null;
     onSelect: (record: RecordSummary) => void;
+    onView?: (record: RecordSummary) => void;
   }>();
 
   function formatBytes(value: number | null | undefined) {
@@ -40,7 +41,13 @@
         {#if record.thumbnail_path}
           <div class="card-preview">
             <img src={convertFileSrc(record.thumbnail_path)} alt="Preview" />
-            <div class="preview-overlay"></div>
+            <div class="preview-overlay">
+              {#if record.local_path && onView}
+                <button class="view-overlay-btn" onclick={(e) => { e.stopPropagation(); onView(record); }} title="Quick Preview">
+                   <Maximize2 size={24} />
+                </button>
+              {/if}
+            </div>
           </div>
         {/if}
 
@@ -51,10 +58,13 @@
             </div>
           {/if}
           <span class="agency-tag">{record.agency || "AARO_OFFICIAL"}</span>
-          <div class="status-indicator" class:completed={record.analysis_status === 'completed'} class:indexed={record.analysis_status === 'indexed'}>
+          <div class="status-indicator" 
+            class:completed={record.analysis_status === 'completed'} 
+            class:indexed={record.analysis_status === 'indexed' || record.analysis_status === 'indexing'}
+          >
             {#if record.analysis_status === 'completed'}
               <CheckCircle2 size={12} />
-            {:else if record.analysis_status === 'indexed'}
+            {:else if record.analysis_status === 'indexed' || record.analysis_status === 'indexing'}
               <Zap size={12} />
             {:else}
               <Clock size={12} />

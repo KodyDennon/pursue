@@ -100,6 +100,8 @@ pub fn run() {
             check_model_status,
             get_system_stats,
             analyze_all_records,
+            index_all_records,
+            get_model_registry,
             get_evidence_stats,
             verify_vault_integrity,
             get_latest_download_job,

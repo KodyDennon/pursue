@@ -27,30 +27,23 @@ pub async fn get_system_stats() -> Result<diagnostics::SystemStats, String> {
 pub async fn check_model_status(state: State<'_, AppState>) -> Result<std::collections::HashMap<String, bool>, String> {
     let manager = ModelManager::new(&state.library);
     let mut status = std::collections::HashMap::new();
+    let registry = crate::analysis::registry::get_model_registry();
 
-    // Single-file models: check file exists directly
-    let single_file_models = vec![
-        ("bge-small", "bge-small-en-v1.5.onnx"),
-        ("tokenizer", "tokenizer.json"),
-    ];
-
-    for (id, filename) in single_file_models {
-        let path = manager.models_dir().join(filename);
-        status.insert(id.to_string(), path.exists());
-    }
-
-    // Repository-based models: check directory exists AND contains model.safetensors
-    let repo_models = vec![
-        "gemma-4-e4b",
-        "gemma-4-e2b",
-    ];
-
-    for id in repo_models {
-        let repo_dir = manager.models_dir().join(id);
-        let safetensors = repo_dir.join("model.safetensors");
-        let has_config = repo_dir.join("config.json").exists();
-        let has_weights = safetensors.exists();
-        status.insert(id.to_string(), has_config && has_weights);
+    for model in registry {
+        let is_ready = if let Some(filename) = &model.filename {
+            manager.models_dir().join(filename).exists()
+        } else {
+            let repo_dir = manager.models_dir().join(&model.id);
+            let has_config = repo_dir.join("config.json").exists();
+            let has_weights = std::fs::read_dir(&repo_dir)
+                .map(|mut d| d.any(|e| {
+                    e.map(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("safetensors"))
+                        .unwrap_or(false)
+                }))
+                .unwrap_or(false);
+            has_config && has_weights
+        };
+        status.insert(model.id, is_ready);
     }
 
     Ok(status)

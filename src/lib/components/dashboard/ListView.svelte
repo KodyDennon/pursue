@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { RecordSummary } from "$lib/types";
-  import { FileText, CheckCircle2, Clock, Download, ExternalLink, Zap } from "lucide-svelte";
+  import { FileText, CheckCircle2, Clock, Download, ExternalLink, Zap, Maximize2 } from "lucide-svelte";
 
-  let { records, selectedRecordId = null, onSelect } = $props<{
+  let { records, selectedRecordId = null, onSelect, onView } = $props<{
     records: RecordSummary[];
     selectedRecordId?: string | null;
     onSelect: (record: RecordSummary) => void;
+    onView?: (record: RecordSummary) => void;
   }>();
 
   function formatBytes(value: number | null | undefined) {
@@ -62,13 +63,18 @@
           <td class="col-date">{record.release_date || "--"}</td>
           <td class="col-size">{record.local_path ? formatBytes(record.artifact_size) : "--"}</td>
           <td class="col-actions">
-             {#if record.document_url}
-                <a href={record.document_url} target="_blank" class="source-link" onclick={(e) => e.stopPropagation()}>
-                   <ExternalLink size={14} />
+            <div class="row-actions">
+              {#if record.document_url}
+                <a href={record.document_url} target="_blank" class="source-link" onclick={(e) => e.stopPropagation()} title="Open Remote Source">
+                  <ExternalLink size={14} />
                 </a>
-             {:else}
-                <span class="no-source">--</span>
-             {/if}
+              {/if}
+              {#if record.local_path && onView}
+                <button class="preview-link" onclick={(e) => { e.stopPropagation(); onView(record); }} title="Quick Preview">
+                  <Maximize2 size={14} />
+                </button>
+              {/if}
+            </div>
           </td>
         </tr>
       {/each}

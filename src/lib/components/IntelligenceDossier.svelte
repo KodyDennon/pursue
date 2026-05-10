@@ -4,6 +4,7 @@
   import { openPath, openUrl } from "@tauri-apps/plugin-opener";
   import { listen } from "@tauri-apps/api/event";
   import { AlertCircle, Brain, Loader2, FileText, ImageIcon, Settings as CaseIcon, ChevronLeft, Download, ExternalLink, HardDrive, ShieldCheck, Activity, Terminal } from "lucide-svelte";
+  import MediaViewer from "./MediaViewer.svelte";
   import ForensicAuditViewer from "./ForensicAuditViewer.svelte";
   import { addToast } from "$lib/toastStore";
   import type { AnalysisReport, CaseSummary, DownloadResult, RecordSummary, RecordAsset, RecordForensics, IntelligenceLog } from "$lib/types";
@@ -25,6 +26,7 @@
   let error = $state<string | null>(null);
   let noteBody = $state("");
   let modelReady = $state(true);
+  let viewerOpen = $state(false);
   
   // Real-time analysis status
   let analysisStatus = $state<string | null>(null);
@@ -189,12 +191,15 @@
         <button class="action-btn" onclick={revealLocal} disabled={busy === 'open-path'}>
           <HardDrive size={16} /> Local File
         </button>
-        <button class="action-btn primary" onclick={runFullAnalysis} disabled={!!busy}>
+        <button class="action-btn" onclick={runFullAnalysis} disabled={!!busy}>
           {#if busy === 'analysis'}
-            <Loader2 size={16} class="spin" /> Synchronizing...
+            <Loader2 size={16} class="spin" />
           {:else}
-            <Brain size={16} /> {record.analysis_status === 'completed' ? 'Re-Audit' : 'Full Analysis'}
+            <Brain size={16} /> Analysis
           {/if}
+        </button>
+        <button class="action-btn primary" onclick={() => viewerOpen = true}>
+          <Maximize2 size={16} /> View Evidence
         </button>
       {:else}
         <button class="action-btn primary" onclick={download} disabled={!!busy}>
@@ -419,6 +424,8 @@
   </div>
 </div>
 
+<MediaViewer record={record} bind:isOpen={viewerOpen} />
+
 <style>
   .intelligence-dossier {
     height: 100%;
@@ -539,7 +546,7 @@
   .fidelity-dial { position: relative; width: 100px; height: 100px; margin: 20px auto; }
   .forensic-view-container { height: 100%; overflow: hidden; }
 
-  .thoughts-view { padding: 32px; height: 100%; }
+  .thoughts-view { padding: 32px; height: 100%; overflow-y: auto; }
   .thoughts-stack { display: flex; flex-direction: column; gap: 24px; }
   .thought-entry { background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
   .thought-meta { padding: 8px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; font-size: 10px; font-family: var(--font-mono); }
@@ -547,7 +554,7 @@
   .t-label { font-size: 9px; font-weight: 900; color: var(--accent-primary); }
   .thought-block pre { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); white-space: pre-wrap; margin: 0; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 4px; }
 
-  .raw-view { padding: 32px; height: 100%; }
+  .raw-view { padding: 32px; height: 100%; overflow-y: auto; }
   .text-blob { font-family: var(--font-mono); font-size: 12px; line-height: 1.8; color: var(--text-secondary); white-space: pre-wrap; }
 
   .media-view { padding: 32px; height: 100%; }

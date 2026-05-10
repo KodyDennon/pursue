@@ -14,6 +14,7 @@
   import DownloadAgent from "$lib/components/DownloadAgent.svelte";
   import Settings from "$lib/components/Settings.svelte";
   import AnalysisModal from "$lib/components/AnalysisModal.svelte";
+  import MediaViewer from "$lib/components/MediaViewer.svelte";
   import type { CaseSummary, DatabaseStatus, RecordSummary } from "$lib/types";
   import { Loader2 } from "lucide-svelte";
   import { addToast, updateToast } from "$lib/toastStore";
@@ -34,6 +35,8 @@
   let analysisModalOpen = $state(false);
   let sidebarWidth = $state(540);
   let isResizing = $state(false);
+  let viewerOpen = $state(false);
+  let viewerRecord = $state<RecordSummary | null>(null);
 
   function startResizing() {
     isResizing = true;
@@ -149,8 +152,35 @@ onMount(() => {
       }
     }, 2000);
 
+    const unlistenAnalysis = listen("analysis-progress", (event: any) => {
+        const payload = event.payload;
+        if (payload.record_id) {
+            const idx = records.findIndex(r => r.id === payload.record_id);
+            if (idx !== -1) {
+                // Map the event status to the record analysis_status
+                let newStatus = records[idx].analysis_status;
+                if (payload.status === 'extracting-foundation' || payload.status === 'processing') {
+                    newStatus = 'indexing';
+                } else if (payload.status === 'analyzing' || payload.status === 'synthesizing') {
+                    newStatus = 'synthesizing';
+                } else if (payload.status === 'completed') {
+                    newStatus = 'completed';
+                    // Trigger a refresh of this specific record summary if we want more data (like intelligence_json)
+                    // but for now, just updating the status is enough to show progress.
+                } else if (payload.status === 'record-failed') {
+                    newStatus = 'failed';
+                }
+                
+                if (newStatus !== records[idx].analysis_status) {
+                    records[idx] = { ...records[idx], analysis_status: newStatus };
+                }
+            }
+        }
+    });
+
     return () => {
       clearInterval(statsInterval);
+      unlistenAnalysis.then(u => u());
     };
 });
 
@@ -224,24 +254,35 @@ onMount(() => {
     <div class="os-body">
       <main class="os-main">
         <div class="view-container">
-          {#if $activeView === 'dashboard'}
-            {#if viewMode === 'grid'}
-              <GridView 
+          {#if selectedRecord}
+            <IntelligenceDossier 
+              record={selectedRecord} 
+              cases={cases}
+              selectedCaseId={selectedCaseId}
+              onBack={() => (selectedRecord = null)}
+              onChanged={() => loadInitialData()}
+              onAnalyze={() => (analysisModalOpen = true)}
+            />
+          {:else if $activeView === 'dashboard'}
+            <GridView 
                 records={records} 
                 selectedRecordId={selectedRecord?.id}
                 onSelect={(r) => (selectedRecord = r)}
+                onView={(r) => { viewerRecord = r; viewerOpen = true; }}
               />
             {:else if viewMode === 'cards'}
               <IntelCardsView 
                 records={records} 
                 selectedRecordId={selectedRecord?.id}
                 onSelect={(r) => (selectedRecord = r)}
+                onView={(r) => { viewerRecord = r; viewerOpen = true; }}
               />
             {:else if viewMode === 'list'}
               <ListView 
                 records={records} 
                 selectedRecordId={selectedRecord?.id}
                 onSelect={(r) => (selectedRecord = r)}
+                onView={(r) => { viewerRecord = r; viewerOpen = true; }}
               />
             {/if}
           {:else if $activeView === 'intelligence'}
@@ -266,25 +307,6 @@ onMount(() => {
           {/if}
         </div>
       </main>
-
-      {#if selectedRecord}
-        <button 
-          class="sidebar-resizer" 
-          aria-label="Resize sidebar"
-          onmousedown={startResizing}
-          class:active={isResizing}
-        ></button>
-        <aside class="os-sidebar" style="width: {sidebarWidth}px; min-width: {sidebarWidth}px;">
-          <IntelligenceDossier 
-            record={selectedRecord} 
-            cases={cases}
-            selectedCaseId={selectedCaseId}
-            onBack={() => (selectedRecord = null)}
-            onChanged={() => loadInitialData()}
-            onAnalyze={() => (analysisModalOpen = true)}
-          />
-        </aside>
-      {/if}
     </div>
 
     <footer class="os-footer">
@@ -320,6 +342,9 @@ onMount(() => {
   </div>
 
   <AnalysisModal bind:isOpen={analysisModalOpen} onComplete={loadInitialData} />
+  {#if viewerRecord}
+    <MediaViewer record={viewerRecord} bind:isOpen={viewerOpen} />
+  {/if}
 {/if}
 
 <style>

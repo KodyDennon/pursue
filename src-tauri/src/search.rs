@@ -280,6 +280,28 @@ fn deterministic_embedding(text: &str) -> Vec<f32> {
     vector
 }
 
+pub async fn query_related_fragments_for_record(pool: &sqlx::SqlitePool, record_id: &str, text: &str, limit: usize) -> anyhow::Result<Vec<String>> {
+    let vector = vectorize_text(text).await?;
+    let vector_blob: &[u8] = unsafe {
+        std::slice::from_raw_parts(
+            vector.as_ptr() as *const u8,
+            vector.len() * std::mem::size_of::<f32>(),
+        )
+    };
+
+    let rows = sqlx::query(
+        "SELECT f.text FROM vec_intelligence_fragments v JOIN intelligence_fragments f ON f.id = v.fragment_id WHERE f.record_id = ? AND v.embedding MATCH ? AND k = ?"
+    )
+    .bind(record_id)
+    .bind(vector_blob)
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await?;
+
+    use sqlx::Row;
+    Ok(rows.into_iter().map(|r| r.get::<String, _>("text")).collect())
+}
+
 pub async fn query_related_fragments(pool: &sqlx::SqlitePool, text: &str, limit: usize) -> anyhow::Result<Vec<String>> {
     let vector = vectorize_text(text).await?;
     let vector_blob: &[u8] = unsafe {

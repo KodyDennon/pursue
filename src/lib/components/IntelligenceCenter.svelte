@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, onDestroy } from "svelte";
-  import { Brain, Cpu, Database, HardDrive, Download, CheckCircle2, AlertCircle, Loader2 } from "lucide-svelte";
+  import { Brain, Cpu, Database, HardDrive, Download, CheckCircle2, AlertCircle, Loader2, RefreshCw, Zap } from "lucide-svelte";
   import type { DatabaseStatus } from "$lib/types";
   import { addToast } from "$lib/toastStore";
 
@@ -11,13 +11,7 @@
 
   let status = $state<DatabaseStatus | null>(null);
   let diagnostics = $state<any>(null);
-  let models = $state([
-    { id: 'bge-small', name: 'BGE Small v1.5', filename: 'bge-small-en-v1.5.onnx', type: 'Embedding', size: '134 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx', speedMbps: null as number | null, etaSeconds: null as number | null },
-    { id: 'tokenizer', name: 'BGE Tokenizer', filename: 'tokenizer.json', type: 'System', size: '1 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json', speedMbps: null as number | null, etaSeconds: null as number | null },
-    { id: 'gemma-4-e2b', name: 'Gemma 4 E2B IT', filename: 'google/gemma-4-E2B-it', type: 'Intelligence', size: '10.2 GB', status: 'pending', progress: 0, url: 'google/gemma-4-E2B-it', speedMbps: null as number | null, etaSeconds: null as number | null },
-    { id: 'gemma-4-e4b', name: 'Gemma 4 E4B IT', filename: 'google/gemma-4-E4B-it', type: 'Intelligence (Elite)', size: '16.0 GB', status: 'pending', progress: 0, url: 'google/gemma-4-E4B-it', speedMbps: null as number | null, etaSeconds: null as number | null }
-  ]);
-
+  let models = $state<any[]>([]);
   let busyModelId = $state<string | null>(null);
 
   let analysisProgress = $state(0);
@@ -25,11 +19,26 @@
   let analysisStatus = $state("");
 
   async function loadStatus() {
+    console.log("[IntelligenceCenter] Syncing status...");
     try {
       status = await invoke<DatabaseStatus>("get_database_status");
       diagnostics = await invoke<any>("get_hardware_diagnostics");
+      console.log("[IntelligenceCenter] Diagnostics loaded:", diagnostics);
+      if (models.length === 0) {
+        const registry = await invoke<any[]>("get_model_registry");
+        models = registry.map(m => ({
+          ...m,
+          type: m.model_type.charAt(0).toUpperCase() + m.model_type.slice(1),
+          size: m.size_label,
+          status: 'pending',
+          progress: 0,
+          url: m.repo_id,
+          speedMbps: null,
+          etaSeconds: null
+        }));
+      }
+
       const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
-      
       models = models.map(m => ({
         ...m,
         status: modelStatus[m.id] ? "ready" : (busyModelId === m.id ? "downloading" : "missing")
@@ -137,6 +146,12 @@
   });
 </script>
 
+{#if !status || !diagnostics}
+  <div class="center-loader">
+    <Loader2 class="spin" size={32} />
+    <span>Syncing Neural Engine...</span>
+  </div>
+{:else}
 <div class="intelligence-center custom-scrollbar">
   <header class="page-header">
     <div class="title-wrap">
@@ -253,9 +268,17 @@
               </div>
             </div>
           {:else}
-            <button class="text-btn" onclick={reindexAll}>
-              <Brain size={14} /> Batch Neural Re-indexing
-            </button>
+          <div class="model-meta">
+            <span>BGE v1.5 (384d)</span>
+            <div class="actions">
+              <button class="text-btn" onclick={() => invoke('index_all_records').then(n => { if (n > 0) isOpen = true; })}>
+                <RefreshCw size={14} /> Build Vector Index
+              </button>
+              <button class="text-btn" onclick={reindexAll}>
+                <Zap size={14} /> Full Neural Audit
+              </button>
+            </div>
+          </div>
           {/if}
         </div>
       </header>
@@ -288,8 +311,20 @@
     </section>
   </div>
 </div>
+{/if}
 
 <style>
+  .center-loader {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+  }
   .intelligence-center {
     height: 100%;
     overflow-y: auto;
@@ -297,6 +332,13 @@
     display: flex;
     flex-direction: column;
     gap: 40px;
+    background: var(--bg-base);
+    animation: fadeIn 0.4s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   .page-header {

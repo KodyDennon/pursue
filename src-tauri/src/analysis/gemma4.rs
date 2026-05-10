@@ -307,8 +307,8 @@ impl Model {
 
         let embed_tokens = candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb_m.pp("embed_tokens"))?;
         
-        let embed_tokens_per_layer = if cfg.hidden_size_per_layer_input > 0 {
-            Some(candle_nn::embedding(cfg.vocab_size, cfg.hidden_size_per_layer_input, vb_m.pp("embed_tokens_per_layer"))?)
+        let embed_tokens_per_layer = if vb_m.contains_tensor("embed_tokens_per_layer.weight") {
+            Some(candle_nn::embedding(cfg.vocab_size, cfg.num_hidden_layers * cfg.hidden_size_per_layer_input, vb_m.pp("embed_tokens_per_layer"))?)
         } else {
             None
         };
@@ -350,7 +350,7 @@ impl Model {
         // Gemma scales embeddings
         x = (x * self.hidden_size.sqrt())?;
         
-        let ple_x = if let Some(emb) = &self.embed_tokens_per_layer {
+        let ple_full = if let Some(emb) = &self.embed_tokens_per_layer {
             Some(emb.forward(tokens)?)
         } else {
             None
@@ -367,10 +367,22 @@ impl Model {
         };
 
         for (i, layer) in self.layers.iter().enumerate() {
-            x = layer.forward(&x, ple_x.as_ref(), index, mask.as_ref(), &mut cache[i])?;
+            let ple_layer = if let Some(ple) = &ple_full {
+                // Slice the concatenated embedding for the current layer
+                let start = i * (ple.dim(D::Minus1)? / self.layers.len());
+                let len = ple.dim(D::Minus1)? / self.layers.len();
+                Some(ple.narrow(D::Minus1, start, len)?)
+            } else {
+                None
+            };
+            x = layer.forward(&x, ple_layer.as_ref(), index, mask.as_ref(), &mut cache[i])?;
         }
         let x = self.norm.forward(&x)?;
         let x = x.i((.., seq_len - 1, ..))?;
         self.lm_head.forward(&x)
+    }
+
+    pub fn new_kv_cache(&self) -> KVCache {
+        KVCache::new()
     }
 }

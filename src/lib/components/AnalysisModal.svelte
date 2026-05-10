@@ -16,6 +16,7 @@
   let processedCount = $state(0);
   let totalCount = $state(0);
   let logs = $state<Array<{ time: string, msg: string, type: 'info' | 'error' | 'success' }>>([]);
+  let thoughtText = $state("");
   let busy = $state(false);
 
   function addLog(msg: string, type: 'info' | 'error' | 'success' = 'info') {
@@ -106,6 +107,10 @@
         if (status !== "synthesizing" && status !== "reasoning") {
             addLog(`Intelligence Phase: Gemma 4 performing deep synthesis...`, "info");
             status = "synthesizing";
+            thoughtText = ""; // Reset for new record
+        }
+        if (payload.token_text) {
+            thoughtText += payload.token_text;
         }
       }
     }).then(u => unlisten = u);
@@ -184,22 +189,39 @@
           </div>
         </section>
 
-        <section class="log-section">
-          <header>
-            <Terminal size={14} /> <h3>Extraction Output Log</h3>
-          </header>
-          <div class="log-container custom-scrollbar">
-            {#each logs as log}
-              <div class="log-entry {log.type}">
-                <span class="time">[{log.time}]</span>
-                <span class="msg">{log.msg}</span>
+          <div class="analysis-grid">
+            <div class="log-section">
+              <div class="section-head">
+                <Terminal size={14} />
+                <span>EXTRACTION OUTPUT LOG</span>
               </div>
-            {/each}
-            {#if logs.length === 0}
-               <div class="log-status">Neural engine standby. Waiting for task initiation...</div>
-            {/if}
+              <div class="log-viewport custom-scrollbar">
+                {#each logs as log}
+                  <div class="log-entry {log.type}">
+                    <span class="log-time">[{log.time}]</span>
+                    <span class="log-msg">{log.msg}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+
+            <div class="thought-section">
+              <div class="section-head">
+                <Activity size={14} />
+                <span>NEURAL THOUGHT STREAM</span>
+              </div>
+              <div class="thought-viewport custom-scrollbar">
+                {#if status === 'synthesizing' || status === 'reasoning'}
+                    <div class="neural-stream">
+                        <span class="cursor">█</span>
+                        {thoughtText}
+                    </div>
+                {:else}
+                    <div class="empty-state">Standby for intelligence synthesis...</div>
+                {/if}
+              </div>
+            </div>
           </div>
-        </section>
       </div>
 
       <footer class="panel-footer">
@@ -376,56 +398,78 @@
     100% { box-shadow: 0 0 0 0 rgba(243, 196, 107, 0); }
   }
 
-  .log-section {
+  .analysis-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
     flex: 1;
+    min-height: 0;
+  }
+
+  .log-section, .thought-section {
     display: flex;
     flex-direction: column;
     gap: 12px;
     overflow: hidden;
   }
 
-  .log-section header {
+  .section-head {
     display: flex;
     align-items: center;
-    gap: 10px;
-    color: var(--text-secondary);
+    gap: 8px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
   }
 
-  .log-section h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; margin: 0; }
-
-  .log-container {
+  .log-viewport, .thought-viewport {
     flex: 1;
-    background: rgba(0,0,0,0.4);
+    background: rgba(0,0,0,0.5);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
     padding: 16px;
     font-family: var(--font-mono);
     font-size: 11px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    line-height: 1.6;
     overflow-y: auto;
   }
 
   .log-entry {
     display: flex;
     gap: 12px;
-    line-height: 1.6;
+    margin-bottom: 4px;
   }
 
-  .log-entry.info .time { color: var(--text-tertiary); }
-  .log-entry.info .msg { color: var(--text-secondary); }
-  .log-entry.success { background: rgba(77, 243, 169, 0.05); color: var(--accent-success); }
-  .log-entry.error { background: rgba(243, 77, 77, 0.05); color: var(--accent-danger); }
+  .log-time { color: var(--text-tertiary); opacity: 0.5; }
+  .log-entry.success { color: #4df3a9; }
+  .log-entry.error { color: #f34d4d; }
 
-  .log-status {
+  .neural-stream {
+    color: var(--accent-primary);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .empty-state {
     height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-tertiary);
+    opacity: 0.3;
     font-style: italic;
-    opacity: 0.5;
+  }
+
+  .cursor {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    from, to { opacity: 1; }
+    50% { opacity: 0; }
   }
 
   .panel-footer {

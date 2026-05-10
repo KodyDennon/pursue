@@ -32,9 +32,9 @@ pub async fn analyze_record(
 }
 
 #[tauri::command]
-pub async fn analyze_all_records(state: State<'_, AppState>, app_handle: AppHandle) -> Result<usize, String> {
+pub async fn index_all_records(state: State<'_, AppState>, app_handle: AppHandle) -> Result<usize, String> {
     let pool = state.db.clone();
-    let records = sqlx::query("SELECT id FROM records WHERE (analysis_status IS NULL OR analysis_status != 'completed') AND local_path IS NOT NULL")
+    let records = sqlx::query("SELECT id FROM records WHERE (analysis_status IS NULL OR analysis_status != 'indexed') AND local_path IS NOT NULL")
         .fetch_all(&pool)
         .await
         .map_err(to_error)?;
@@ -43,6 +43,70 @@ pub async fn analyze_all_records(state: State<'_, AppState>, app_handle: AppHand
     if count == 0 {
         return Ok(0);
     }
+    
+    if state.analysis.is_busy() {
+        return Err("Analysis already in progress".to_string());
+    }
+    
+    state.analysis.set_busy(true);
+    let handle = app_handle.clone();
+    let analysis = state.analysis.clone();
+    
+    tauri::async_runtime::spawn(async move {
+        use sqlx::Row;
+        let mut completed_count = 0;
+        for row in records {
+            let id: String = row.get("id");
+            let current_idx = completed_count + 1;
+            
+            let _ = handle.emit("analysis-progress", serde_json::json!({
+                "current": current_idx,
+                "total": count,
+                "status": "processing",
+                "record_id": id
+            }));
+            
+            if let Err(e) = analysis.index_record(&handle, &id).await {
+                 let _ = handle.emit("analysis-progress", serde_json::json!({
+                     "status": "record-failed",
+                     "record_id": id,
+                     "error": format!("Indexing failed: {}", e)
+                 }));
+            }
+            completed_count += 1;
+        }
+
+        let _ = handle.emit("analysis-progress", serde_json::json!({
+            "current": count,
+            "total": count,
+            "status": "completed",
+            "record_id": null
+        }));
+        
+        analysis.set_busy(false);
+    });
+
+    Ok(count)
+}
+
+#[tauri::command]
+pub async fn analyze_all_records(state: State<'_, AppState>, app_handle: AppHandle) -> Result<usize, String> {
+    let pool = state.db.clone();
+    let records = sqlx::query("SELECT id FROM records WHERE (analysis_status IS NULL OR analysis_status != 'completed') AND local_path IS NOT NULL")
+        .fetch_all(&pool)
+        .await
+        .map_err(to_error)?;
+
+    if state.analysis.is_busy() {
+        return Err("Analysis already in progress".to_string());
+    }
+    
+    let count = records.len();
+    if count == 0 {
+        return Ok(0);
+    }
+    
+    state.analysis.set_busy(true);
     
     let handle = app_handle.clone();
     let analysis = state.analysis.clone();
@@ -102,6 +166,8 @@ pub async fn analyze_all_records(state: State<'_, AppState>, app_handle: AppHand
             "status": "completed",
             "record_id": null
         }));
+        
+        analysis.set_busy(false);
     });
 
     Ok(count)
@@ -147,4 +213,9 @@ pub async fn search(
     crate::search::search(&state.db, request)
         .await
         .map_err(to_error)
+}
+
+#[tauri::command]
+pub async fn get_model_registry() -> Vec<crate::analysis::registry::ModelDefinition> {
+    crate::analysis::registry::get_model_registry()
 }

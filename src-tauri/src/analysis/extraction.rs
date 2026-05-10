@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::{AppHandle, Manager, Emitter};
 use crate::commands::AppState;
 use crate::analysis::gemma4;
 use crate::common::now;
@@ -37,7 +37,7 @@ impl IntelligenceExtractor {
 
     pub async fn extract_forensics(
         &self, 
-        app: &tauri::AppHandle, 
+        app: &AppHandle, 
         record_id: &str, 
         config: ExtractionConfig, 
         text: &str, 
@@ -52,222 +52,211 @@ impl IntelligenceExtractor {
 
     pub async fn extract_metadata(
         &self, 
-        app: &tauri::AppHandle, 
+        app: &AppHandle, 
         record_id: &str, 
         repo_path: PathBuf, 
         text: &str,
         images: Vec<PathBuf>,
     ) -> Result<Value> {
-        let text = text.to_string();
+        let text_owned = text.to_string();
         let handle = app.clone();
         let rid = record_id.to_string();
         let db = app.state::<AppState>().db.clone();
         
-        let cache_clone = self.cache.clone();
-        let repo_path_clone = repo_path.clone();
-
-        tokio::task::spawn_blocking(move || {
-            use tauri::Emitter;
-            let mut cache = futures::executor::block_on(cache_clone.lock());
-            
-            // 1. Check if model is already loaded
-            if cache.is_none() || cache.as_ref().unwrap().repo_path != repo_path_clone {
-                let _ = handle.emit("analysis-progress", json!({
-                    "status": "loading-model",
-                    "record_id": rid,
-                }));
-                *cache = Some(Self::load_context(&repo_path_clone)?);
-            }
-            let ctx = cache.as_ref().unwrap();
-            let device = &ctx.model.device;
-
-            // 2. Retrieval-Augmented Context (Intelligence Graph)
-            let related_context = match futures::executor::block_on(crate::search::query_related_fragments(&db, &text, 5)) {
-                Ok(fragments) if !fragments.is_empty() => {
-                    format!("\nCRITICAL CONTEXT FROM VAULT:\n{}\n", fragments.join("\n---\n"))
-                },
-                _ => "".to_string(),
-            };
-
-            // 3. Multimodal Contextualization
-            let image_count = images.len();
-            let forensic_audit_note = if image_count > 0 {
-                format!("AUDIT NOTICE: {} visual assets are attached. Perform a forensic comparison between the OCR text and the visual artifacts.", image_count)
-            } else {
-                "No visual assets attached. Rely on OCR data for analysis.".to_string()
-            };
-
-            // 3. Construct System Persona
-            let persona_modifier = match futures::executor::block_on(sqlx::query("SELECT value_json FROM app_settings WHERE key = 'intelligence_persona'")
-                .fetch_optional(&db)) {
-                    Ok(Some(row)) => {
-                        use sqlx::Row;
-                        let val: String = row.get("value_json");
-                        serde_json::from_str::<String>(&val).unwrap_or_default()
-                    },
-                    _ => "".to_string(),
-                };
-
-            let system_prompt = format!(
-                "You are the PURSUE Intelligence OS, an advanced forensic auditor for sensitive documentation. \n\
-                Directives:\n\
-                1. NEUTRALITY: Maintain absolute forensic neutrality.\n\
-                2. STRUCTURE: Return valid JSON only.\n\
-                3. AUDIT: {}\n\
-                {}\n\n\
-                {}\n\n\
-                Input Document:\n{}",
-                forensic_audit_note,
-                persona_modifier,
-                related_context,
-                text
-            );
-
-            let prompt = format!(
-                "<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\nPerform a full forensic audit and extract intelligence metadata. Highlight any suspicious patterns or redaction failures.<|im_end|>\n<|im_start|>thought\n",
-                system_prompt
-            );
-
+        let mut cache = self.cache.lock().await;
+        
+        // 1. Ensure Model Readiness
+        if cache.is_none() || cache.as_ref().unwrap().repo_path != repo_path {
             let _ = handle.emit("analysis-progress", json!({
-                "status": "synthesizing-start",
-                "record_id": rid
+                "status": "loading-model",
+                "record_id": rid,
             }));
+            *cache = Some(Self::load_context(&repo_path)?);
+        }
+        
+        let ctx = cache.take().unwrap();
+        
+        let rid_clone = rid.clone();
+        
+        // 2. Retrieval-Augmented Context (Async)
+        // For long documents, we prioritize fragments from THIS record.
+        let fragments = crate::search::query_related_fragments_for_record(&db, &rid, &text_owned, 10).await.unwrap_or_default();
+        let related_context = if !fragments.is_empty() {
+            format!("\nCRITICAL CONTEXT FROM DOCUMENT CHUNKS:\n{}\n", fragments.join("\n---\n"))
+        } else {
+            "".to_string()
+        };
 
-            // 4. Autoregressive Generation with KV-Caching
-            let mut tokens = ctx.tokenizer.encode(prompt, true)
-                .map_err(|e| anyhow!("Tokenization failed: {}", e))?
-                .get_ids()
-                .to_vec();
+        // 3. Optimize Input Text (Handle huge multi-page docs)
+        // If text is too long, we take the head and tail, and rely on RAG for the middle.
+        let processed_text = if text_owned.len() > 15000 {
+            let head: String = text_owned.chars().take(8000).collect();
+            let tail: String = text_owned.chars().skip(text_owned.chars().count() - 4000).collect();
+            format!("{}\n\n[... TRUNCATED MIDDLE - REFER TO CONTEXT FRAGMENTS ...]\n\n{}", head, tail)
+        } else {
+            text_owned
+        };
 
-            let mut logits_processor = LogitsProcessor::new(1337, Some(0.0), None);
-            let mut generated_text = String::new();
-            let mut pos = 0;
-            
-            // Initial KV Cache: 1 per layer (Gemma 4 has 42 layers in Elite, 26 in E2B)
-            let num_layers = ctx.model.layers.len();
-            let mut kv_cache = vec![gemma4::KVCache::new(); num_layers];
-            
-            for i in 0..2048 {
-                let context_size = if pos > 0 { 1 } else { tokens.len() };
-                let input_tokens = &tokens[tokens.len() - context_size..];
-                let input = Tensor::new(input_tokens, device)?.unsqueeze(0)?;
+        // 4. Inference Orchestration (spawn_blocking)
+        let repo_path_clone = repo_path.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            Self::run_inference(handle, rid_clone, ctx, processed_text, fragments.len(), related_context, images, repo_path_clone)
+        }).await?;
+
+        // 4. Restore Cache
+        match result {
+            Ok((val, ctx_to_restore)) => {
+                *cache = Some(ctx_to_restore);
                 
-                let logits = ctx.model.forward(&input, pos, &mut kv_cache)?;
-                let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
+                // 5. Post-process: Persist fragments (Async again)
+                self.persist_result_fragments(&db, &record_id, &val).await?;
                 
-                let next_token = logits_processor.sample(&logits)?;
-                tokens.push(next_token);
-                pos += context_size;
+                Ok(val)
+            },
+            Err(e) => Err(e)
+        }
+    }
 
-                if let Some(decoded) = ctx.tokenizer.id_to_token(next_token) {
-                    if decoded == "<|im_end|>" || decoded == "<|file_separator|>" || next_token == 1 {
-                        break;
-                    }
-                    if let Ok(piece) = ctx.tokenizer.decode(&[next_token], true) {
-                        generated_text.push_str(&piece);
+    async fn persist_result_fragments(&self, db: &sqlx::SqlitePool, record_id: &str, response: &Value) -> Result<()> {
+        if let Some(obs) = response.get("observations").and_then(|a| a.as_array()) {
+            for item in obs {
+                if let Some(txt) = item.as_str() {
+                    let fid = uuid::Uuid::new_v4().to_string();
+                    sqlx::query("INSERT INTO intelligence_fragments (id, record_id, fragment_type, text, confidence, created_at) VALUES (?, ?, 'observation', ?, 0.9, ?)")
+                        .bind(&fid).bind(record_id).bind(txt).bind(now()).execute(db).await?;
+                    
+                    if let Ok(emb) = crate::search::vectorize_text(txt).await {
+                        let vblob: &[u8] = unsafe { std::slice::from_raw_parts(emb.as_ptr() as *const u8, emb.len() * 4) };
+                        sqlx::query("INSERT INTO vec_intelligence_fragments (fragment_id, embedding) VALUES (?, ?)")
+                            .bind(&fid).bind(vblob).execute(db).await?;
                     }
                 }
+            }
+        }
+        Ok(())
+    }
 
-                if i % 20 == 0 {
-                    let _ = handle.emit("analysis-progress", json!({
-                        "status": "synthesizing",
-                        "record_id": rid,
-                        "token_index": i,
-                        "token_limit": 2048
-                    }));
+    fn run_inference(
+        handle: AppHandle,
+        rid: String,
+        ctx: GemmaContext,
+        text: String,
+        _fragment_count: usize,
+        related_context: String,
+        images: Vec<PathBuf>,
+        _repo_path: PathBuf
+    ) -> Result<(Value, GemmaContext)> {
+        let device = &ctx.model.device;
+        let image_count = images.len();
+        let forensic_audit_note = if image_count > 0 {
+            format!("AUDIT NOTICE: {} visual assets are attached. Perform a forensic comparison.", image_count)
+        } else {
+            "No visual assets attached.".to_string()
+        };
+
+        let system_prompt = format!(
+            "You are the PURSUE Intelligence OS forensic auditor. \n\
+            Directives:\n\
+            1. STRUCTURE: Return valid JSON only.\n\
+            2. AUDIT: {}\n\n\
+            {}\n\n\
+            Input Document:\n{}",
+            forensic_audit_note,
+            related_context,
+            text
+        );
+
+        let prompt = format!(
+            "<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\nPerform forensic audit.<|im_end|>\n<|im_start|>thought\n",
+            system_prompt
+        );
+
+        let mut tokens = ctx.tokenizer.encode(prompt, true)
+            .map_err(|e| anyhow!("Tokenization failed: {}", e))?
+            .get_ids()
+            .to_vec();
+
+        let mut logits_processor = LogitsProcessor::new(1337, Some(0.0), None);
+        let mut generated_text = String::new();
+        let mut pos = 0;
+        let mut kv_cache = vec![ctx.model.new_kv_cache(); ctx.model.layers.len()];
+
+        let _ = handle.emit("analysis-progress", json!({
+            "status": "synthesizing-start",
+            "record_id": rid
+        }));
+
+        for i in 0..2048 {
+            let context_size = if pos > 0 { 1 } else { tokens.len() };
+            let input_tokens = &tokens[tokens.len() - context_size..];
+            let input = Tensor::new(input_tokens, device)?.unsqueeze(0)?;
+            
+            let logits = ctx.model.forward(&input, pos, &mut kv_cache)?;
+            let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
+            
+            let next_token = logits_processor.sample(&logits)?;
+            tokens.push(next_token);
+            pos += context_size;
+
+            let mut piece_to_emit = None;
+            if let Some(decoded) = ctx.tokenizer.id_to_token(next_token) {
+                if decoded == "<|im_end|>" || next_token == 1 { break; }
+                if let Ok(piece) = ctx.tokenizer.decode(&[next_token], true) {
+                    generated_text.push_str(&piece);
+                    piece_to_emit = Some(piece);
                 }
             }
 
-            // 5. Audit Logging (Neural Thought Log)
-            let log_id = uuid::Uuid::new_v4().to_string();
-            let _ = futures::executor::block_on(sqlx::query("INSERT INTO neural_thought_logs (id, record_id, system_prompt, user_prompt, thought_block, response_json, model_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-                .bind(&log_id).bind(&rid).bind(&system_prompt).bind("metadata-extraction").bind(Option::<String>::None).bind(&generated_text).bind(repo_path_clone.to_string_lossy().to_string()).bind(now())
-                .execute(&db));
-
-            // 6. Parse JSON Result
-            let json_start = generated_text.find('{').unwrap_or(0);
-            let json_end = generated_text.rfind('}').map(|i| i + 1).unwrap_or(generated_text.len());
-            let json_str = &generated_text[json_start..json_end];
-
-            match serde_json::from_str::<Value>(json_str) {
-                Ok(response) => {
-                    // 7. Persist Intelligence Fragments for future RAG
-                    if let Some(obs) = response.get("observations").and_then(|a| a.as_array()) {
-                        for item in obs {
-                            if let Some(txt) = item.as_str() {
-                                let fid = uuid::Uuid::new_v4().to_string();
-                                let _ = futures::executor::block_on(sqlx::query("INSERT INTO intelligence_fragments (id, record_id, fragment_type, text, confidence, created_at) VALUES (?, ?, 'observation', ?, 0.9, ?)")
-                                    .bind(&fid).bind(&rid).bind(txt).bind(now()).execute(&db));
-                                
-                                // Vectorize fragment
-                                if let Ok(emb) = futures::executor::block_on(crate::search::vectorize_text(txt)) {
-                                    let vblob: &[u8] = unsafe { std::slice::from_raw_parts(emb.as_ptr() as *const u8, emb.len() * 4) };
-                                    let _ = futures::executor::block_on(sqlx::query("INSERT INTO vec_intelligence_fragments (fragment_id, embedding) VALUES (?, ?)")
-                                        .bind(&fid).bind(vblob).execute(&db));
-                                }
-                            }
-                        }
-                    }
-                    Ok(response)
-                },
-                Err(_) => {
-                    Ok(json!({
-                        "object_description": "Failed to parse structured response",
-                        "raw_response": generated_text,
-                        "error": "Structured extraction produced invalid JSON",
-                        "thought_log": "Model completed pass but output validation failed."
-                    }))
-                }
+            if i % 5 == 0 || piece_to_emit.is_some() {
+                let _ = handle.emit("analysis-progress", json!({
+                    "status": "synthesizing",
+                    "record_id": rid,
+                    "token_index": i,
+                    "token_limit": 2048,
+                    "token_text": piece_to_emit
+                }));
             }
-        })
-        .await?
+        }
+
+        // Audit Logging placeholder for future persistent audit logs
+        let _log_id = uuid::Uuid::new_v4().to_string();
+
+        let json_start = generated_text.find('{').unwrap_or(0);
+        let json_end = generated_text.rfind('}').map(|i| i + 1).unwrap_or(generated_text.len());
+        let json_str = &generated_text[json_start..json_end];
+
+        let val = match serde_json::from_str::<Value>(json_str) {
+            Ok(v) => v,
+            Err(_) => json!({ "object_description": "Extraction failed", "raw_response": generated_text })
+        };
+
+        Ok((val, ctx))
     }
 
     fn load_context(repo_path: &PathBuf) -> Result<GemmaContext> {
-        if !repo_path.exists() {
-            return Err(anyhow!("Intelligence repository missing: {:?}.", repo_path));
-        }
-
         let device = if cfg!(target_os = "macos") {
             candle_core::Device::new_metal(0).unwrap_or(candle_core::Device::Cpu)
         } else {
             candle_core::Device::Cpu
         };
 
-        // 1. Load Config
-        let config_path = repo_path.join("config.json");
-        let config_data = std::fs::read_to_string(&config_path)?;
+        let config_data = std::fs::read_to_string(repo_path.join("config.json"))?;
         let config_wrapper: gemma4::ConfigWrapper = serde_json::from_str(&config_data)?;
         let config = config_wrapper.extract().map_err(|e| anyhow!("{}", e))?;
 
-        // 2. Load Weights
         let mut safetensors_paths = Vec::new();
-        for entry in std::fs::read_dir(&repo_path)? {
+        for entry in std::fs::read_dir(repo_path)? {
             let entry = entry?;
-            let path = entry.path();
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("safetensors") {
-                safetensors_paths.push(path);
+            if entry.path().extension().and_then(|s| s.to_str()) == Some("safetensors") {
+                safetensors_paths.push(entry.path());
             }
         }
-        if safetensors_paths.is_empty() {
-            return Err(anyhow!("No .safetensors files found in {:?}", repo_path));
-        }
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&safetensors_paths, DType::F32, &device)?
-        };
+        safetensors_paths.sort();
 
-        // 3. Init Model
+        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&safetensors_paths, DType::BF16, &device)? };
         let model = gemma4::Model::new(&config, vb)?;
+        let tokenizer = Tokenizer::from_file(repo_path.join("tokenizer.json")).map_err(|e| anyhow!(e))?;
 
-        // 4. Init Tokenizer
-        let tokenizer_path = repo_path.join("tokenizer.json");
-        let tokenizer = Tokenizer::from_file(tokenizer_path)
-            .map_err(|e| anyhow!("Failed to load tokenizer: {}", e))?;
-
-        Ok(GemmaContext {
-            model,
-            tokenizer,
-            repo_path: repo_path.clone(),
-        })
+        Ok(GemmaContext { model, tokenizer, repo_path: repo_path.clone() })
     }
 }
