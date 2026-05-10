@@ -15,6 +15,7 @@
   import Settings from "$lib/components/Settings.svelte";
   import AnalysisModal from "$lib/components/AnalysisModal.svelte";
   import MediaViewer from "$lib/components/MediaViewer.svelte";
+  import Dashboard from "$lib/components/dashboard/Dashboard.svelte";
   import type { CaseSummary, DatabaseStatus, RecordSummary } from "$lib/types";
   import { Loader2 } from "lucide-svelte";
   import { addToast, updateToast } from "$lib/toastStore";
@@ -195,10 +196,11 @@ onMount(() => {
     }
   });
 
-  const MODELS = {
-    Standard: ["bge-small", "tokenizer", "gemma-4-e2b"],
-    Elite: ["bge-small", "tokenizer", "gemma-4-e4b"]
-  };
+  $effect(() => {
+    // Clear selection when switching top-level modules
+    $activeView;
+    selectedRecord = null;
+  });
 </script>
 
 {#if !isProvisioned}
@@ -254,37 +256,18 @@ onMount(() => {
     <div class="os-body">
       <main class="os-main">
         <div class="view-container">
-          {#if selectedRecord}
-            <IntelligenceDossier 
-              record={selectedRecord} 
+          {#if $activeView === 'dashboard'}
+            <Dashboard 
+              records={records}
+              libraryPath={databaseStatus?.library_path}
+              viewMode={viewMode}
               cases={cases}
               selectedCaseId={selectedCaseId}
-              onBack={() => (selectedRecord = null)}
+              bind:selectedRecord={selectedRecord}
               onChanged={() => loadInitialData()}
               onAnalyze={() => (analysisModalOpen = true)}
+              onViewMedia={(r) => { viewerRecord = r; viewerOpen = true; }}
             />
-          {:else if $activeView === 'dashboard'}
-            <GridView 
-                records={records} 
-                selectedRecordId={selectedRecord?.id}
-                onSelect={(r) => (selectedRecord = r)}
-                onView={(r) => { viewerRecord = r; viewerOpen = true; }}
-              />
-            {:else if viewMode === 'cards'}
-              <IntelCardsView 
-                records={records} 
-                selectedRecordId={selectedRecord?.id}
-                onSelect={(r) => (selectedRecord = r)}
-                onView={(r) => { viewerRecord = r; viewerOpen = true; }}
-              />
-            {:else if viewMode === 'list'}
-              <ListView 
-                records={records} 
-                selectedRecordId={selectedRecord?.id}
-                onSelect={(r) => (selectedRecord = r)}
-                onView={(r) => { viewerRecord = r; viewerOpen = true; }}
-              />
-            {/if}
           {:else if $activeView === 'intelligence'}
             <IntelligenceCenter onAnalyze={() => (analysisModalOpen = true)} />
           {:else if $activeView === 'vault'}
@@ -295,15 +278,27 @@ onMount(() => {
               onAnalyze={() => (analysisModalOpen = true)} 
             />
           {:else if $activeView === 'map'}
-             <div class="view-empty">
-               <Map records={records} onSelect={(r) => (selectedRecord = r)} />
-             </div>
+            {#if selectedRecord}
+              <IntelligenceDossier 
+                record={selectedRecord} 
+                libraryPath={databaseStatus?.library_path}
+                cases={cases}
+                selectedCaseId={selectedCaseId}
+                onBack={() => (selectedRecord = null)}
+                onChanged={() => loadInitialData()}
+                onAnalyze={() => (analysisModalOpen = true)}
+              />
+            {:else}
+              <div class="view-empty">
+                <Map records={records} onSelect={(r) => (selectedRecord = r)} />
+              </div>
+            {/if}
           {:else if $activeView === 'link-analysis'}
-             <div class="view-empty">
-               <LinkAnalysis records={records} />
-             </div>
+            <div class="view-empty">
+              <LinkAnalysis records={records} />
+            </div>
           {:else if $activeView === 'settings'}
-             <Settings />
+            <Settings />
           {/if}
         </div>
       </main>

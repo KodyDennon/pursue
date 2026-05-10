@@ -302,6 +302,7 @@ pub async fn query_related_fragments_for_record(pool: &sqlx::SqlitePool, record_
     Ok(rows.into_iter().map(|r| r.get::<String, _>("text")).collect())
 }
 
+#[allow(dead_code)]
 pub async fn query_related_fragments(pool: &sqlx::SqlitePool, text: &str, limit: usize) -> anyhow::Result<Vec<String>> {
     let vector = vectorize_text(text).await?;
     let vector_blob: &[u8] = unsafe {

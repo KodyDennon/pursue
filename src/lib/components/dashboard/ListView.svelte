@@ -2,12 +2,19 @@
   import type { RecordSummary } from "$lib/types";
   import { FileText, CheckCircle2, Clock, Download, ExternalLink, Zap, Maximize2 } from "lucide-svelte";
 
-  let { records, selectedRecordId = null, onSelect, onView } = $props<{
+  let { records, libraryPath = null, selectedRecordId = null, onSelect, onView } = $props<{
     records: RecordSummary[];
+    libraryPath?: string | null;
     selectedRecordId?: string | null;
     onSelect: (record: RecordSummary) => void;
     onView?: (record: RecordSummary) => void;
   }>();
+
+  function resolvePath(rel: string | null) {
+    if (!rel || !libraryPath) return "";
+    const cleanLib = libraryPath.endsWith("/") || libraryPath.endsWith("\\") ? libraryPath : libraryPath + "/";
+    return "" + cleanLib + rel; // For table we might not need convertFileSrc yet but keep structure
+  }
 
   function formatBytes(value: number | null | undefined) {
     if (!value) return "0 B";

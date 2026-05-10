@@ -9,14 +9,21 @@
   import { addToast } from "$lib/toastStore";
   import type { AnalysisReport, CaseSummary, DownloadResult, RecordSummary, RecordAsset, RecordForensics, IntelligenceLog } from "$lib/types";
 
-  let { record, cases = [], selectedCaseId = null, onBack, onChanged, onAnalyze } = $props<{
+  let { record, libraryPath = null, cases = [], selectedCaseId = null, onBack, onChanged, onAnalyze } = $props<{
     record: RecordSummary;
+    libraryPath?: string | null;
     cases: CaseSummary[];
     selectedCaseId: string | null;
     onBack: () => void;
     onChanged: () => void | Promise<void>;
     onAnalyze?: () => void;
   }>();
+
+  function resolvePath(rel: string | null) {
+    if (!rel || !libraryPath) return "";
+    const cleanLib = libraryPath.endsWith("/") || libraryPath.endsWith("\\") ? libraryPath : libraryPath + "/";
+    return convertFileSrc(cleanLib + rel);
+  }
 
   let activeTab = $state<"intelligence" | "forensics" | "raw" | "media" | "case" | "thoughts">("intelligence");
   let analysis = $state<AnalysisReport | null>(null);
@@ -403,7 +410,7 @@
                 <div class="asset-grid">
                   {#each images as asset}
                     <div class="asset-card">
-                      <img src={convertFileSrc(asset.local_path)} alt="Evidence" />
+                      <img src={resolvePath(asset.local_path)} alt="Evidence" />
                       <div class="asset-info">
                         <span class="a-name">{asset.local_path.split('/').pop()}</span>
                         <span class="a-type">{asset.mime_type || 'image/png'}</span>

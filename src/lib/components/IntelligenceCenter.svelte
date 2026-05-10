@@ -78,11 +78,28 @@
       if (onAnalyze) onAnalyze();
       analysisActive = true;
       analysisProgress = 0;
-      analysisStatus = "Initializing...";
+      analysisStatus = "Scanning for pending audits...";
       const count = await invoke<number>("analyze_all_records");
       addToast({ type: "info", message: `Neural Indexing initiated for ${count} records.`, duration: 5000 });
     } catch (e) {
       addToast({ type: "error", message: `Indexing failed: ${e}`, duration: 5000 });
+      analysisActive = false;
+    }
+  }
+
+  async function forceReprocessAll() {
+    if (analysisActive) return;
+    if (!confirm("CRITICAL ACTION: This will purge all existing intelligence, OCR results, and forensic summaries and rerun the entire extraction pipeline. Proceed?")) return;
+    
+    try {
+      if (onAnalyze) onAnalyze();
+      analysisActive = true;
+      analysisProgress = 0;
+      analysisStatus = "Resetting Archive Intelligence...";
+      const count = await invoke<number>("reprocess_all_records");
+      addToast({ type: "info", message: `Neural Re-Audit initiated for ${count} records.`, duration: 5000 });
+    } catch (e) {
+      addToast({ type: "error", message: `Re-Audit failed: ${e}`, duration: 5000 });
       analysisActive = false;
     }
   }
@@ -271,11 +288,11 @@
           <div class="model-meta">
             <span>BGE v1.5 (384d)</span>
             <div class="actions">
-              <button class="text-btn" onclick={() => invoke('index_all_records').then(n => { if (n > 0) isOpen = true; })}>
-                <RefreshCw size={14} /> Build Vector Index
-              </button>
               <button class="text-btn" onclick={reindexAll}>
-                <Zap size={14} /> Full Neural Audit
+                <Zap size={14} /> Audit Pending
+              </button>
+              <button class="text-btn danger" onclick={forceReprocessAll}>
+                <RefreshCw size={14} /> Force Re-Audit
               </button>
             </div>
           </div>

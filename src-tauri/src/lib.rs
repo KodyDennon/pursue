@@ -112,7 +112,8 @@ pub fn run() {
             get_forensic_report,
             get_intelligence_logs,
             index_record,
-            synthesize_intelligence
+            synthesize_intelligence,
+            reprocess_all_records
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

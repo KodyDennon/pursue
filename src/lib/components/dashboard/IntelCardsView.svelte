@@ -3,12 +3,19 @@
   import type { RecordSummary } from "$lib/types";
   import { FileText, MapPin, Calendar, Database, CheckCircle2, Clock, Zap, Maximize2 } from "lucide-svelte";
 
-  let { records, selectedRecordId = null, onSelect, onView } = $props<{
+  let { records, libraryPath = null, selectedRecordId = null, onSelect, onView } = $props<{
     records: RecordSummary[];
+    libraryPath?: string | null;
     selectedRecordId?: string | null;
     onSelect: (record: RecordSummary) => void;
     onView?: (record: RecordSummary) => void;
   }>();
+
+  function resolvePath(rel: string | null) {
+    if (!rel || !libraryPath) return "";
+    const cleanLib = libraryPath.endsWith("/") || libraryPath.endsWith("\\") ? libraryPath : libraryPath + "/";
+    return convertFileSrc(cleanLib + rel);
+  }
 
   function formatBytes(value: number | null | undefined) {
     if (!value) return "0 B";
@@ -29,17 +36,25 @@
   {:else}
     <div class="cards-grid">
       {#each records as record}
-        <button 
+        <div 
+          role="button"
+          tabindex="0"
           class="intel-card" 
           class:active={selectedRecordId === record.id} 
           onclick={() => onSelect(record)}
+          onkeydown={(e) => e.key === 'Enter' && onSelect(record)}
         >
           {#if record.thumbnail_path}
             <div class="card-thumb">
-              <img src={convertFileSrc(record.thumbnail_path)} alt="Evidence" />
+              <img src={resolvePath(record.thumbnail_path)} alt="Evidence" />
               <div class="thumb-overlay">
                 {#if record.local_path && onView}
-                  <button class="thumb-view-btn" onclick={(e) => { e.stopPropagation(); onView(record); }} title="Quick Preview">
+                  <button 
+                    class="thumb-view-btn" 
+                    onclick={(e) => { e.stopPropagation(); onView(record); }} 
+                    onkeydown={(e) => e.stopPropagation()}
+                    title="Quick Preview"
+                  >
                      <Maximize2 size={20} />
                   </button>
                 {/if}
@@ -90,7 +105,7 @@
               <span class="size">{record.local_path ? formatBytes(record.artifact_size) : 'Cloud'}</span>
             </footer>
           </div>
-        </button>
+        </div>
       {/each}
     </div>
   {/if}

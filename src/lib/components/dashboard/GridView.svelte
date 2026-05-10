@@ -3,12 +3,20 @@
   import type { RecordSummary } from "$lib/types";
   import { FileText, MapPin, Calendar, CheckCircle2, Clock, Zap, Maximize2 } from "lucide-svelte";
 
-  let { records, selectedRecordId = null, onSelect, onView } = $props<{
+  let { records, libraryPath = null, selectedRecordId = null, onSelect, onView } = $props<{
     records: RecordSummary[];
+    libraryPath?: string | null;
     selectedRecordId?: string | null;
     onSelect: (record: RecordSummary) => void;
     onView?: (record: RecordSummary) => void;
   }>();
+
+  function resolvePath(rel: string | null) {
+    if (!rel || !libraryPath) return "";
+    // Ensure we have a clean join
+    const cleanLib = libraryPath.endsWith("/") || libraryPath.endsWith("\\") ? libraryPath : libraryPath + "/";
+    return convertFileSrc(cleanLib + rel);
+  }
 
   function formatBytes(value: number | null | undefined) {
     if (!value) return "0 B";
@@ -26,10 +34,13 @@
 <div class="cards-view custom-scrollbar">
   <div class="cards-grid">
     {#each records as record}
-      <button 
+      <div 
+        role="button"
+        tabindex="0"
         class="evidence-card" 
         class:selected={selectedRecordId === record.id} 
         onclick={() => onSelect(record)}
+        onkeydown={(e) => e.key === 'Enter' && onSelect(record)}
       >
         <div class="card-glow"></div>
         <div class="corner-bracket tl"></div>
@@ -40,10 +51,15 @@
         
         {#if record.thumbnail_path}
           <div class="card-preview">
-            <img src={convertFileSrc(record.thumbnail_path)} alt="Preview" />
+            <img src={resolvePath(record.thumbnail_path)} alt="Preview" />
             <div class="preview-overlay">
               {#if record.local_path && onView}
-                <button class="view-overlay-btn" onclick={(e) => { e.stopPropagation(); onView(record); }} title="Quick Preview">
+                <button 
+                  class="view-overlay-btn" 
+                  onclick={(e) => { e.stopPropagation(); onView(record); }} 
+                  onkeydown={(e) => e.stopPropagation()}
+                  title="Quick Preview"
+                >
                    <Maximize2 size={24} />
                 </button>
               {/if}
@@ -99,7 +115,7 @@
             {/if}
           </div>
         </footer>
-      </button>
+      </div>
     {/each}
   </div>
 </div>

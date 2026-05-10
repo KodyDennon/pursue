@@ -5,17 +5,25 @@
 
   let {
     record,
+    libraryPath = null,
     cases = [],
     selectedCaseId = null,
     onBack,
     onChanged
   } = $props<{
     record: RecordSummary;
+    libraryPath?: string | null;
     cases: CaseSummary[];
     selectedCaseId: string | null;
     onBack: () => void;
     onChanged: () => void | Promise<void>;
   }>();
+
+  function resolvePath(rel: string | null) {
+    if (!rel || !libraryPath) return "";
+    const cleanLib = libraryPath.endsWith("/") || libraryPath.endsWith("\\") ? libraryPath : libraryPath + "/";
+    return convertFileSrc(cleanLib + rel);
+  }
 
   let activeTab = $state<"overview" | "analysis" | "text" | "assets" | "case">("overview");
   let analysis = $state<AnalysisReport | null>(null);
@@ -274,7 +282,7 @@
         {#if imageAssets.length}
           <div class="asset-grid">
             {#each imageAssets as asset}
-              <img src={convertFileSrc(asset.local_path)} alt="Extracted evidence asset" />
+              <img src={resolvePath(asset.local_path)} alt="Extracted evidence asset" />
             {/each}
           </div>
         {:else}

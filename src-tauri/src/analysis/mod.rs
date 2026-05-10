@@ -134,7 +134,17 @@ impl AnalysisManager {
         // 2. Asset Extraction
         let asset_dir = self.library.get_full_path(&format!("assets/{}", record_id));
         fs::create_dir_all(&asset_dir).await?;
-        let _ = self.thumbnails.generate_thumbnail(&full_path, &asset_dir.join("thumb_main.png")).await;
+        let thumb_name = "thumb_main.png";
+        let thumb_path = asset_dir.join(thumb_name);
+        
+        if let Ok(_) = self.thumbnails.generate_thumbnail(&full_path, &thumb_path).await {
+            let rel_thumb_path = format!("assets/{}/{}", record_id, thumb_name);
+            let _ = sqlx::query("UPDATE records SET thumbnail_path = ? WHERE id = ?")
+                .bind(&rel_thumb_path)
+                .bind(record_id)
+                .execute(&self.db)
+                .await;
+        }
 
         // PDF specialized extraction
         if full_path.extension().and_then(|e| e.to_str()) == Some("pdf") {
@@ -234,4 +244,23 @@ fn add_entity(e: &mut BTreeMap<(String, String), EntityHit>, n: &str, ty: &str, 
         confidence: c, 
         source: s.to_string() 
     });
+}
+
+impl AnalysisManager {
+    pub async fn clear_record_analysis(&self, record_id: &str) -> Result<()> {
+        let mut tx = self.db.begin().await?;
+        
+        sqlx::query("DELETE FROM analysis_results WHERE record_id = ?").bind(record_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM analysis_chunks WHERE record_id = ?").bind(record_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM vec_analysis_chunks WHERE chunk_id IN (SELECT id FROM analysis_chunks WHERE record_id = ?)").bind(record_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM analysis_chunks_fts WHERE record_id = ?").bind(record_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM record_forensics WHERE record_id = ?").bind(record_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM record_entities WHERE record_id = ?").bind(record_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM intelligence_logs WHERE record_id = ?").bind(record_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM record_assets WHERE record_id = ? AND asset_type != 'source'").bind(record_id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE records SET analysis_status = NULL, intelligence_json = NULL, redaction_score = NULL WHERE id = ?").bind(record_id).execute(&mut *tx).await?;
+        
+        tx.commit().await?;
+        Ok(())
+    }
 }

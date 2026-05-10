@@ -174,6 +174,26 @@ pub async fn analyze_all_records(state: State<'_, AppState>, app_handle: AppHand
 }
 
 #[tauri::command]
+pub async fn reprocess_all_records(state: State<'_, AppState>, app_handle: AppHandle) -> Result<usize, String> {
+    let pool = state.db.clone();
+    
+    // Get all records that have local content
+    let records = sqlx::query("SELECT id FROM records WHERE local_path IS NOT NULL")
+        .fetch_all(&pool)
+        .await
+        .map_err(to_error)?;
+        
+    for row in &records {
+        use sqlx::Row;
+        let id: String = row.get("id");
+        state.analysis.clear_record_analysis(&id).await.map_err(to_error)?;
+    }
+    
+    // Now trigger the standard analysis loop
+    analyze_all_records(state, app_handle).await
+}
+
+#[tauri::command]
 pub async fn get_analysis_result(
     id: String,
     state: State<'_, AppState>,

@@ -18,6 +18,7 @@
   let logs = $state<Array<{ time: string, msg: string, type: 'info' | 'error' | 'success' }>>([]);
   let thoughtText = $state("");
   let busy = $state(false);
+  let forceReprocess = $state(false);
 
   function addLog(msg: string, type: 'info' | 'error' | 'success' = 'info') {
     const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -35,7 +36,8 @@
     addLog("Mounting Gemma 4B Model (Int IT)...", "info");
 
     try {
-      const count = await invoke<number>("analyze_all_records");
+      const cmd = forceReprocess ? "reprocess_all_records" : "analyze_all_records";
+      const count = await invoke<number>(cmd);
       totalCount = count;
       if (count === 0) {
         addLog("No pending records found. Archive is already up-to-date.", "success");
@@ -177,15 +179,23 @@
                 </span>
               </div>
             </div>
-            <button class="start-btn" onclick={startAnalysis} disabled={busy || status === 'completed'}>
-               {#if busy}
-                 <Loader2 size={18} class="spin" /> IN PROGRESS
-               {:else if status === 'completed'}
-                 <CheckCircle2 size={18} /> TASK COMPLETE
-               {:else}
-                 START BATCH PROCESS
-               {/if}
-            </button>
+            <div class="action-wrap">
+              <button class="start-btn" onclick={startAnalysis} disabled={busy || status === 'completed'}>
+                {#if busy}
+                  <Loader2 size={18} class="spin" /> IN PROGRESS
+                {:else if status === 'completed'}
+                  <CheckCircle2 size={18} /> TASK COMPLETE
+                {:else}
+                  START BATCH PROCESS
+                {/if}
+              </button>
+              {#if !busy && status !== 'completed'}
+                <label class="reprocess-toggle">
+                  <input type="checkbox" bind:checked={forceReprocess} />
+                  <span>DEEP RE-AUDIT</span>
+                </label>
+              {/if}
+            </div>
           </div>
         </section>
 
@@ -384,7 +394,34 @@
   }
 
   .start-btn:hover:not(:disabled) { transform: scale(1.02); filter: brightness(1.1); }
-  .start_btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .start-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .action-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .reprocess-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    justify-content: center;
+    padding: 4px;
+    transition: color 0.2s;
+  }
+
+  .reprocess-toggle:hover {
+    color: var(--accent-danger);
+  }
+
+  .reprocess-toggle input {
+    accent-color: var(--accent-danger);
+  }
 
   .info-card.thinking {
     border-color: #f3c46b;
