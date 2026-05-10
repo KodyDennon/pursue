@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { Database, ShieldCheck, HardDrive, FileText, AlertTriangle } from "lucide-svelte";
   import { addToast } from "$lib/toastStore";
 
@@ -12,6 +13,26 @@
   } | null>(null);
 
   let busy = $state(false);
+  let verifyProgress = $state(0);
+  let verifyStatusText = $state("");
+  let agentSettings = $state({ auto_sync: true, auto_analyze: true });
+
+  async function loadSettings() {
+    try {
+      const s = await invoke<any>("get_app_settings", { key: "ingestion_agent" });
+      if (s) agentSettings = s;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function saveSettings() {
+    try {
+      await invoke("set_app_settings", { key: "ingestion_agent", value: agentSettings });
+    } catch (e) {
+      console.error(e);
+    }
+  }
 
   async function loadStats() {
     try {
@@ -22,12 +43,44 @@
   }
 
   async function runIntegrityCheck() {
+    if (busy) return;
     busy = true;
-    addToast({ type: "info", message: "Initiating SHA-256 integrity sweep across vault...", duration: 3000 });
-    // Mocking the sweep for UI feel, but it could be a real command
-    await new Promise(r => setTimeout(r, 2000));
-    busy = false;
-    addToast({ type: "success", message: "Integrity check complete. All local artifacts verified.", duration: 4000 });
+    verifyProgress = 0;
+    verifyStatusText = "Initiating SHA-256 integrity sweep across vault...";
+    addToast({ type: "info", message: verifyStatusText, duration: 3000 });
+    
+    let unlisten: (() => void) | null = null;
+    try {
+      unlisten = await listen("integrity-progress", (event: any) => {
+        const { current, total, status } = event.payload;
+        if (total > 0) {
+          verifyProgress = (current / total) * 100;
+        }
+        if (status === "completed") {
+          verifyStatusText = "Finalizing report...";
+        } else {
+          verifyStatusText = `Verifying artifact ${current} of ${total}...`;
+        }
+      });
+
+      const report: any = await invoke("verify_vault_integrity");
+      
+      const corrupted = report.corrupted;
+      const missing = report.missing;
+      
+      if (corrupted === 0 && missing === 0) {
+        addToast({ type: "success", message: `Integrity check complete. All ${report.verified} local artifacts verified.`, duration: 5000 });
+      } else {
+        addToast({ type: "error", message: `Integrity failure: ${corrupted} corrupted, ${missing} missing.`, duration: 8000 });
+      }
+    } catch (e) {
+      addToast({ type: "error", message: `Integrity check failed: ${e}`, duration: 5000 });
+    } finally {
+      if (unlisten) unlisten();
+      busy = false;
+      verifyStatusText = "";
+      verifyProgress = 0;
+    }
   }
 
   function formatBytes(bytes: number) {
@@ -39,6 +92,7 @@
   }
 
   onMount(() => {
+    loadSettings();
     loadStats();
   });
 </script>
@@ -52,9 +106,19 @@
         <p>Forensic storage and artifact lifecycle management.</p>
       </div>
     </div>
-    <button class="integrity-btn" onclick={runIntegrityCheck} disabled={busy}>
-      <ShieldCheck size={16} /> Integrity Sweep
-    </button>
+    <div class="actions-wrapper">
+      {#if busy && verifyStatusText}
+        <div class="verify-progress-container">
+          <span class="verify-status">{verifyStatusText}</span>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" style="width: {verifyProgress}%"></div>
+          </div>
+        </div>
+      {/if}
+      <button class="integrity-btn" onclick={runIntegrityCheck} disabled={busy}>
+        <ShieldCheck size={16} /> Integrity Sweep
+      </button>
+    </div>
   </header>
 
   <div class="vault-grid">
@@ -96,7 +160,12 @@
           <strong>Auto-Retrieval Pipeline</strong>
           <span>Automatically download official sources when synced.</span>
         </div>
-        <div class="toggle active"></div>
+        <button 
+            class="toggle" 
+            class:active={agentSettings.auto_sync} 
+            onclick={() => { agentSettings.auto_sync = !agentSettings.auto_sync; saveSettings(); }}
+            aria-label="Auto-Retrieval Toggle"
+        ></button>
       </div>
       <div class="config-item">
         <div class="text">
@@ -142,7 +211,25 @@
     margin: 4px 0 0 0;
   }
 
-  .accent-icon { color: var(--accent-primary); }
+  .actions-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .verify-progress-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-end;
+    width: 200px;
+  }
+
+  .verify-status {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
 
   .integrity-btn {
     display: flex;

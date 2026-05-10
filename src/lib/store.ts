@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 
-export type ViewMode = 'grid' | 'cards' | 'map' | 'link-analysis' | 'settings' | 'intelligence' | 'agent';
+export type ViewMode = 'dashboard' | 'map' | 'link-analysis' | 'intelligence' | 'agent' | 'vault' | 'settings';
 
-export const activeView = writable<ViewMode>('grid');
+export const activeView = writable<ViewMode>('dashboard');
 export const globalSearchOpen = writable<boolean>(false);

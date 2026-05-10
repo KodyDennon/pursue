@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use futures_util::StreamExt;
 use sqlx::{Row, SqlitePool};
 use std::path::Path;
 use std::sync::Arc;
@@ -285,17 +286,51 @@ pub async fn analyze_all_records(state: State<'_, AppState>, app_handle: tauri::
         .map_err(to_error)?;
 
     let count = records.len();
+    if count == 0 {
+        return Ok(0);
+    }
+    
     let library = state.library.clone();
     let handle = app_handle.clone();
     
     // Spawn task to avoid blocking
     tauri::async_runtime::spawn(async move {
-        let manager = AnalysisManager::new(pool, library);
-        for row in records {
-            use sqlx::Row;
-            let id: String = row.get("id");
-            let _ = manager.analyze_record(&handle, &id).await;
-        }
+        use tauri::Emitter;
+        use futures_util::StreamExt;
+        
+        let manager = std::sync::Arc::new(AnalysisManager::new(pool, library));
+        let completed = std::sync::Arc::new(tokio::sync::Mutex::new(0_usize));
+        
+        let mut stream = futures_util::stream::iter(records)
+            .map(|row| {
+                use sqlx::Row;
+                let id: String = row.get("id");
+                let manager = manager.clone();
+                let handle = handle.clone();
+                let completed = completed.clone();
+                
+                async move {
+                    let _ = manager.analyze_record(&handle, &id).await;
+                    let mut c = completed.lock().await;
+                    *c += 1;
+                    let _ = handle.emit("analysis-progress", serde_json::json!({
+                        "current": *c,
+                        "total": count,
+                        "status": "analyzing",
+                        "record_id": id
+                    }));
+                }
+            })
+            .buffer_unordered(4); // Analyze 4 records concurrently
+
+        while let Some(_) = stream.next().await {}
+
+        let _ = handle.emit("analysis-progress", serde_json::json!({
+            "current": count,
+            "total": count,
+            "status": "completed",
+            "record_id": null
+        }));
     });
 
     Ok(count)
@@ -547,37 +582,50 @@ async fn run_download_job(
     .fetch_all(&db)
     .await?;
 
+    let mut stream = futures_util::stream::iter(items)
+        .map(|item| {
+            let db = db.clone();
+            let library = library.clone();
+            let job_id = job_id.to_string();
+            
+            async move {
+                let cancel_req =
+                    sqlx::query_scalar::<_, i64>("SELECT cancel_requested FROM download_jobs WHERE id = ?")
+                        .bind(&job_id)
+                        .fetch_one(&db)
+                        .await.unwrap_or(0);
+                
+                if cancel_req != 0 {
+                    return None;
+                }
+
+                let _ = sqlx::query(
+                    "UPDATE download_job_items SET status = 'downloading', updated_at = ? WHERE id = ?",
+                )
+                .bind(now())
+                .bind(&item.id)
+                .execute(&db)
+                .await;
+
+                let result = download_one(&db, &library, &item.record_id).await;
+                Some((item.id, result))
+            }
+        })
+        .buffer_unordered(3); // Download 3 files concurrently
+
     let mut completed = 0_i64;
     let mut failed = 0_i64;
-    for item in items {
-        let cancel_req =
-            sqlx::query_scalar::<_, i64>("SELECT cancel_requested FROM download_jobs WHERE id = ?")
-                .bind(job_id)
-                .fetch_one(&db)
-                .await?;
-        if cancel_req != 0 {
-            sqlx::query(
-                "UPDATE download_jobs SET status = 'cancelled', updated_at = ? WHERE id = ?",
-            )
-            .bind(now())
-            .bind(job_id)
-            .execute(&db)
-            .await?;
-            return Ok(());
-        }
 
-        sqlx::query(
-            "UPDATE download_job_items SET status = 'downloading', updated_at = ? WHERE id = ?",
-        )
-        .bind(now())
-        .bind(&item.id)
-        .execute(&db)
-        .await?;
+    while let Some(result) = stream.next().await {
+        let (item_id, download_result) = match result {
+            Some(res) => res,
+            None => break, // Cancelled
+        };
 
-        match download_one(&db, &library, &item.record_id).await {
+        match download_result {
             Ok(result) => {
                 completed += 1;
-                sqlx::query(
+                let _ = sqlx::query(
                     r#"
                     UPDATE download_job_items
                     SET status = 'completed', bytes_downloaded = ?, byte_size = ?, artifact_id = ?, updated_at = ?
@@ -588,24 +636,24 @@ async fn run_download_job(
                 .bind(result.byte_size)
                 .bind(result.artifact_id)
                 .bind(now())
-                .bind(&item.id)
+                .bind(&item_id)
                 .execute(&db)
-                .await?;
+                .await;
             }
             Err(error) => {
                 failed += 1;
-                sqlx::query(
+                let _ = sqlx::query(
                     "UPDATE download_job_items SET status = 'failed', error = ?, updated_at = ? WHERE id = ?",
                 )
                 .bind(error.to_string())
                 .bind(now())
-                .bind(&item.id)
+                .bind(&item_id)
                 .execute(&db)
-                .await?;
+                .await;
             }
         }
 
-        sqlx::query(
+        let _ = sqlx::query(
             "UPDATE download_jobs SET completed = ?, failed = ?, updated_at = ? WHERE id = ?",
         )
         .bind(completed)
@@ -613,10 +661,23 @@ async fn run_download_job(
         .bind(now())
         .bind(job_id)
         .execute(&db)
-        .await?;
+        .await;
+    }
 
-        // Small delay to be polite and avoid WAF/rate-limiting
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let cancel_check = sqlx::query_scalar::<_, i64>("SELECT cancel_requested FROM download_jobs WHERE id = ?")
+        .bind(job_id)
+        .fetch_one(&db)
+        .await.unwrap_or(0);
+
+    if cancel_check != 0 {
+        sqlx::query(
+            "UPDATE download_jobs SET status = 'cancelled', updated_at = ? WHERE id = ?",
+        )
+        .bind(now())
+        .bind(job_id)
+        .execute(&db)
+        .await?;
+        return Ok(());
     }
 
     let status = if failed == 0 {
@@ -650,10 +711,9 @@ pub async fn get_evidence_stats(state: State<'_, AppState>) -> Result<serde_json
     let row = sqlx::query(
         r#"
         SELECT 
-            COUNT(*) as total_count,
-            SUM(CASE WHEN local_path IS NOT NULL THEN 1 ELSE 0 END) as local_count,
-            SUM(artifact_size) as total_size
-        FROM records
+            (SELECT COUNT(*) FROM records) as total_count,
+            (SELECT COUNT(*) FROM records WHERE local_path IS NOT NULL) as local_count,
+            (SELECT COALESCE(SUM(byte_size), 0) FROM artifacts) as total_size
         "#
     )
     .fetch_one(&pool)
@@ -714,6 +774,135 @@ pub async fn provision_model(
         .await
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(to_error)
+}
+
+#[tauri::command]
+pub async fn verify_vault_integrity(state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let pool = state.db.clone();
+    let library = state.library.clone();
+    
+    // Get all records with local_path
+    let records = sqlx::query("SELECT id, local_path, artifact_sha256 FROM records WHERE local_path IS NOT NULL")
+        .fetch_all(&pool)
+        .await
+        .map_err(to_error)?;
+
+    let total = records.len();
+    let mut verified = 0;
+    let mut corrupted = 0;
+    let mut missing = 0;
+    
+    use tauri::Emitter;
+
+    for (i, row) in records.into_iter().enumerate() {
+        use sqlx::Row;
+        let id: String = row.get("id");
+        let local_path: String = row.get("local_path");
+        let expected_hash: Option<String> = row.get("artifact_sha256");
+        
+        let _ = app_handle.emit("integrity-progress", serde_json::json!({
+            "current": i,
+            "total": total,
+            "record_id": id
+        }));
+
+        let full_path = library.get_full_path(&local_path);
+        if !full_path.exists() {
+            missing += 1;
+            continue;
+        }
+
+        if let Some(expected) = expected_hash {
+            if let Ok(bytes) = tokio::fs::read(&full_path).await {
+                use sha2::{Sha256, Digest};
+                let mut hasher = Sha256::new();
+                hasher.update(&bytes);
+                let hash = hex::encode(hasher.finalize());
+                if hash != expected {
+                    corrupted += 1;
+                } else {
+                    verified += 1;
+                }
+            } else {
+                corrupted += 1;
+            }
+        } else {
+            // No hash to verify against, consider it verified if it exists
+            verified += 1;
+        }
+        
+        // Small yield to keep UI responsive
+        tokio::task::yield_now().await;
+    }
+
+    let _ = app_handle.emit("integrity-progress", serde_json::json!({
+        "current": total,
+        "total": total,
+        "status": "completed"
+    }));
+
+    Ok(serde_json::json!({
+        "total": total,
+        "verified": verified,
+        "corrupted": corrupted,
+        "missing": missing
+    }))
+}
+
+#[tauri::command]
+pub async fn get_latest_download_job(state: State<'_, AppState>) -> Result<Option<BulkDownloadReport>, String> {
+    let job = sqlx::query_as::<_, BulkDownloadStatus>(
+        "SELECT * FROM download_jobs WHERE status IN ('queued', 'running') ORDER BY updated_at DESC LIMIT 1"
+    )
+    .fetch_optional(&state.db)
+    .await
+    .map_err(to_error)?;
+
+    match job {
+        Some(job) => {
+            let items = sqlx::query_as::<_, BulkDownloadItem>(
+                "SELECT * FROM download_job_items WHERE job_id = ? ORDER BY updated_at DESC LIMIT 50",
+            )
+            .bind(&job.id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(to_error)?;
+
+            Ok(Some(BulkDownloadReport { job, items }))
+        }
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub async fn get_app_settings(key: String, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let row = sqlx::query("SELECT value_json FROM app_settings WHERE key = ?")
+        .bind(&key)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(to_error)?;
+
+    match row {
+        Some(row) => {
+            let val: String = row.get("value_json");
+            serde_json::from_str(&val).map_err(to_error)
+        }
+        None => Ok(serde_json::Value::Null),
+    }
+}
+
+#[tauri::command]
+pub async fn set_app_settings(key: String, value: serde_json::Value, state: State<'_, AppState>) -> Result<(), String> {
+    let val_str = serde_json::to_string(&value).map_err(to_error)?;
+    sqlx::query(
+        "INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = CURRENT_TIMESTAMP"
+    )
+    .bind(&key)
+    .bind(&val_str)
+    .execute(&state.db)
+    .await
+    .map_err(to_error)?;
+    Ok(())
 }
 
 fn to_error(error: impl std::fmt::Display) -> String {

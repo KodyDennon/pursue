@@ -4680,6 +4680,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-vision",
  "ocrs",
+ "once_cell",
  "ort",
  "percent-encoding",
  "regex",

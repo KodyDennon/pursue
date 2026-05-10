@@ -8,12 +8,15 @@
   import GlobalActions from "$lib/components/dashboard/GlobalActions.svelte";
   import GridView from "$lib/components/dashboard/GridView.svelte";
   import IntelCardsView from "$lib/components/dashboard/IntelCardsView.svelte";
+  import ListView from "$lib/components/dashboard/ListView.svelte";
   import IntelligenceCenter from "$lib/components/IntelligenceCenter.svelte";
   import EvidenceVault from "$lib/components/EvidenceVault.svelte";
   import DownloadAgent from "$lib/components/DownloadAgent.svelte";
+  import Settings from "$lib/components/Settings.svelte";
   import type { CaseSummary, DatabaseStatus, RecordSummary } from "$lib/types";
-  import { Loader2, LayoutDashboard, Brain, Database, Download } from "lucide-svelte";
+  import { Loader2 } from "lucide-svelte";
   import { addToast, updateToast } from "$lib/toastStore";
+  import { activeView } from "$lib/store";
 
   let isProvisioned = $state(false);
   
@@ -26,7 +29,7 @@
   let query = $state("");
   let busy = $state<string | null>(null);
   let initializing = $state(true);
-  let activeView = $state<"dashboard" | "intel" | "vault" | "agent">("dashboard");
+  let viewMode = $state<"grid" | "cards" | "list">("grid");
   let sidebarWidth = $state(540);
   let isResizing = $state(false);
 
@@ -50,19 +53,28 @@
   async function loadInitialData() {
     initializing = true;
     try {
-      const [nextRecords, nextCases, nextStatus] = await Promise.all([
-        invoke<RecordSummary[]>("list_records", { filter: { source_type: null, local_only: null, query: query.trim() || null } }),
+      if (query.trim()) {
+        const results = await invoke<any>("search", { request: { query: query.trim(), filters: null } });
+        records = results.results.map((r: any) => ({
+           ...r,
+           source_type: r.source_type || 'official',
+           entity_count: 0,
+           incident_date: r.release_date,
+        }));
+      } else {
+        records = await invoke<RecordSummary[]>("list_records", { filter: { source_type: null, local_only: null, query: null } });
+      }
+      
+      const [nextCases, nextStatus] = await Promise.all([
         invoke<CaseSummary[]>("list_cases"),
         invoke<DatabaseStatus>("get_database_status"),
       ]);
-      records = nextRecords;
       cases = nextCases;
       databaseStatus = nextStatus;
       if (!selectedCaseId && nextCases.length > 0) {
         selectedCaseId = nextCases[0].id;
       }
       
-      // Artificial delay on first load to show system legit status if requested
       if (initializing) await new Promise(resolve => setTimeout(resolve, 800));
     } catch (e) {
       addToast({ type: "error", message: `Failed to load data: ${e}`, duration: 5000 });
@@ -77,12 +89,15 @@
     try {
       await invoke("sync_official_source");
       await loadInitialData();
-      updateToast(toastId, { type: "success", message: "Sync complete!", duration: 3000 });
+      updateToast(toastId, { type: "info", message: "Sync complete! Downloading missing records...", duration: 3000 });
+      
+      $activeView = "agent";
+      await invoke("download_missing_records");
+      busy = null;
     } catch (e) {
       updateToast(toastId, { type: "error", message: `Sync failed: ${e}`, duration: 5000 });
-    } finally {
       busy = null;
-    }
+    } 
   }
 
   function formatBytes(value: number | null | undefined) {
@@ -100,7 +115,6 @@
   let systemStats = $state<any>(null);
 
   onMount(() => {
-    // Poller for system stats
     const statsInterval = setInterval(async () => {
       try {
         systemStats = await invoke("get_system_stats");
@@ -109,7 +123,6 @@
       }
     }, 2000);
 
-    // Auto-detect provisioning
     (async () => {
       try {
         const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
@@ -139,9 +152,10 @@
   });
 
   $effect(() => {
-    // Only reload if we transition to provisioned
-    if (isProvisioned && !initializing && records.length === 0) {
-      void loadInitialData();
+    if (isProvisioned && !initializing) {
+        if ($activeView === 'dashboard' && records.length === 0) {
+            void loadInitialData();
+        }
     }
   });
 </script>
@@ -166,26 +180,22 @@
 
   <div class="os-container" class:blur={initializing}>
     <header class="os-header glass-header">
-      <nav class="os-nav">
-        <button class:active={activeView === 'dashboard'} onclick={() => activeView = 'dashboard'}>
-          <LayoutDashboard size={18} /> <span>Dashboard</span>
-        </button>
-        <button class:active={activeView === 'intel'} onclick={() => activeView = 'intel'}>
-          <Brain size={18} /> <span>Intelligence</span>
-        </button>
-        <button class:active={activeView === 'vault'} onclick={() => activeView = 'vault'}>
-          <Database size={18} /> <span>Vault</span>
-        </button>
-        <button class:active={activeView === 'agent'} onclick={() => activeView = 'agent'}>
-          <Download size={18} /> <span>Agent</span>
-        </button>
-      </nav>
+      <div class="view-context">
+        <h2 class="view-title">{(
+          $activeView === 'dashboard' ? 'Evidence Archive' : 
+          $activeView === 'intelligence' ? 'Neural Engine' : 
+          $activeView === 'vault' ? 'Secure Vault' : 
+          $activeView === 'agent' ? 'Ingestion Agent' :
+          $activeView
+        ).toUpperCase()}</h2>
+      </div>
 
       <div class="header-actions">
         <GlobalActions 
           bind:query={query} 
+          bind:viewMode={viewMode}
           onLoad={loadInitialData}
-          onSelect={(r) => (selectedRecord = r)}
+          onSelect={(r: RecordSummary) => (selectedRecord = r)}
           onSync={sync}
           bind:busy={busy}
         />
@@ -203,33 +213,53 @@
     <div class="os-body">
       <main class="os-main">
         <div class="view-container">
-          {#if activeView === 'dashboard'}
-            <div class="dashboard-grid">
+          {#if $activeView === 'dashboard'}
+            {#if viewMode === 'grid'}
               <GridView 
                 records={records} 
                 selectedRecordId={selectedRecord?.id}
                 onSelect={(r) => (selectedRecord = r)}
               />
-            </div>
-          {:else if activeView === 'intel'}
+            {:else if viewMode === 'cards'}
+              <IntelCardsView 
+                records={records} 
+                selectedRecordId={selectedRecord?.id}
+                onSelect={(r) => (selectedRecord = r)}
+              />
+            {:else if viewMode === 'list'}
+              <ListView 
+                records={records} 
+                selectedRecordId={selectedRecord?.id}
+                onSelect={(r) => (selectedRecord = r)}
+              />
+            {/if}
+          {:else if $activeView === 'intelligence'}
             <IntelligenceCenter />
-          {:else if activeView === 'vault'}
+          {:else if $activeView === 'vault'}
             <EvidenceVault />
-          {:else if activeView === 'agent'}
+          {:else if $activeView === 'agent'}
             <DownloadAgent onComplete={loadInitialData} />
+          {:else if $activeView === 'map'}
+             <div class="view-placeholder">
+               <Map records={records} onSelect={(r) => (selectedRecord = r)} />
+             </div>
+          {:else if $activeView === 'link-analysis'}
+             <div class="view-placeholder">
+               <LinkAnalysis records={records} />
+             </div>
+          {:else if $activeView === 'settings'}
+             <Settings />
           {/if}
         </div>
       </main>
 
       {#if selectedRecord}
-        <div 
+        <button 
           class="sidebar-resizer" 
-          role="separator"
           aria-label="Resize sidebar"
-          aria-valuenow={sidebarWidth}
           onmousedown={startResizing}
           class:active={isResizing}
-        ></div>
+        ></button>
         <aside class="os-sidebar" style="width: {sidebarWidth}px; min-width: {sidebarWidth}px;">
           <IntelligenceDossier 
             record={selectedRecord} 
@@ -244,12 +274,12 @@
 
     <footer class="os-footer">
       <div class="f-section">
-        <span class="f-label">Collection Agent:</span>
-        <span class="f-val">{databaseStatus?.local_records || 0} / {databaseStatus?.official_records || 0} Synchronized</span>
+        <span class="f-label">Ingestion:</span>
+        <span class="f-val">{databaseStatus?.local_records || 0} / {databaseStatus?.official_records || 0} Assets</span>
       </div>
       <div class="f-section">
-        <span class="f-label">Intelligence Yield:</span>
-        <span class="f-val">{databaseStatus?.analyzed_records || 0} Neural Reports</span>
+        <span class="f-label">Analysis:</span>
+        <span class="f-val">{databaseStatus?.analyzed_records || 0} Reports</span>
       </div>
       <div class="f-section resource-monitor">
         {#if systemStats}
@@ -288,36 +318,22 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 24px;
+    padding: 0 32px;
     z-index: 10;
     border-bottom: 1px solid var(--border-subtle);
   }
 
-  .os-nav {
-    display: flex;
-    gap: 8px;
-  }
-
-  .os-nav button {
+  .view-context {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 16px;
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
+  }
+
+  .view-title {
     font-size: 14px;
-    font-weight: 500;
-    transition: var(--transition-fast);
-  }
-
-  .os-nav button:hover {
-    background: rgba(255,255,255,0.05);
-    color: var(--text-primary);
-  }
-
-  .os-nav button.active {
-    background: rgba(231, 196, 107, 0.1);
-    color: var(--accent-primary);
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    color: var(--text-secondary);
+    margin: 0;
   }
 
   .header-actions {
@@ -330,7 +346,7 @@
     display: flex;
     align-items: center;
     gap: 24px;
-    padding: 8px 24px;
+    padding: 8px 32px;
     background: rgba(0, 0, 0, 0.2);
     border-bottom: 1px solid var(--border-subtle);
     font-size: 11px;
@@ -368,6 +384,8 @@
     height: 100%;
     cursor: col-resize;
     background: transparent;
+    border: none;
+    padding: 0;
     transition: background 0.2s;
     z-index: 100;
   }
@@ -382,7 +400,7 @@
     border-top: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    padding: 0 24px;
+    padding: 0 32px;
     gap: 32px;
     font-size: 10px;
     letter-spacing: 0.1em;
@@ -456,10 +474,9 @@
     100% { opacity: 1; transform: scale(1); }
   }
 
-  .map-view, .link-view, .agent-view {
+  .view-placeholder {
     height: 100%;
     width: 100%;
-    padding: 24px;
     box-sizing: border-box;
   }
 

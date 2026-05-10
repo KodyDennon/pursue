@@ -231,9 +231,11 @@ impl LibraryManager {
     }
 
     async fn download_to_library(&self, url: &str) -> Result<IngestedArtifact> {
+        let parsed_url = Url::parse(url).with_context(|| format!("failed to parse URL: {url}"))?;
+        
         let response = self
             .client
-            .get(url)
+            .get(parsed_url)
             .send()
             .await
             .with_context(|| format!("failed to request {url}"))?

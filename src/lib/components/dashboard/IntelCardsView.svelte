@@ -1,166 +1,234 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
   import type { RecordSummary } from "$lib/types";
-  import { FileText, MapPin, Calendar, Database } from "lucide-svelte";
+  import { FileText, MapPin, Calendar, Database, CheckCircle2, Clock } from "lucide-svelte";
 
   let { records, selectedRecordId = null, onSelect } = $props<{
     records: RecordSummary[];
     selectedRecordId?: string | null;
     onSelect: (record: RecordSummary) => void;
   }>();
+
+  function formatBytes(value: number | null | undefined) {
+    if (!value) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    let next = value;
+    let unit = 0;
+    while (next >= 1024 && unit < units.length - 1) {
+      next /= 1024;
+      unit += 1;
+    }
+    return `${next.toFixed(next >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+  }
 </script>
 
-<div class="cards-view">
-  {#each records as record}
-      <button class="intel-card-item glass-panel" class:active={selectedRecordId === record.id} onclick={() => onSelect(record)}>
-        {#if record.thumbnail_path}
-          <div class="card-thumbnail">
-            <img src={convertFileSrc(record.thumbnail_path)} alt="Evidence thumbnail" />
-            <div class="thumbnail-overlay"></div>
-          </div>
-        {:else}
-          <div class="card-thumbnail-placeholder">
-            <FileText size={32} class="placeholder-icon" />
-          </div>
-        {/if}
-        
-        <div class="card-content">
-          <span class="card-agency">{record.agency || "Unknown Agency"}</span>
-          <h3>{record.title}</h3>
-          <p>{record.summary || "No summary available."}</p>
-          
-          <div class="card-details">
-            {#if record.incident_location}
-              <div class="detail-item">
-                <MapPin size={12} />
-                <span>{record.incident_location}</span>
-              </div>
-            {/if}
-            {#if record.incident_date}
-              <div class="detail-item">
-                <Calendar size={12} />
-                <span>{record.incident_date}</span>
-              </div>
-            {/if}
-          </div>
-
-          <div class="card-meta">
-            <div class="source-tag">
-              <Database size={10} />
-              <span>{record.source_type}</span>
+<div class="cards-view custom-scrollbar">
+  {#if records.length === 0}
+    <div class="empty-intel">No intelligence records match the current filter.</div>
+  {:else}
+    <div class="cards-grid">
+      {#each records as record}
+        <button 
+          class="intel-card" 
+          class:active={selectedRecordId === record.id} 
+          onclick={() => onSelect(record)}
+        >
+          {#if record.thumbnail_path}
+            <div class="card-thumb">
+              <img src={convertFileSrc(record.thumbnail_path)} alt="Evidence" />
+              <div class="thumb-overlay"></div>
             </div>
-            <span class="status-pill" class:completed={record.analysis_status === 'completed'}>{record.analysis_status || 'pending'}</span>
+          {:else}
+            <div class="card-thumb-placeholder">
+              <FileText size={40} strokeWidth={1} />
+            </div>
+          {/if}
+          
+          <div class="card-content">
+            <header>
+              <span class="agency">{record.agency || "AARO_OFFICIAL"}</span>
+              <div class="status" class:ready={record.analysis_status === 'completed'}>
+                {#if record.analysis_status === 'completed'}
+                  <CheckCircle2 size={10} /> <span>READY</span>
+                {:else}
+                  <Clock size={10} /> <span>{record.analysis_status || 'PENDING'}</span>
+                {/if}
+              </div>
+            </header>
+
+            <h3>{record.title}</h3>
+            <p class="summary">{record.summary || "Archival record awaiting deep neural extraction..."}</p>
+            
+            <div class="meta-grid">
+              <div class="meta-item">
+                <MapPin size={12} />
+                <span>{record.incident_location || "Global"}</span>
+              </div>
+              <div class="meta-item">
+                <Calendar size={12} />
+                <span>{record.release_date || "Undated"}</span>
+              </div>
+            </div>
+
+            <footer>
+              <div class="source">
+                <Database size={10} />
+                <span>{record.source_type}</span>
+              </div>
+              <span class="size">{record.local_path ? formatBytes(record.artifact_size) : 'Cloud'}</span>
+            </footer>
           </div>
-        </div>
-      </button>
-  {/each}
+        </button>
+      {/each}
+    </div>
+  {/if}
 </div>
 
 <style>
   .cards-view {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 20px;
-    padding: 24px;
+    height: 100%;
+    overflow-y: auto;
+    padding: 32px;
   }
-  .intel-card-item {
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-    transition: transform 0.2s, border-color 0.2s, background 0.2s;
+
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 24px;
+  }
+
+  .intel-card {
     background: var(--bg-surface);
     border: 1px solid var(--border-subtle);
-    border-radius: 12px;
-    cursor: pointer;
-    color: var(--text-primary);
+    border-radius: var(--radius-lg);
     overflow: hidden;
-    height: 100%;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    transition: var(--transition-normal);
+    cursor: pointer;
   }
-  .intel-card-item:hover {
+
+  .intel-card:hover {
     transform: translateY(-4px);
     border-color: var(--accent-primary);
     background: var(--bg-surface-elevated);
-  }
-  .intel-card-item.active {
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 2px rgba(231, 196, 107, 0.2);
-    background: var(--bg-surface-elevated);
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
   }
 
-  .card-thumbnail {
+  .intel-card.active {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(231, 196, 107, 0.2);
+  }
+
+  .card-thumb, .card-thumb-placeholder {
     width: 100%;
     aspect-ratio: 16/9;
+    background: #000;
     position: relative;
     overflow: hidden;
-    background: #000;
   }
-  .card-thumbnail img {
+
+  .card-thumb img {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: transform 0.4s ease;
-  }
-  .intel-card-item:hover .card-thumbnail img {
-    transform: scale(1.05);
-  }
-  .thumbnail-overlay {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.8));
+    opacity: 0.7;
+    transition: transform 0.6s ease;
   }
 
-  .card-thumbnail-placeholder {
-    width: 100%;
-    aspect-ratio: 16/9;
+  .intel-card:hover .card-thumb img {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+
+  .card-thumb-placeholder {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #111;
     color: var(--text-tertiary);
+    background: radial-gradient(circle at center, #111 0%, #000 100%);
   }
-  .placeholder-icon { opacity: 0.2; }
+
+  .thumb-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.8));
+  }
 
   .card-content {
-    padding: 20px;
+    padding: 24px;
     display: flex;
     flex-direction: column;
     flex: 1;
   }
 
-  .card-agency {
-    font-size: 9px;
-    text-transform: uppercase;
-    color: var(--accent-primary);
-    display: block;
-    margin-bottom: 8px;
-    letter-spacing: 0.15em;
-    font-weight: 700;
-  }
-  .intel-card-item h3 {
-    font-size: 15px;
-    margin-bottom: 12px;
-    line-height: 1.4;
-    font-weight: 600;
-  }
-  .intel-card-item p {
-    font-size: 13px;
-    color: var(--text-secondary);
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 16px;
+  }
+
+  .agency {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    color: var(--accent-primary);
+    text-transform: uppercase;
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-tertiary);
+    background: rgba(255,255,255,0.05);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .status.ready {
+    color: var(--accent-success);
+    background: rgba(77, 243, 169, 0.1);
+  }
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    line-height: 1.4;
+    color: var(--text-primary);
     display: -webkit-box;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .summary {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    margin: 0 0 20px 0;
+    display: -webkit-box;
+    line-clamp: 3;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    line-height: 1.5;
     flex: 1;
   }
 
-  .card-details {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 20px;
+  .meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 24px;
   }
-  .detail-item {
+
+  .meta-item {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -168,14 +236,15 @@
     color: var(--text-tertiary);
   }
 
-  .card-meta {
+  footer {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding-top: 16px;
     border-top: 1px solid var(--border-subtle);
   }
-  .source-tag {
+
+  .source {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -184,18 +253,15 @@
     text-transform: uppercase;
   }
 
-  .status-pill {
-    background: rgba(255,255,255,0.05);
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 9px;
-    text-transform: uppercase;
-    font-weight: 700;
-    letter-spacing: 0.05em;
+  .size {
+    font-size: 10px;
+    color: var(--text-tertiary);
   }
-  .status-pill.completed {
-    background: rgba(77, 243, 169, 0.1);
-    color: var(--accent-success);
-    border: 1px solid rgba(77, 243, 169, 0.2);
+
+  .empty-intel {
+    padding: 100px;
+    text-align: center;
+    color: var(--text-tertiary);
+    font-style: italic;
   }
 </style>

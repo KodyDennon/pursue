@@ -18,6 +18,10 @@
 
   let busyModelId = $state<string | null>(null);
 
+  let analysisProgress = $state(0);
+  let analysisActive = $state(false);
+  let analysisStatus = $state("");
+
   async function loadStatus() {
     try {
       status = await invoke<DatabaseStatus>("get_database_status");
@@ -58,11 +62,16 @@
   }
 
   async function reindexAll() {
+    if (analysisActive) return;
     try {
+      analysisActive = true;
+      analysisProgress = 0;
+      analysisStatus = "Initializing...";
       const count = await invoke<number>("analyze_all_records");
       addToast({ type: "info", message: `Neural Indexing initiated for ${count} records.`, duration: 5000 });
     } catch (e) {
       addToast({ type: "error", message: `Indexing failed: ${e}`, duration: 5000 });
+      analysisActive = false;
     }
   }
 
@@ -70,7 +79,10 @@
     loadStatus();
     const interval = setInterval(loadStatus, 5000);
     
-    const unlisten = listen("model-progress", (event: any) => {
+    let unlistenProgress: Promise<() => void>;
+    let unlistenAnalysis: Promise<() => void>;
+
+    unlistenProgress = listen("model-progress", (event: any) => {
       const payload = event.payload;
       const model = models.find(m => m.id === payload.model_id);
       if (model) {
@@ -81,9 +93,25 @@
       }
     });
 
+    unlistenAnalysis = listen("analysis-progress", (event: any) => {
+      const { current, total, status } = event.payload;
+      if (total > 0) {
+        analysisProgress = (current / total) * 100;
+      }
+      if (status === "completed") {
+        analysisActive = false;
+        analysisStatus = "Complete";
+        loadStatus();
+      } else {
+        analysisActive = true;
+        analysisStatus = `Processing ${current} of ${total}`;
+      }
+    });
+
     return () => {
       clearInterval(interval);
-      unlisten.then(u => u());
+      if (unlistenProgress) unlistenProgress.then(u => u());
+      if (unlistenAnalysis) unlistenAnalysis.then(u => u());
     };
   });
 </script>
@@ -93,8 +121,8 @@
     <div class="title-wrap">
       <Brain class="accent-icon" size={32} />
       <div>
-        <h1>Intelligence Center</h1>
-        <p>Manage neural models, vector indices, and hardware acceleration.</p>
+        <h1>Neural Engine</h1>
+        <p>Coordinate neural models, vector indices, and hardware acceleration.</p>
       </div>
     </div>
   </header>
@@ -139,7 +167,7 @@
       <header>
         <Database size={18} />
         <div class="header-content">
-          <h3>Neural Model Library</h3>
+          <h3>Cognitive Models</h3>
           {#if models.some(m => m.status === 'missing')}
             <button class="text-btn" onclick={provisionAll} disabled={!!busyModelId}>
               <Download size={14} /> Provision All Missing
@@ -184,9 +212,18 @@
         <HardDrive size={18} />
         <div class="header-content">
           <h3>Vector Index Analytics</h3>
-          <button class="text-btn" onclick={reindexAll}>
-            <Brain size={14} /> Batch Neural Re-indexing
-          </button>
+          {#if analysisActive}
+            <div class="analysis-progress">
+              <span class="status-text">{analysisStatus}</span>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: {analysisProgress}%"></div>
+              </div>
+            </div>
+          {:else}
+            <button class="text-btn" onclick={reindexAll}>
+              <Brain size={14} /> Batch Neural Re-indexing
+            </button>
+          {/if}
         </div>
       </header>
       {#if status}
@@ -415,6 +452,33 @@
     text-align: center;
     color: var(--text-tertiary);
     font-style: italic;
+  }
+
+  .analysis-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    align-items: flex-end;
+  }
+
+  .status-text {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .analysis-progress .progress-bar-bg {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .analysis-progress .progress-bar-fill {
+    height: 100%;
+    background: var(--accent-primary);
+    transition: width 0.2s ease;
   }
 
   :global(.spin) {

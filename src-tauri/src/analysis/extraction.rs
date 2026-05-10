@@ -7,10 +7,15 @@ use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use std::sync::Arc;
+
+use once_cell::sync::Lazy;
+
+static LLAMA_BACKEND: Lazy<Result<LlamaBackend, String>> = Lazy::new(|| {
+    LlamaBackend::init().map_err(|e| e.to_string())
+});
 
 pub struct IntelligenceExtractor {
-    backend: Arc<LlamaBackend>,
+    backend: &'static LlamaBackend,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -22,9 +27,10 @@ pub struct ExtractionConfig {
 
 impl IntelligenceExtractor {
     pub fn new() -> Result<Self> {
-        let backend = LlamaBackend::init()?;
+        let backend = LLAMA_BACKEND.as_ref()
+            .map_err(|e| anyhow!("LlamaBackend initialization failed: {}", e))?;
         Ok(Self {
-            backend: Arc::new(backend),
+            backend,
         })
     }
 
@@ -47,19 +53,19 @@ impl IntelligenceExtractor {
     }
 
     pub async fn extract_metadata(&self, model_path: PathBuf, text: &str) -> Result<Value> {
-        let backend = self.backend.clone();
+        let backend = self.backend;
         let text = text.to_string();
 
         // LLM inference is heavy, run on blocking thread
         tokio::task::spawn_blocking(move || {
             let model_params = LlamaModelParams::default();
-            let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
+            let model = LlamaModel::load_from_file(backend, &model_path, &model_params)
                 .map_err(|e| anyhow!("LlamaModel::load_from_file failed: {:?}", e))?;
 
             let ctx_params = LlamaContextParams::default();
             // Let it default to model's n_ctx
             let mut ctx = model
-                .new_context(&backend, ctx_params)
+                .new_context(backend, ctx_params)
                 .map_err(|e| anyhow!("new_context failed: {:?}", e))?;
 
             let prompt = format!(

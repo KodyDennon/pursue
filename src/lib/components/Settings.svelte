@@ -169,7 +169,6 @@
     font-weight: 600;
   }
 
-  .accent { color: var(--accent-primary); }
 
   .s-body {
     padding: 24px;

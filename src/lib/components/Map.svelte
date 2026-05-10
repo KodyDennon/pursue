@@ -7,7 +7,7 @@
   let { records = [], onSelect = null } = $props<{ records: RecordSummary[]; onSelect?: (record: RecordSummary) => void }>();
   let mapElement: HTMLDivElement;
   let map: L.Map | null = null;
-  let markerLayer: L.LayerGroup | null = null;
+  let markerLayer = $state<L.LayerGroup | null>(null);
 
   const knownLocations: Array<[RegExp, [number, number]]> = [
     [/kazakhstan/i, [48.0196, 66.9237]],
@@ -22,29 +22,26 @@
     [/california/i, [36.7783, -119.4179]],
     [/florida/i, [27.6648, -81.5158]],
     [/atlantic/i, [31.0, -45.0]],
-    [/pacific/i, [8.7832, -124.5085]]
+    [/pacific/i, [8.7832, -124.5085]],
+    [/russia|moscow/i, [55.7558, 37.6173]],
+    [/china|beijing/i, [39.9042, 116.4074]],
+    [/ukraine|kyiv/i, [50.4501, 30.5234]],
+    [/united kingdom|london|uk/i, [51.5074, -0.1278]],
+    [/germany|berlin/i, [52.5200, 13.4050]],
+    [/france|paris/i, [48.8566, 2.3522]],
+    [/iran|tehran/i, [35.6892, 51.3890]],
+    [/north korea/i, [39.0392, 125.7625]],
+    [/south korea/i, [37.5665, 126.9780]],
+    [/japan|tokyo/i, [35.6762, 139.6503]],
+    [/australia|sydney/i, [-33.8688, 151.2093]],
+    [/brazil/i, [-14.235, -51.9253]]
   ];
-
-  onMount(() => {
-    map = L.map(mapElement, {
-      center: [24, -34],
-      zoom: 2,
-      zoomControl: false,
-      attributionControl: false
-    });
-
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      maxZoom: 19
-    }).addTo(map);
-
-    markerLayer = L.layerGroup().addTo(map);
-    updateMarkers(records);
-  });
 
   function coordinatesFor(location: string | null): [number, number] | null {
     if (!location) return null;
+    const clean = location.toLowerCase();
     for (const [pattern, coords] of knownLocations) {
-      if (pattern.test(location)) return coords;
+      if (pattern.test(clean)) return coords;
     }
     return null;
   }
@@ -53,9 +50,13 @@
     if (!map || !markerLayer) return;
     markerLayer.clearLayers();
 
+    const bounds: L.LatLngExpression[] = [];
+
     for (const record of nextRecords) {
       const coords = coordinatesFor(record.incident_location);
       if (!coords) continue;
+
+      bounds.push(coords as [number, number]);
 
       const markerIcon = L.divIcon({
         className: "tactical-pip",
@@ -64,7 +65,7 @@
         iconAnchor: [10, 10]
       });
 
-      L.marker(coords, { icon: markerIcon })
+      L.marker(coords as [number, number], { icon: markerIcon })
         .addTo(markerLayer)
         .bindPopup(`
           <div class="tactical-popup">
@@ -74,7 +75,7 @@
             </header>
             <p>${record.agency}</p>
             <div class="p-footer">
-              <small>${record.incident_date || 'N/A'}</small>
+              <small>${record.incident_date || record.release_date || 'N/A'}</small>
               <button class="mini-btn" onclick="window.dispatchEvent(new CustomEvent('select-record', { detail: '${record.id}' }))">Open Dossier</button>
             </div>
           </div>
@@ -82,13 +83,39 @@
           className: 'tactical-popup-container'
         });
     }
+
+    if (bounds.length > 0) {
+        map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50], maxZoom: 5 });
+    }
   }
 
   onMount(() => {
-    window.addEventListener('select-record', ((e: CustomEvent<string>) => {
+    map = L.map(mapElement, {
+      center: [20, 0],
+      zoom: 2,
+      zoomControl: false,
+      attributionControl: false
+    });
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      maxZoom: 12
+    }).addTo(map);
+
+    markerLayer = L.layerGroup().addTo(map);
+    
+    // Select record event listener
+    const handleSelect = (e: any) => {
       const record = records.find((r: RecordSummary) => r.id === e.detail);
       if (record && onSelect) onSelect(record);
-    }) as EventListener);
+    };
+    
+    window.addEventListener('select-record', handleSelect);
+
+    updateMarkers(records);
+
+    return () => {
+        window.removeEventListener('select-record', handleSelect);
+    };
   });
 
   $effect(() => {
@@ -100,13 +127,43 @@
   });
 </script>
 
-<div bind:this={mapElement} class="map-surface"></div>
+<div bind:this={mapElement} class="map-surface">
+    {#if records.length > 0 && markerLayer && markerLayer.getLayers().length === 0}
+        <div class="map-overlay">
+            <div class="msg">No geospatial coordinates resolved for current collection.</div>
+        </div>
+    {/if}
+</div>
 
 <style>
   .map-surface {
     width: 100%;
     height: 100%;
     background: #0a0b0d;
+    position: relative;
+  }
+
+  .map-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(0,0,0,0.4);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+  }
+
+  .map-overlay .msg {
+      padding: 12px 24px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
   }
 
   :global(.tactical-pip) {
@@ -200,7 +257,7 @@
   }
 
   :global(.mini-btn) {
-    background: var(--accent-gold);
+    background: var(--accent-primary);
     color: #000;
     border: none;
     border-radius: 4px;

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount, onDestroy } from "svelte";
-  import { Loader2, Download, CheckCircle2, AlertCircle, XCircle } from "lucide-svelte";
-  import type { BulkDownloadReport, BulkDownloadItem, BulkDownloadStatus } from "$lib/types";
+  import { Loader2, Download, CheckCircle2, AlertCircle, XCircle, Brain, DownloadCloud } from "lucide-svelte";
+  import type { BulkDownloadReport, BulkDownloadStatus } from "$lib/types";
   import { addToast } from "$lib/toastStore";
 
   let { onComplete } = $props<{ onComplete?: () => void }>();
@@ -11,14 +11,51 @@
   let report = $state<BulkDownloadReport | null>(null);
   let polling = $state(false);
   let pollInterval: any = null;
+  
+  let agentSettings = $state({ auto_sync: true, auto_analyze: true });
+  let stats = $state<any>(null);
+
+  async function loadSettings() {
+    try {
+      const s = await invoke<any>("get_app_settings", { key: "ingestion_agent" });
+      if (s) agentSettings = s;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function saveSettings() {
+    try {
+      await invoke("set_app_settings", { key: "ingestion_agent", value: agentSettings });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function loadStats() {
+    try {
+      stats = await invoke("get_evidence_stats");
+    } catch (e) {
+      console.error(e);
+    }
+  }
 
   async function startBulkDownload() {
     try {
       activeJobId = await invoke<string>("download_missing_records");
       startPolling();
-      addToast({ type: "info", message: "Intelligence Agent initiated bulk collection.", duration: 3000 });
+      addToast({ type: "info", message: "Ingestion Agent initiated bulk collection.", duration: 3000 });
     } catch (e) {
       addToast({ type: "error", message: `Agent failed: ${e}` });
+    }
+  }
+
+  async function startBatchAnalysis() {
+    try {
+        await invoke("analyze_all_records");
+        addToast({ type: "info", message: "Neural Extraction Agent initiated batch re-indexing.", duration: 3000 });
+    } catch (e) {
+        addToast({ type: "error", message: `Analysis failed: ${e}` });
     }
   }
 
@@ -37,7 +74,12 @@
       report = await invoke<BulkDownloadReport>("get_bulk_download_status", { id: activeJobId });
       if (report.job.status === "completed" || report.job.status === "failed" || report.job.status === "cancelled") {
         stopPolling();
+        loadStats();
         if (onComplete) onComplete();
+        if (report.job.status === "completed" && agentSettings.auto_analyze) {
+          addToast({ type: "info", message: "Downloads complete. Auto-starting neural extraction...", duration: 5000 });
+          await invoke("analyze_all_records");
+        }
       }
     } catch (e) {
       console.error("Poll failed", e);
@@ -56,6 +98,21 @@
     polling = false;
     if (pollInterval) clearInterval(pollInterval);
   }
+
+  onMount(async () => {
+    loadSettings();
+    loadStats();
+    try {
+      const latest = await invoke<BulkDownloadReport | null>("get_latest_download_job");
+      if (latest) {
+        activeJobId = latest.job.id;
+        report = latest;
+        startPolling();
+      }
+    } catch (e) {
+      console.error("Failed to check for active job", e);
+    }
+  });
 
   onDestroy(() => stopPolling());
 
@@ -76,22 +133,42 @@
 <div class="agent-container glass-panel">
   <div class="agent-header">
     <div class="agent-info">
-      <Download size={20} class="accent-icon" />
+      <DownloadCloud size={20} class="accent-icon" />
       <div class="text">
-        <h3>Intelligence Collection Agent</h3>
+        <h3>Ingestion Agent</h3>
         <p>Automated retrieval of official source documentation and media assets.</p>
       </div>
     </div>
     
-    {#if !activeJobId}
-      <button class="agent-btn primary" onclick={startBulkDownload}>
-        Start Global Sync
-      </button>
-    {:else if report?.job.status === 'running' || report?.job.status === 'queued'}
-      <button class="agent-btn danger" onclick={cancelDownload}>
-        Terminate Sync
-      </button>
-    {/if}
+    <div class="agent-actions-top">
+      {#if !activeJobId || (report && report.job.status !== 'running' && report.job.status !== 'queued')}
+        <button class="agent-btn primary" onclick={startBulkDownload}>
+          <Download size={14} /> Start Global Download
+        </button>
+        <button class="agent-btn secondary" onclick={startBatchAnalysis}>
+          <Brain size={14} /> Neural Extraction
+        </button>
+      {:else}
+        <button class="agent-btn danger" onclick={cancelDownload}>
+          Abort Operation
+        </button>
+      {/if}
+    </div>
+  </div>
+
+  <div class="agent-settings-bar">
+    <div class="toggle-group">
+      <label class="switch-label">
+        <input type="checkbox" bind:checked={agentSettings.auto_sync} onchange={saveSettings} />
+        <span class="slider"></span>
+        <span class="label-text">Auto-Ingestion Pipeline</span>
+      </label>
+      <label class="switch-label">
+        <input type="checkbox" bind:checked={agentSettings.auto_analyze} onchange={saveSettings} />
+        <span class="slider"></span>
+        <span class="label-text">Neural Post-Processing</span>
+      </label>
+    </div>
   </div>
 
   {#if report}
@@ -147,7 +224,20 @@
     </div>
   {:else}
     <div class="agent-idle">
-      <p>Agent is currently standby. Monitoring 573 official records.</p>
+      <div class="idle-content">
+        <div class="status-indicator">STANDBY</div>
+        <p>Agent is currently idle. Monitoring <strong>{stats?.total_count || 0}</strong> intelligence records.</p>
+        <div class="stats-row">
+            <div class="s-card">
+                <span class="s-label">UNPROVISIONED</span>
+                <span class="s-val">{stats?.total_count - stats?.local_count || 0}</span>
+            </div>
+            <div class="s-card">
+                <span class="s-label">UNANALYZED</span>
+                <span class="s-val">{stats?.unanalyzed_count || 0}</span>
+            </div>
+        </div>
+      </div>
     </div>
   {/if}
 </div>
@@ -168,7 +258,61 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    margin-bottom: 8px;
   }
+
+  .agent-actions-top {
+    display: flex;
+    gap: 12px;
+  }
+
+  .agent-settings-bar {
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    margin-bottom: 20px;
+  }
+
+  .toggle-group {
+    display: flex;
+    gap: 32px;
+  }
+
+  .switch-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .switch-label input { display: none; }
+  .slider {
+    width: 28px;
+    height: 14px;
+    background: #2a2d35;
+    border-radius: 10px;
+    position: relative;
+    transition: background 0.3s;
+  }
+  .slider::after {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    top: 2px;
+    left: 2px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.3s;
+  }
+  input:checked + .slider { background: var(--accent-primary); }
+  input:checked + .slider::after { transform: translateX(14px); }
 
   .agent-info {
     display: flex;
@@ -198,12 +342,21 @@
     font-weight: 600;
     cursor: pointer;
     transition: var(--transition-fast);
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .agent-btn.primary {
     background: var(--accent-primary);
     color: #000;
     border: none;
+  }
+
+  .agent-btn.secondary {
+    background: rgba(255,255,255,0.05);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
   }
 
   .agent-btn.danger {
@@ -319,12 +472,62 @@
   .text-accent { color: var(--accent-primary); }
 
   .agent-idle {
-    padding: 40px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px;
     text-align: center;
-    color: var(--text-tertiary);
-    font-size: 13px;
     border: 1px dashed var(--border-subtle);
     border-radius: var(--radius-md);
+    background: rgba(0,0,0,0.1);
+  }
+
+  .idle-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+  }
+
+  .status-indicator {
+      font-size: 10px;
+      font-weight: 900;
+      color: var(--text-tertiary);
+      padding: 4px 12px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 20px;
+      letter-spacing: 0.2em;
+  }
+
+  .idle-content p {
+      color: var(--text-secondary);
+      margin: 0;
+  }
+
+  .stats-row {
+      display: flex;
+      gap: 24px;
+      margin-top: 8px;
+  }
+
+  .s-card {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+  }
+
+  .s-label {
+      font-size: 9px;
+      color: var(--text-tertiary);
+      font-weight: 800;
+  }
+
+  .s-val {
+      font-size: 24px;
+      font-weight: 300;
+      color: var(--text-primary);
+      font-family: var(--font-display);
   }
 
   :global(.spin) {

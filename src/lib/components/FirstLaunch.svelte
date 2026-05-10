@@ -27,27 +27,30 @@
     ]
   };
 
-  onMount(async () => {
+  onMount(() => {
     // 1. Check Diagnostics
-    specs = await invoke("get_hardware_diagnostics");
-    missingModels = await invoke("check_model_status");
-    
-    selectedTier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
+    (async () => {
+      specs = await invoke("get_hardware_diagnostics");
+      missingModels = await invoke("check_model_status");
+      
+      selectedTier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
 
-    // Check if anything is actually missing
-    const anyMissing = Object.values(missingModels).some(v => !v);
-    if (!anyMissing) {
-      onComplete();
-      return;
-    }
+      // Check if anything is actually missing
+      const anyMissing = Object.values(missingModels).some(v => !v);
+      if (!anyMissing) {
+        onComplete();
+        return;
+      }
 
-    setTimeout(() => {
-      step = "selection";
-      statusText = "Hardware Analysis Complete.";
-    }, 1500);
+      setTimeout(() => {
+        step = "selection";
+        statusText = "Hardware Analysis Complete.";
+      }, 1500);
+    })();
 
     // Listen for progress
-    const unlisten = await listen("model-progress", (event: any) => {
+    let unlisten: (() => void) | undefined;
+    listen("model-progress", (event: any) => {
       const payload = event.payload;
       const allModels = [...MODELS.Standard, ...MODELS.Elite];
       const model = allModels.find(m => m.id === payload.model_id);
@@ -56,9 +59,11 @@
         progress = Math.round((payload.bytes_downloaded / payload.total_bytes) * 100);
       }
       statusText = `Downloading ${model?.name || 'Intelligence Asset'}...`;
-    });
+    }).then(u => unlisten = u);
 
-    return () => unlisten();
+    return () => {
+      if (unlisten) unlisten();
+    };
   });
 
   async function startProvisioning() {
