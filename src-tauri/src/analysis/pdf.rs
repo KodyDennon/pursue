@@ -20,26 +20,8 @@ impl PdfAnalyzer {
     pub async fn extract_text<P: AsRef<Path>>(&self, path: P) -> Result<String> {
         let path = path.as_ref();
         let lopdf_text = self.extract_with_lopdf(path).unwrap_or_default();
-        if lopdf_text.trim().len() > 80 {
-            return Ok(lopdf_text);
-        }
-
-        if command_available("pdftotext").await {
-            let output = Command::new("pdftotext")
-                .arg("-layout")
-                .arg(path)
-                .arg("-")
-                .output()
-                .await
-                .context("failed to start pdftotext")?;
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout).to_string();
-                if text.trim().len() > lopdf_text.trim().len() {
-                    return Ok(text);
-                }
-            }
-        }
-
+        // If we have a decent amount of digital text, return it.
+        // Otherwise, we return it anyway and let the caller decide if OCR is needed.
         Ok(lopdf_text)
     }
 

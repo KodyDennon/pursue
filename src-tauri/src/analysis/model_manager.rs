@@ -63,6 +63,9 @@ impl ModelManager {
                         if &magic != b"GGUF" {
                             warn!("Model file {} is corrupted (invalid GGUF magic).", model_name);
                             is_corrupted = true;
+                        } else if file.metadata().await?.len() < 100 * 1024 * 1024 {
+                            warn!("Model file {} is too small for a GGUF model.", model_name);
+                            is_corrupted = true;
                         }
                     } else if &magic == b"<!DO" || &magic == b"<htm" {
                         warn!("Model file {} appears to be an HTML error page.", model_name);

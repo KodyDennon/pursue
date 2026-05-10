@@ -272,16 +272,26 @@ impl AnalysisManager {
                 if digital.trim().len() > 100 { 
                     Ok((digital, "pdf-text".to_string())) 
                 } else {
-                    // Fallback to platform-native Vision OCR on Mac, or Tesseract/ocrmypdf
+                    // Digital text is sparse, trigger OS-native OCR (handles multi-page)
                     #[cfg(target_os = "macos")]
-                    if let Ok(text) = self::native_macos::extract_text_macos(path).await {
-                        if text.trim().len() > 10 {
+                    {
+                        info!("Digital text sparse. Triggering macOS Vision OCR...");
+                        if let Ok(text) = self::native_macos::extract_text_macos(path).await {
                             return Ok((text, "macos-vision-pdf".to_string()));
                         }
                     }
                     
-                    let ocr = self.ocr.extract_text_from_scanned_pdf(path).await?;
-                    Ok((ocr, "ocrmypdf".to_string()))
+                    #[cfg(target_os = "windows")]
+                    {
+                        info!("Digital text sparse. Triggering Windows Media OCR...");
+                        if let Ok(text) = self::native_windows::extract_text_windows(path).await {
+                            return Ok((text, "windows-ocr-pdf".to_string()));
+                        }
+                    }
+
+                    // Pure Rust fallback for Linux or if OS-native fails
+                    let text = self.ocr.extract_text_fallback(path).await?;
+                    Ok((text, "rust-ocrs".to_string()))
                 }
             }
             "txt" | "md" | "csv" | "json" => Ok((fs::read_to_string(path).await?, "text-file".to_string())),
@@ -296,7 +306,9 @@ impl AnalysisManager {
                     return Ok((text, "windows-ocr-image".to_string()));
                 }
 
-                Ok((self.ocr.extract_text_from_image(path).await?, "tesseract".to_string()))
+                // Pure Rust fallback
+                let text = self.ocr.extract_text_fallback(path).await?;
+                Ok((text, "rust-ocrs".to_string()))
             }
             _ => Err(anyhow!("unsupported type `{}`", extension)),
         }
