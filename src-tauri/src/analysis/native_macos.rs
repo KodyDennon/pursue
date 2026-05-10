@@ -5,15 +5,15 @@ use std::path::Path;
 mod macos_impl {
     use super::*;
     use objc2::rc::Retained;
+    use objc2::msg_send;
     use objc2::AnyThread;
     use objc2_foundation::{NSArray, NSDictionary, NSString, NSURL};
     use objc2_vision::{
-        VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel,
+        VNImageRequestHandler, VNRecognizeTextRequest, VNRequestTextRecognitionLevel, VNRequest,
     };
-
-    // Forward declarations for PDFKit types not in objc2-vision/foundation
-    #[link(name = "PDFKit", kind = "framework")]
-    extern "C" {}
+    use objc2_pdf_kit::PDFDocument;
+    use objc2_app_kit::NSImage;
+    use objc2_core_graphics::CGImage;
 
     pub fn extract_text(path: &Path) -> Result<String> {
         objc2::rc::autoreleasepool(|_| {
@@ -31,8 +31,10 @@ mod macos_impl {
 
     fn extract_image_text(url: &Retained<NSURL>) -> Result<String> {
         let request = unsafe { VNRecognizeTextRequest::init(VNRecognizeTextRequest::alloc()) };
-        request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
-        request.setUsesLanguageCorrection(true);
+        unsafe {
+            request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
+            request.setUsesLanguageCorrection(true);
+        }
 
         let handler = unsafe {
             VNImageRequestHandler::initWithURL_options(
@@ -45,9 +47,10 @@ mod macos_impl {
         let requests = unsafe {
             NSArray::from_slice(&[&*Retained::cast_unchecked::<VNRequest>(request.clone())])
         };
-        handler
-            .performRequests_error(&requests)
-            .map_err(|e| anyhow!("Vision request failed: {:?}", e))?;
+        
+        unsafe {
+            let _: bool = msg_send![&handler, performRequests: &*requests, error: 0];
+        }
 
         let results = request.results().ok_or_else(|| anyhow!("no results"))?;
         let mut full_text = String::new();
@@ -66,65 +69,67 @@ mod macos_impl {
     }
 
     fn extract_pdf_text(url: &Retained<NSURL>) -> Result<String> {
-        use objc2::msg_send;
-        use objc2::runtime::AnyObject;
-        use std::ffi::CStr;
+        let doc = unsafe { PDFDocument::initWithURL(PDFDocument::alloc(), url) }
+            .ok_or_else(|| anyhow!("Failed to load PDF document"))?;
 
-        // Use PDFKit to iterate pages and Vision to OCR each
-        unsafe {
-            let cls_name = CStr::from_bytes_with_nul(b"PDFDocument\0").unwrap();
-            let cls = objc2::runtime::AnyClass::get(cls_name).ok_or_else(|| anyhow!("PDFKit not available"))?;
-            let doc: *mut AnyObject = msg_send![cls, alloc];
-            let doc: *mut AnyObject = msg_send![doc, initWithURL: &**url];
-            if doc.is_null() { return Err(anyhow!("Failed to load PDF document")); }
-            let doc: Retained<AnyObject> = Retained::from_raw(doc).unwrap();
+        let count = unsafe { doc.pageCount() };
+        let mut full_text = String::new();
 
-            let count: isize = msg_send![&*doc, pageCount];
-            let mut full_text = String::new();
+        for i in 0..count {
+            let page = unsafe { doc.pageAtIndex(i) };
+            let page = match page {
+                Some(p) => p,
+                None => continue,
+            };
+            
+            // Render page to NSImage (high resolution)
+            let box_rect: [f64; 4] = unsafe { msg_send![&*page, boundsForBox: 0] }; // 0 = kPDFDisplayBoxMediaBox
+            let size = [box_rect[2] * 3.0, box_rect[3] * 3.0];
+            
+            let ns_image: *mut NSImage = unsafe { msg_send![&*page, thumbnailOfSize: size, forBox: 0] };
+            if ns_image.is_null() { continue; }
+            let ns_image = unsafe { Retained::from_raw(ns_image) }.unwrap();
 
-            for i in 0..count {
-                let page: *mut AnyObject = msg_send![&*doc, pageAtIndex: i];
-                if page.is_null() { continue; }
-                
-                // Get page image at high resolution
-                let box_rect: [f64; 4] = msg_send![page, boundsForBox: 0]; // 0 = kPDFDisplayBoxMediaBox
-                
-                let size = [box_rect[2] * 3.0, box_rect[3] * 3.0];
-                let ns_image: *mut AnyObject = msg_send![page, thumbnailOfSize: size, forBox: 0];
-                if ns_image.is_null() { continue; }
-                let ns_image: Retained<AnyObject> = Retained::from_raw(ns_image).unwrap();
+            // Convert NSImage to CGImage
+            let cg_image_ptr: *mut CGImage = unsafe { msg_send![&*ns_image, CGImageForProposedRect: 0, context: 0, hints: 0] };
+            if cg_image_ptr.is_null() { continue; }
+            let cg_image = unsafe { &*cg_image_ptr };
 
-                // Convert NSImage to Vision request
-                let cg_image: *mut AnyObject = msg_send![&*ns_image, CGImageForProposedRect: 0, context: 0, hints: 0];
-                if cg_image.is_null() { continue; }
-
-                let request = VNRecognizeTextRequest::init(VNRecognizeTextRequest::alloc());
+            let request = unsafe { VNRecognizeTextRequest::init(VNRecognizeTextRequest::alloc()) };
+            unsafe {
                 request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
-                
-                let handler = VNImageRequestHandler::initWithCGImage_options(
+            }
+            
+            let handler = unsafe {
+                VNImageRequestHandler::initWithCGImage_options(
                     VNImageRequestHandler::alloc(),
-                    std::mem::transmute(cg_image),
+                    cg_image,
                     &NSDictionary::new()
-                );
+                )
+            };
 
-                let requests = NSArray::from_slice(&[&*Retained::cast_unchecked::<VNRequest>(request.clone())]);
-                let _: bool = msg_send![&*handler, performRequests: &**requests, error: 0];
+            let requests = unsafe {
+                NSArray::from_slice(&[&*Retained::cast_unchecked::<VNRequest>(request.clone())])
+            };
+            
+            unsafe {
+                let _: bool = msg_send![&handler, performRequests: &*requests, error: 0];
+            }
 
-                if let Some(results) = request.results() {
-                    for j in 0..results.count() {
-                        let observation = results.objectAtIndex(j);
-                        let candidates = observation.topCandidates(1);
-                        if candidates.count() > 0 {
-                            let text = candidates.objectAtIndex(0).string();
-                            full_text.push_str(&text.to_string());
-                            full_text.push('\n');
-                        }
+            if let Some(results) = request.results() {
+                for j in 0..results.count() {
+                    let observation = results.objectAtIndex(j);
+                    let candidates = observation.topCandidates(1);
+                    if candidates.count() > 0 {
+                        let text = candidates.objectAtIndex(0).string();
+                        full_text.push_str(&text.to_string());
+                        full_text.push('\n');
                     }
                 }
-                full_text.push_str("\n--- PAGE BREAK ---\n");
             }
-            Ok(full_text)
+            full_text.push_str("\n--- PAGE BREAK ---\n");
         }
+        Ok(full_text)
     }
 }
 
@@ -132,7 +137,6 @@ pub async fn extract_text_macos<P: AsRef<Path>>(path: P) -> Result<String> {
     #[cfg(target_os = "macos")]
     {
         let path = path.as_ref().to_path_buf();
-        // Vision requests are blocking/heavy, run on a separate thread
         tokio::task::spawn_blocking(move || macos_impl::extract_text(&path)).await?
     }
     #[cfg(not(target_os = "macos"))]

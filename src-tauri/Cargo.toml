@@ -1,6 +1,6 @@
 [package]
 name = "pursue-data-analyzer"
-version = "0.2.9"
+version = "0.3.0"
 description = "Local-first PURSUE/WAR.gov OSINT evidence analyzer"
 authors = ["PURSUE Data Analyzer contributors"]
 edition = "2021"
@@ -68,7 +68,8 @@ ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = "0.3"
-objc2-vision = "0.3"
-core-graphics = "0.25.0"
-core-foundation = "0.10.1"
+objc2-foundation = { version = "0.3", features = ["NSURL", "NSString", "NSArray", "NSDictionary", "NSError"] }
+objc2-vision = { version = "0.3", features = ["VNRequestHandler", "VNRecognizeTextRequest", "VNRequest", "VNTypes"] }
+objc2-pdf-kit = { version = "0.3", features = ["PDFDocument", "PDFPage"] }
+objc2-core-graphics = { version = "0.3", features = ["CGImage", "CGGeometry"] }
+objc2-app-kit = { version = "0.3", features = ["NSImage"] }
