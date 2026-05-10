@@ -70,20 +70,19 @@ async function generate() {
         
         // Determine platform from filename
         // Examples: 
-        // PURSUE_0.2.2_aarch64.app.tar.gz.sig -> darwin-aarch64
-        // PURSUE_0.2.2_x64_en-US.msi.zip.sig -> windows-x86_64
-        // PURSUE_0.2.2_amd64.deb.sig -> linux-x86_64
+        // PURSUE.Data.Analyzer_aarch64.app.tar.gz.sig -> darwin-aarch64
+        // PURSUE.Data.Analyzer_x64.msi.zip.sig -> windows-x86_64
         
         let platforms = [];
         if (name.includes('aarch64.app.tar.gz')) {
           platforms = ['darwin-aarch64', 'darwin-aarch64-app'];
         } else if (name.includes('x64.app.tar.gz')) {
           platforms = ['darwin-x86_64', 'darwin-x86_64-app'];
-        } else if (name.includes('x64') && (name.includes('.msi') || name.includes('.nsis'))) {
+        } else if (name.includes('x64') && (name.includes('.msi.zip') || name.includes('.nsis.zip') || name.includes('.zip'))) {
           platforms = ['windows-x86_64'];
-        } else if (name.includes('amd64.deb') || name.includes('x86_64.AppImage')) {
+        } else if (name.includes('amd64.deb') || name.includes('x86_64.AppImage') || name.includes('x86_64.tar.gz')) {
           platforms = ['linux-x86_64'];
-        } else if (name.includes('aarch64.deb') || name.includes('aarch64.AppImage')) {
+        } else if (name.includes('aarch64.deb') || name.includes('aarch64.AppImage') || name.includes('aarch64.tar.gz')) {
           platforms = ['linux-aarch64'];
         }
 
