@@ -145,9 +145,22 @@
     <section class="stat-card warning">
       <div class="stat-icon"><AlertTriangle size={18} /></div>
       <div class="stat-body">
-        <span class="label">Pending Neural Analysis</span>
-        <span class="value">{stats?.unanalyzed_count || 0}</span>
-        <p class="desc">Records requiring Gemma 4 extraction to reach 'Intelligence Ready' status.</p>
+        <span class="label">Intelligence Pipeline</span>
+        <div class="pipeline-stats">
+          <div class="p-item">
+            <span class="p-label">Pending</span>
+            <span class="p-value">{stats?.pending_count || 0}</span>
+          </div>
+          <div class="p-item">
+            <span class="p-label">Indexed</span>
+            <span class="p-value highlight-blue">{stats?.indexed_count || 0}</span>
+          </div>
+          <div class="p-item">
+            <span class="p-label">Completed</span>
+            <span class="p-value highlight-green">{stats?.completed_count || 0}</span>
+          </div>
+        </div>
+        <p class="desc">Awaiting Gemma 4 neural extraction to reach 'Intelligence Ready' status.</p>
       </div>
     </section>
   </div>
@@ -316,7 +329,35 @@
   }
 
   .stat-card.warning .stat-icon { color: #facc15; background: rgba(250, 204, 21, 0.1); }
-  .stat-card.warning .desc { font-size: 12px; color: var(--text-tertiary); margin: 8px 0 0 0; line-height: 1.5; }
+  .stat-card.warning .desc { font-size: 11px; color: var(--text-tertiary); margin: 12px 0 0 0; line-height: 1.4; }
+
+  .pipeline-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .p-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .p-label {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+  }
+
+  .p-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .highlight-blue { color: #3296ff; }
+  .highlight-green { color: var(--accent-success); }
 
   .vault-management h3 {
     font-size: 14px;

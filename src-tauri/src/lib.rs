@@ -1,6 +1,7 @@
 mod analysis;
 mod cases;
 mod commands;
+mod common;
 mod db;
 mod exports;
 mod library;
@@ -11,8 +12,15 @@ mod sources;
 use std::sync::Arc;
 
 use crate::commands::*;
+use analysis::AnalysisManager;
 use library::LibraryManager;
 use tauri::Manager;
+
+pub struct AppState {
+    pub db: sqlx::SqlitePool,
+    pub library: Arc<LibraryManager>,
+    pub analysis: Arc<AnalysisManager>,
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -22,19 +30,30 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_log::Builder::default().build())
+        .plugin(tauri_plugin_log::Builder::default()
+            .targets([
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("pursue".into()) }),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+            ])
+            .level(log::LevelFilter::Debug)
+            .build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let handle = app.handle().clone();
-            let library = Arc::new(
-                LibraryManager::new(&handle).expect("failed to initialize library manager"),
-            );
-
             tauri::async_runtime::block_on(async move {
                 let pool = db::init_db(&handle)
                     .await
                     .expect("failed to initialize database");
+                
+                let library = Arc::new(
+                    LibraryManager::new(&handle).expect("failed to initialize library manager"),
+                );
+                let analysis = Arc::new(
+                    AnalysisManager::new(pool.clone(), library.clone())
+                );
+
                 library
                     .init()
                     .await
@@ -43,7 +62,14 @@ pub fn run() {
                 // Initialize search engine with correct models path
                 crate::search::init_search_engine(library.app_data_dir().join("models"));
 
-                app.manage(AppState { db: pool, library });
+                // Background model provisioning
+                let analysis_clone = analysis.clone();
+                let handle_clone = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = analysis_clone.provision_models(&handle_clone).await;
+                });
+
+                handle.manage(AppState { db: pool, library, analysis });
             });
             Ok(())
         })
@@ -82,7 +108,9 @@ pub fn run() {
             cleanup_duplicates,
             factory_reset,
             get_forensic_report,
-            get_intelligence_logs
+            get_intelligence_logs,
+            index_record,
+            synthesize_intelligence
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

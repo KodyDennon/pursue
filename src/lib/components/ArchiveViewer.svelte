@@ -54,7 +54,10 @@
     busy = "analysis";
     error = null;
     try {
-      analysis = await invoke<AnalysisReport>("analyze_record", { id: record.id });
+      // Phase 1: Index (OCR, vectors, entities)
+      await invoke<AnalysisReport>("index_record", { id: record.id });
+      // Phase 2: Synthesize (Gemma neural intelligence)
+      analysis = await invoke<AnalysisReport>("synthesize_intelligence", { id: record.id });
       await onChanged();
     } catch (e) {
       error = String(e);
@@ -179,7 +182,7 @@
         {record.local_path ? "Downloaded" : busy === "download" ? "Downloading" : "Download"}
       </button>
       <button class="primary" onclick={analyze} disabled={!record.local_path || busy === "analysis"}>
-        {busy === "analysis" ? "Analyzing" : record.analysis_status === "completed" ? "Re-analyze" : "Analyze"}
+        {busy === "analysis" ? "Analyzing..." : record.analysis_status === "completed" ? "Re-Audit" : record.analysis_status === "indexed" ? "Synthesize" : "Analyze"}
       </button>
     </div>
   </header>
@@ -212,7 +215,7 @@
           <div><dt>Artifact Size</dt><dd>{formatBytes(record.artifact_size)}</dd></div>
           <div><dt>Artifact SHA-256</dt><dd>{short(record.artifact_sha256)}</dd></div>
           <div><dt>Content Hash</dt><dd>{short(record.content_hash)}</dd></div>
-          <div><dt>Analysis Status</dt><dd>{record.analysis_status || "pending"}</dd></div>
+          <div><dt>Analysis Status</dt><dd class:status-completed={record.analysis_status === 'completed'} class:status-indexed={record.analysis_status === 'indexed'}>{record.analysis_status?.toUpperCase() || "PENDING"}</dd></div>
           <div><dt>Entities</dt><dd>{record.entity_count}</dd></div>
         </dl>
       </section>

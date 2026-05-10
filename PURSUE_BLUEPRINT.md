@@ -27,11 +27,10 @@ PURSUE Data Analyzer is a local-first OSINT desktop app for WAR.gov UFO/PURSUE e
 
 ## Local Analysis Rules
 
-- Digital PDF text extraction runs first.
-- Text-like files are read directly.
-- Image OCR uses the local `tesseract` command when installed.
-- Scanned-PDF OCR uses the local `ocrmypdf` command when installed.
-- Entity extraction is deterministic and stored in SQLite.
+- Decoupled Intelligence Pipeline: Analysis is split into Indexing (Phase 1) and Neural Synthesis (Phase 2).
+- Phase 1 (Indexing): Digital PDF text extraction, Image OCR (macOS Vision / Windows Media / Tesseract), and entity extraction.
+- Phase 2 (Synthesis): Deep forensic audit via Gemma 4 neural engine with stateful KV-caching and RAG correlation.
+- Entity extraction is deterministic/probabilistic and stored in the Intelligence Graph.
 - Search is local-only and combines metadata, indexed chunks, SQLite FTS, and deterministic vector scoring.
 
 ## Release Rules

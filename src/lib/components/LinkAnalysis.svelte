@@ -34,7 +34,7 @@
             <div class="link-item">
               <span class="dot"></span>
               <span class="title">{item.title}</span>
-              <span class="status" class:indexed={item.analysis_status === 'completed'}></span>
+              <span class="status" class:completed={item.analysis_status === 'completed'} class:indexed={item.analysis_status === 'indexed'}></span>
             </div>
           {/each}
           {#if items.length > 10}
@@ -134,9 +134,14 @@
     background: rgba(255,255,255,0.1);
   }
 
-  .status.indexed {
+  .status.completed {
     background: var(--accent-success);
     box-shadow: 0 0 8px var(--accent-success);
+  }
+
+  .status.indexed {
+    background: #3296ff;
+    box-shadow: 0 0 8px rgba(50, 150, 255, 0.5);
   }
 
   .more-link {

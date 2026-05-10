@@ -1,7 +1,7 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
   import type { RecordSummary } from "$lib/types";
-  import { FileText, MapPin, Calendar, Database, CheckCircle2, Clock } from "lucide-svelte";
+  import { FileText, MapPin, Calendar, Database, CheckCircle2, Clock, Zap } from "lucide-svelte";
 
   let { records, selectedRecordId = null, onSelect } = $props<{
     records: RecordSummary[];
@@ -47,11 +47,13 @@
           <div class="card-content">
             <header>
               <span class="agency">{record.agency || "AARO_OFFICIAL"}</span>
-              <div class="status" class:ready={record.analysis_status === 'completed'}>
+              <div class="status" class:ready={record.analysis_status === 'completed'} class:indexed={record.analysis_status === 'indexed'}>
                 {#if record.analysis_status === 'completed'}
                   <CheckCircle2 size={10} /> <span>READY</span>
+                {:else if record.analysis_status === 'indexed'}
+                  <Zap size={10} /> <span>INDEXED</span>
                 {:else}
-                  <Clock size={10} /> <span>{record.analysis_status || 'PENDING'}</span>
+                  <Clock size={10} /> <span>{record.analysis_status?.toUpperCase() || 'PENDING'}</span>
                 {/if}
               </div>
             </header>
@@ -193,6 +195,11 @@
   .status.ready {
     color: var(--accent-success);
     background: rgba(77, 243, 169, 0.1);
+  }
+
+  .status.indexed {
+    color: #3296ff;
+    background: rgba(50, 150, 255, 0.1);
   }
 
   h3 {

@@ -58,10 +58,14 @@
       const payload = event.payload;
       
       // Auto-activate and open modal if an event comes in from elsewhere
-      if (payload.status === "starting" || payload.status === "processing" || payload.status === "analyzing" || payload.status === "thought") {
+      const activeStatuses = ["starting", "processing", "analyzing", "thought", "extracting-foundation", "indexing-vector", "synthesizing"];
+      if (activeStatuses.includes(payload.status)) {
           if (!isOpen) isOpen = true;
           busy = true;
-          status = payload.status === "analyzing" ? "processing" : payload.status === "thought" ? "reasoning" : payload.status;
+          // Only update status if it's not already in a more specific state
+          if (payload.status !== "processing" || (status !== "extracting-foundation" && status !== "indexing-vector" && status !== "synthesizing")) {
+            status = payload.status === "analyzing" ? "processing" : payload.status === "thought" ? "reasoning" : payload.status;
+          }
       }
       
       processedCount = payload.current ?? processedCount;
@@ -78,15 +82,31 @@
         addLog("Neural Extraction Task Complete.", "success");
         if (onComplete) onComplete();
       } else if (payload.status === "thought") {
-        addLog(`Initiating step-by-step reasoning for ${payload.record_id.substring(0, 8)}...`, "info");
+        addLog(`Initiating step-by-step reasoning for ${payload.record_id?.substring(0, 8)}...`, "info");
       } else if (payload.status === "failed") {
         status = "failed";
         busy = false;
         addLog(`System Error: ${payload.error}`, "error");
       } else if (payload.status === "record-failed") {
-        addLog(`Record ${payload.record_id.substring(0, 8)} failed: ${payload.error}`, "error");
-      } else if (currentRecordId) {
-        addLog(`Processing record: ${currentRecordId.substring(0, 8)}...`, "info");
+        addLog(`Record ${payload.record_id?.substring(0, 8)} failed: ${payload.error}`, "error");
+      } else if (payload.status === "starting" || payload.status === "processing") {
+        addLog(`Processing record: ${currentRecordId?.substring(0, 8)}...`, "info");
+      } else if (payload.status === "extracting-foundation") {
+        if (status !== "extracting-foundation") {
+            addLog(`OCR Phase: Extracting foundation data...`, "info");
+            status = "extracting-foundation";
+        }
+      } else if (payload.status === "indexing-vector") {
+        if (status !== "indexing-vector") {
+            const chunkCount = payload.chunk_count ? ` (${payload.chunk_count} chunks)` : "";
+            addLog(`Vector Phase: Mapping semantic associations${chunkCount}...`, "info");
+            status = "indexing-vector";
+        }
+      } else if (payload.status === "synthesizing" || payload.status === "synthesizing-start") {
+        if (status !== "synthesizing" && status !== "reasoning") {
+            addLog(`Intelligence Phase: Gemma 4 performing deep synthesis...`, "info");
+            status = "synthesizing";
+        }
       }
     }).then(u => unlisten = u);
 
@@ -142,7 +162,14 @@
               <Terminal size={18} />
               <div class="val">
                 <span class="l">Status</span>
-                <span class="v">{status === 'processing' ? 'EXTRACTING' : status === 'reasoning' ? 'THINKING' : status.toUpperCase()}</span>
+                <span class="v">
+                  {status === 'processing' ? 'INDEXING' : 
+                   status === 'extracting-foundation' ? 'OCR' : 
+                   status === 'indexing-vector' ? 'VECTORIZING' : 
+                   status === 'synthesizing' ? 'SYNTHESIZING' : 
+                   status === 'reasoning' ? 'THINKING' : 
+                   status.toUpperCase()}
+                </span>
               </div>
             </div>
             <button class="start-btn" onclick={startAnalysis} disabled={busy || status === 'completed'}>

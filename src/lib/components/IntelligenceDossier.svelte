@@ -2,10 +2,11 @@
   import { onMount } from "svelte";
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { openPath, openUrl } from "@tauri-apps/plugin-opener";
-  import { AlertCircle, Brain, Loader2, FileText, ImageIcon, Settings as CaseIcon, ChevronLeft, Download, ExternalLink, HardDrive, ShieldCheck, Activity } from "lucide-svelte";
+  import { listen } from "@tauri-apps/api/event";
+  import { AlertCircle, Brain, Loader2, FileText, ImageIcon, Settings as CaseIcon, ChevronLeft, Download, ExternalLink, HardDrive, ShieldCheck, Activity, Terminal } from "lucide-svelte";
   import ForensicAuditViewer from "./ForensicAuditViewer.svelte";
   import { addToast } from "$lib/toastStore";
-  import type { AnalysisReport, CaseSummary, DownloadResult, ExportResult, RecordSummary, RecordAsset, RecordForensics, IntelligenceLog } from "$lib/types";
+  import type { AnalysisReport, CaseSummary, DownloadResult, RecordSummary, RecordAsset, RecordForensics, IntelligenceLog } from "$lib/types";
 
   let { record, cases = [], selectedCaseId = null, onBack, onChanged, onAnalyze } = $props<{
     record: RecordSummary;
@@ -16,28 +17,32 @@
     onAnalyze?: () => void;
   }>();
 
-  let activeTab = $state<"intelligence" | "forensics" | "raw" | "media" | "case">("intelligence");
+  let activeTab = $state<"intelligence" | "forensics" | "raw" | "media" | "case" | "thoughts">("intelligence");
   let analysis = $state<AnalysisReport | null>(null);
   let forensics = $state<RecordForensics[]>([]);
   let intelLogs = $state<IntelligenceLog[]>([]);
   let busy = $state<string | null>(null);
   let error = $state<string | null>(null);
   let noteBody = $state("");
-  let exportPath = $state<string | null>(null);
   let modelReady = $state(true);
+  
+  // Real-time analysis status
+  let analysisStatus = $state<string | null>(null);
+  let analysisProgress = $state(0);
 
-  const intelligence = $derived(record.intelligence_json ? JSON.parse(record.intelligence_json) : null);
+  const intelligence = $derived(record?.intelligence_json ? JSON.parse(record.intelligence_json) : null);
   const images = $derived((analysis?.assets ?? []).filter((a: RecordAsset) => a.asset_type === 'image'));
   const selectedCase = $derived(cases.find((item: CaseSummary) => item.id === selectedCaseId) ?? null);
 
   async function loadAnalysis() {
+    if (!record) return;
     error = null;
     try {
       analysis = await invoke<AnalysisReport | null>("get_analysis_result", { id: record.id });
       const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
       modelReady = modelStatus["gemma-4-e2b"] || modelStatus["gemma-4-e4b"];
       
-      if (record.analysis_status === 'completed') {
+      if (record.analysis_status === 'completed' || record.analysis_status === 'indexed') {
         loadForensics();
       }
     } catch (e) {
@@ -68,19 +73,35 @@
     }
   }
 
-  async function analyze() {
+  // The Overhauled Decoupled Analysis Flow
+  async function runFullAnalysis() {
     busy = "analysis";
     error = null;
+    analysisStatus = "Initializing foundation...";
     try {
       if (onAnalyze) onAnalyze();
-      analysis = await invoke<AnalysisReport>("analyze_record", { id: record.id });
+      
+      // Step 1: Indexing (Foundation - OCR/Vectors)
+      analysisStatus = "Executing OCR & Vectoring...";
+      const foundation = await invoke<AnalysisReport>("index_record", { id: record.id });
+      analysis = foundation;
       if (onChanged) await onChanged();
-      addToast({ type: "success", message: "Intelligence Extraction Complete", duration: 3000 });
+      addToast({ type: "success", message: "Foundation Indexed - Search Ready", duration: 2000 });
+
+      // Step 2: Synthesis (Deep Intelligence)
+      analysisStatus = "Gemma 4: Synthesizing Intelligence...";
+      const synthesis = await invoke<AnalysisReport>("synthesize_intelligence", { id: record.id });
+      analysis = synthesis;
+      if (onChanged) await onChanged();
+      loadForensics();
+      addToast({ type: "success", message: "Intelligence Synthesis Complete", duration: 3000 });
+      
     } catch (e) {
       error = String(e);
-      addToast({ type: "error", message: `Gemma 4 Error: ${e}`, duration: 5000 });
+      addToast({ type: "error", message: `Neural Engine Error: ${e}`, duration: 5000 });
     } finally {
       busy = null;
+      analysisStatus = null;
     }
   }
 
@@ -107,23 +128,27 @@
     }
   }
 
-  async function addToCase() {
-    if (!selectedCaseId) return;
-    busy = "case-add";
-    try {
-      await invoke("add_record_to_case", {
-        request: { case_id: selectedCaseId, record_id: record.id, notes: noteBody.trim() || null }
-      });
-      await onChanged();
-    } catch (e) {
-      error = String(e);
-    } finally {
-      busy = null;
-    }
-  }
-
   onMount(() => {
     loadAnalysis();
+    
+    // Listen for neural progress
+    const unlisten = listen("analysis-progress", (event: any) => {
+      const payload = event.payload;
+      if (payload.record_id === record.id) {
+        if (payload.status === "extracting" || payload.status === "synthesizing") {
+           analysisStatus = `Gemma 4: ${payload.status === 'extracting' ? 'Auditing' : 'Synthesizing'}...`;
+           if (payload.current) {
+             analysisProgress = Math.round((payload.current / 2048) * 100);
+           }
+        } else if (payload.status === "loading-model") {
+           analysisStatus = "Waking Neural Engine (15GB)...";
+        }
+      }
+    });
+
+    return () => {
+      unlisten.then(f => f());
+    };
   });
 </script>
 
@@ -148,7 +173,7 @@
         <span class="sep">•</span>
         <span class="type">{record.file_type || "PDF DOCUMENT"}</span>
         <span class="sep">•</span>
-        <span class="status" class:completed={record.analysis_status === 'completed'}>
+        <span class="status" class:completed={record.analysis_status === 'completed'} class:indexed={record.analysis_status === 'indexed'}>
           {record.analysis_status?.toUpperCase() || "PENDING"}
         </span>
       </div>
@@ -164,8 +189,12 @@
         <button class="action-btn" onclick={revealLocal} disabled={busy === 'open-path'}>
           <HardDrive size={16} /> Local File
         </button>
-        <button class="action-btn primary" onclick={analyze} disabled={!!busy}>
-          <Brain size={16} /> {record.analysis_status === 'completed' ? 'Re-Extract' : 'Extract Intel'}
+        <button class="action-btn primary" onclick={runFullAnalysis} disabled={!!busy}>
+          {#if busy === 'analysis'}
+            <Loader2 size={16} class="spin" /> Synchronizing...
+          {:else}
+            <Brain size={16} /> {record.analysis_status === 'completed' ? 'Re-Audit' : 'Full Analysis'}
+          {/if}
         </button>
       {:else}
         <button class="action-btn primary" onclick={download} disabled={!!busy}>
@@ -173,6 +202,19 @@
         </button>
       {/if}
     </div>
+    
+    {#if analysisStatus}
+      <div class="analysis-hud">
+        <div class="hud-bar">
+          <div class="hud-fill" style="width: {analysisProgress}%"></div>
+        </div>
+        <div class="hud-label">
+          <Activity size={10} class="pulse" />
+          <span>{analysisStatus.toUpperCase()}</span>
+          <span class="pct">{analysisProgress}%</span>
+        </div>
+      </div>
+    {/if}
   </header>
 
   <nav class="dossier-tabs">
@@ -182,14 +224,14 @@
     <button class:active={activeTab === 'forensics'} onclick={() => activeTab = 'forensics'}>
       <ShieldCheck size={16} /> Forensic Audit
     </button>
+    <button class:active={activeTab === 'thoughts'} onclick={() => activeTab = 'thoughts'}>
+      <Terminal size={16} /> Neural Thoughts
+    </button>
     <button class:active={activeTab === 'raw'} onclick={() => activeTab = 'raw'}>
-      <FileText size={16} /> Raw Extraction
+      <FileText size={16} /> Raw Foundation
     </button>
     <button class:active={activeTab === 'media'} onclick={() => activeTab = 'media'}>
       <ImageIcon size={16} /> Media Assets
-    </button>
-    <button class:active={activeTab === 'case'} onclick={() => activeTab = 'case'}>
-      <CaseIcon size={16} /> Case Tools
     </button>
   </nav>
 
@@ -197,8 +239,8 @@
     {#if error}
       <div class="error-msg">
         <AlertCircle size={18} />
-        <span>Action Failed: {error}</span>
-        <button onclick={() => error = null}>Dismiss</button>
+        <span>Neural Failure: {error}</span>
+        <button onclick={() => error = null}>Reset</button>
       </div>
     {/if}
 
@@ -273,16 +315,25 @@
                   {/if}
                 </aside>
               </div>
+            {:else if record.analysis_status === 'indexed'}
+               <div class="pending-intel">
+                <Activity size={48} class="accent-icon pulse" />
+                <h3>Foundation Indexed</h3>
+                <p>Keyword search and metadata foundation is ready. Synthesis is pending.</p>
+                <button class="analyze-btn" onclick={runFullAnalysis} disabled={busy === 'analysis'}>
+                  Synthesize Deep Intelligence
+                </button>
+              </div>
             {:else}
               <div class="pending-intel">
                 <Brain size={48} class="accent-icon" />
                 <h3>Intelligence Extraction Pending</h3>
                 <p>Initiate Gemma 4 deep analysis to populate this dossier.</p>
-                <button class="analyze-btn" onclick={analyze} disabled={busy === 'analysis'}>
+                <button class="analyze-btn" onclick={runFullAnalysis} disabled={busy === 'analysis'}>
                   {#if busy === 'analysis'}
-                    <Loader2 size={16} class="spin" /> Synchronizing...
+                    <Loader2 size={16} class="spin" /> Initializing...
                   {:else}
-                    Run Gemma 4 Analysis
+                    Run Full Tactical Analysis
                   {/if}
                 </button>
               </div>
@@ -292,12 +343,42 @@
           <div class="forensic-view-container">
             <ForensicAuditViewer recordId={record.id} {forensics} {images} />
           </div>
+        {:else if activeTab === 'thoughts'}
+           <div class="thoughts-view custom-scrollbar">
+              <header class="section-head">
+                <span class="prefix">NEURAL THOUGHT LOGS</span>
+              </header>
+              {#if intelLogs.length > 0}
+                <div class="thoughts-stack">
+                  {#each intelLogs as log}
+                    <div class="thought-entry">
+                      <div class="thought-meta">
+                        <span class="t-model">{log.model_id.split('/').pop()}</span>
+                        <span class="t-date">{new Date(log.created_at).toLocaleString()}</span>
+                      </div>
+                      <div class="thought-block">
+                        <span class="t-label">SYSTEM_PROMPT:</span>
+                        <pre>{log.system_prompt}</pre>
+                        <span class="t-label">RAW_SYNTHESIS:</span>
+                        <pre>{log.response_json}</pre>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <div class="pending-intel">
+                  <Terminal size={48} class="accent-icon" />
+                  <h3>No Thought Logs</h3>
+                  <p>Neural monologues are captured during deep synthesis.</p>
+                </div>
+              {/if}
+           </div>
         {:else if activeTab === 'raw'}
            <div class="raw-view custom-scrollbar">
               {#if analysis?.ocr_text}
                 <div class="ocr-content">
                   <header class="section-head">
-                    <span class="prefix">FORENSIC OCR LOG</span>
+                    <span class="prefix">FOUNDATION OCR LOG</span>
                   </header>
                   <div class="text-blob">
                     {analysis.ocr_text}
@@ -306,8 +387,8 @@
               {:else}
                 <div class="pending-intel">
                   <FileText size={48} class="accent-icon" />
-                  <h3>No Forensic Text Data</h3>
-                  <p>Run Gemma 4 to initiate OCR extraction.</p>
+                  <h3>No Foundation Data</h3>
+                  <p>Run Tactical Analysis to initiate indexing.</p>
                 </div>
               {/if}
            </div>
@@ -333,10 +414,6 @@
                 </div>
               {/if}
            </div>
-        {:else if activeTab === 'case'}
-           <div class="case-view">
-             <!-- Case tools implementation here -->
-           </div>
         {/if}
     </div>
   </div>
@@ -353,6 +430,7 @@
   .dossier-header {
     padding: 32px;
     border-bottom: 1px solid var(--border-subtle);
+    position: relative;
   }
 
   .back-btn {
@@ -381,6 +459,7 @@
 
   .header-meta { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-tertiary); }
   .status.completed { color: var(--accent-success); font-weight: 800; }
+  .status.indexed { color: #3296ff; font-weight: 800; }
 
   .header-actions { display: flex; gap: 12px; margin-top: 24px; }
   .action-btn {
@@ -398,11 +477,24 @@
   }
   .action-btn.primary { background: var(--accent-primary); color: #000; border: none; }
 
+  .analysis-hud {
+    margin-top: 24px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 4px;
+    padding: 8px 12px;
+  }
+  .hud-bar { height: 2px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
+  .hud-fill { height: 100%; background: var(--accent-primary); transition: width 0.3s ease; }
+  .hud-label { display: flex; align-items: center; gap: 8px; font-size: 9px; font-weight: 900; color: var(--accent-primary); letter-spacing: 0.1em; }
+  .hud-label .pct { margin-left: auto; color: var(--text-tertiary); }
+
   .dossier-tabs {
     display: flex;
     padding: 0 32px;
-    gap: 32px;
+    gap: 24px;
     border-bottom: 1px solid var(--border-subtle);
+    overflow-x: auto;
   }
 
   .dossier-tabs button {
@@ -411,12 +503,13 @@
     border: none;
     border-bottom: 2px solid transparent;
     color: var(--text-tertiary);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     display: flex;
     align-items: center;
     gap: 10px;
     cursor: pointer;
+    white-space: nowrap;
   }
 
   .dossier-tabs button.active {
@@ -446,6 +539,14 @@
   .fidelity-dial { position: relative; width: 100px; height: 100px; margin: 20px auto; }
   .forensic-view-container { height: 100%; overflow: hidden; }
 
+  .thoughts-view { padding: 32px; height: 100%; }
+  .thoughts-stack { display: flex; flex-direction: column; gap: 24px; }
+  .thought-entry { background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+  .thought-meta { padding: 8px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; font-size: 10px; font-family: var(--font-mono); }
+  .thought-block { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .t-label { font-size: 9px; font-weight: 900; color: var(--accent-primary); }
+  .thought-block pre { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); white-space: pre-wrap; margin: 0; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 4px; }
+
   .raw-view { padding: 32px; height: 100%; }
   .text-blob { font-family: var(--font-mono); font-size: 12px; line-height: 1.8; color: var(--text-secondary); white-space: pre-wrap; }
 
@@ -463,6 +564,8 @@
   .error-msg { display: flex; align-items: center; gap: 12px; background: rgba(243, 77, 77, 0.1); border: 1px solid rgba(243, 77, 77, 0.2); padding: 12px 24px; color: #ff4d4d; font-size: 13px; }
   .error-msg button { background: none; border: none; color: #fff; text-decoration: underline; cursor: pointer; }
 
+  :global(.pulse) { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
   :global(.spin) { animation: spin 1s linear infinite; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>

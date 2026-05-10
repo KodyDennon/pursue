@@ -1,12 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sysinfo::System;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum IntelligenceTier {
-    Draft, // Basic OCR + Heuristic Extraction
-    Deep,  // PaddleOCR + Gemma 4 E2B (8GB RAM)
-    Elite, // PaddleOCR + Gemma 4 E4B/26B (16GB+ RAM)
-}
+pub use crate::common::IntelligenceTier;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HardwareSpecs {
@@ -44,9 +39,9 @@ pub fn get_hardware_specs() -> HardwareSpecs {
     let recommended_tier = if total_memory_gb >= 16 {
         IntelligenceTier::Elite
     } else if total_memory_gb >= 8 {
-        IntelligenceTier::Deep
+        IntelligenceTier::Advanced
     } else {
-        IntelligenceTier::Draft
+        IntelligenceTier::Standard
     };
 
     HardwareSpecs {

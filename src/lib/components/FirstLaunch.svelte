@@ -9,11 +9,20 @@
 
   let step = $state<"diagnostic" | "selection" | "provisioning" | "ready">("diagnostic");
   let statusText = $state("Analyzing hardware environment...");
-  let progress = $state(0);
+  let modelProgress = $state(0);
+  let overallProgress = $state(0);
+  let progressWidth = $state(0);
+  let currentModelIndex = $state(0);
+  let totalModels = $state(0);
+  let modelsCompleted = $state(0);
+  let speedMbps = $state<number | null>(null);
+  let etaSeconds = $state<number | null>(null);
+  let lastModelProgress = $state(0);
   let specs = $state<any>(null);
   let modelStatus = $state<Record<string, boolean>>({});
   let selectedTier = $state<"Standard" | "Elite">("Standard");
   let currentModelName = $state("");
+  let modelsToDownload = $state<any[]>([]);
 
   const MODELS = {
     Standard: [
@@ -60,11 +69,24 @@
     let unlisten: (() => void) | undefined;
     listen("model-progress", (event: any) => {
       const payload = event.payload;
-      if (payload.total_bytes) {
-        progress = Math.round((payload.bytes_downloaded / payload.total_bytes) * 100);
+
+      // Only update progress from byte-level download events
+      if (payload.total_bytes && payload.total_bytes > 0) {
+        modelProgress = Math.round((payload.bytes_downloaded / payload.total_bytes) * 100);
       }
-      speedMbps = payload.speed_mbps !== undefined ? payload.speed_mbps : null;
-      etaSeconds = payload.eta_seconds !== undefined ? payload.eta_seconds : null;
+
+      // Compute overall: completed models + fraction of current model
+      const rawOverall = totalModels > 0
+        ? Math.round(((modelsCompleted * 100 + modelProgress) / (totalModels * 100)) * 100)
+        : 0;
+      progressWidth = Math.min(99, rawOverall); // Never hit 100 until the loop says so
+      overallProgress = progressWidth;
+
+      // Speed/ETA from active downloads only
+      if (payload.status === "downloading") {
+        speedMbps = payload.speed_mbps !== undefined ? payload.speed_mbps : null;
+        etaSeconds = payload.eta_seconds !== undefined ? payload.eta_seconds : null;
+      }
     }).then(u => unlisten = u);
 
     return () => {
@@ -74,41 +96,90 @@
 
   async function startProvisioning() {
     step = "provisioning";
-    const modelsToDownload = MODELS[selectedTier];
+    const models = MODELS[selectedTier];
+    modelsToDownload = models;
+    totalModels = models.length;
+    modelsCompleted = 0;
+    overallProgress = 0;
+    let skipped = 0;
 
-    for (const model of modelsToDownload) {
+    for (let i = 0; i < models.length; i++) {
+      const model = models[i];
+      currentModelIndex = i + 1;
       currentModelName = model.name;
-      progress = 0;
-      
-      // Re-check status just in case
+      modelProgress = 0;
+      lastModelProgress = 0;
+      speedMbps = null;
+      etaSeconds = null;
+
+      // Re-check status
       const currentStatus = await invoke<Record<string, boolean>>("check_model_status");
       if (currentStatus[model.id]) {
-        progress = 100;
+        statusText = `[${i + 1}/${models.length}] ${model.name} — Already cached`;
+        modelProgress = 100;
+        lastModelProgress = 100;
+        speedMbps = null;
+        etaSeconds = null;
+        modelsCompleted = i + 1;
+        overallProgress = Math.round(((modelsCompleted) / totalModels) * 100);
+        skipped++;
+        await new Promise(r => setTimeout(r, 500));
         continue;
       }
-      
+
+      statusText = `[${i + 1}/${models.length}] Downloading ${model.name}...`;
+      modelProgress = 0;
+      lastModelProgress = 0;
+
       try {
-        statusText = `Provisioning ${model.name}...`;
-        await invoke("provision_model", { 
-          id: model.id, 
-          url: model.url, 
-          name: model.filename 
+        await invoke("provision_model", {
+          id: model.id,
+          url: model.url,
+          name: model.filename
         });
+        modelProgress = 100;
+        lastModelProgress = 100;
+        speedMbps = null;
+        etaSeconds = null;
+        modelsCompleted = i + 1;
+        overallProgress = Math.round(((modelsCompleted) / totalModels) * 100);
+        statusText = `[${i + 1}/${models.length}] ${model.name} downloaded`;
+        await new Promise(r => setTimeout(r, 300));
       } catch (e) {
         console.error(`Failed to download ${model.name}`, e);
-        statusText = `Error provisioning ${model.name}. Retrying...`;
+        statusText = `[${i + 1}/${models.length}] Error: ${model.name}. Retrying...`;
         await new Promise(r => setTimeout(r, 2000));
-        // Try again once
+
         try {
-           await invoke("provision_model", { id: model.id, url: model.url, name: model.filename });
-        } catch(e2) {
-           console.error("Critical download failure", e2);
+          modelProgress = 0;
+          await invoke("provision_model", {
+            id: model.id,
+            url: model.url,
+            name: model.filename
+          });
+          modelProgress = 100;
+          lastModelProgress = 100;
+          speedMbps = null;
+          etaSeconds = null;
+          modelsCompleted = i + 1;
+          overallProgress = Math.round(((modelsCompleted) / totalModels) * 100);
+          statusText = `[${i + 1}/${models.length}] ${model.name} downloaded`;
+        } catch (e2) {
+          console.error(`Critical failure for ${model.name}`, e2);
+          statusText = `[${i + 1}/${models.length}] ✗ Failed: ${model.name}`;
+          modelsCompleted = i + 1;
+          overallProgress = Math.round(((modelsCompleted) / totalModels) * 100);
+          await new Promise(r => setTimeout(r, 1500));
         }
       }
     }
 
     step = "ready";
-    statusText = "Intelligence OS Initialized.";
+    if (skipped === models.length) {
+      statusText = "Intelligence OS already provisioned.";
+    } else {
+      statusText = `Intelligence OS initialized. (${skipped} cached, ${models.length - skipped} downloaded)`;
+    }
     setTimeout(onComplete, 1500);
   }
 </script>
@@ -168,12 +239,12 @@
       <p class="status-mono mono">{statusText}</p>
       
       <div class="progress-bar-wrap">
-        <div class="progress-fill" style="width: {progress}%"></div>
+        <div class="progress-fill" style="width: {progressWidth}%"></div>
       </div>
       
       <div class="sys-reqs">
         <span>{currentModelName}</span>
-        <span>{progress}%</span>
+        <span>{overallProgress}%</span>
       </div>
       
       <div class="dl-stats">
@@ -182,9 +253,13 @@
         {:else}
           <span>...</span>
         {/if}
-        {#if etaSeconds !== null}
-          <span>ETA: {etaSeconds}s</span>
+        {#if etaSeconds !== null && etaSeconds > 0}
+          <span>ETA: {Math.floor(etaSeconds / 60)}m {etaSeconds % 60}s</span>
         {/if}
+      </div>
+
+      <div class="step-counter">
+        <span>Model {currentModelIndex} of {totalModels}</span>
       </div>
     {:else if step === 'ready'}
       <h2>Systems Ready</h2>
@@ -270,9 +345,9 @@
   
   .progress-fill {
     height: 100%;
-    background: var(--accent-primary);
+    background: linear-gradient(90deg, var(--accent-primary), #f5d547);
     box-shadow: 0 0 15px var(--accent-primary);
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: width 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   }
   
   .sys-reqs {
@@ -294,6 +369,15 @@
     color: var(--text-tertiary);
     margin-top: 6px;
     font-family: var(--font-mono);
+  }
+
+  .step-counter {
+    margin-top: 16px;
+    font-size: 9px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: 600;
   }
 
   .tier-options {

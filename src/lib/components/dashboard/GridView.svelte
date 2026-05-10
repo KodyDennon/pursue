@@ -1,7 +1,7 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
   import type { RecordSummary } from "$lib/types";
-  import { FileText, MapPin, Calendar, CheckCircle2, Clock } from "lucide-svelte";
+  import { FileText, MapPin, Calendar, CheckCircle2, Clock, Zap } from "lucide-svelte";
 
   let { records, selectedRecordId = null, onSelect } = $props<{
     records: RecordSummary[];
@@ -51,13 +51,15 @@
             </div>
           {/if}
           <span class="agency-tag">{record.agency || "AARO_OFFICIAL"}</span>
-          <div class="status-indicator" class:completed={record.analysis_status === 'completed'}>
+          <div class="status-indicator" class:completed={record.analysis_status === 'completed'} class:indexed={record.analysis_status === 'indexed'}>
             {#if record.analysis_status === 'completed'}
               <CheckCircle2 size={12} />
+            {:else if record.analysis_status === 'indexed'}
+              <Zap size={12} />
             {:else}
               <Clock size={12} />
             {/if}
-            <span>{record.analysis_status || 'pending'}</span>
+            <span>{record.analysis_status?.toUpperCase() || 'pending'}</span>
           </div>
         </header>
 
@@ -77,8 +79,14 @@
 
         <footer class="card-footer">
           <span class="file-info">{record.file_type || 'PDF'} • {record.local_path ? formatBytes(record.artifact_size) : "Cloud Source"}</span>
-          <div class="intel-tag" class:active={record.analysis_status === 'completed'}>
-            INTELLIGENCE READY
+          <div class="intel-tag" class:active={record.analysis_status === 'completed'} class:indexed={record.analysis_status === 'indexed'}>
+            {#if record.analysis_status === 'completed'}
+              INTELLIGENCE READY
+            {:else if record.analysis_status === 'indexed'}
+              FOUNDATION INDEXED
+            {:else}
+              AWAITING ANALYSIS
+            {/if}
           </div>
         </footer>
       </button>
@@ -240,6 +248,11 @@
     color: var(--accent-success);
   }
 
+  .status-indicator.indexed {
+    background: rgba(50, 150, 255, 0.1);
+    color: #3296ff;
+  }
+
   .card-body {
     padding: 12px 20px 20px;
   }
@@ -302,5 +315,10 @@
     background: var(--accent-primary);
     color: #000;
     box-shadow: 0 0 10px rgba(231, 196, 107, 0.3);
+  }
+
+  .intel-tag.indexed {
+    background: rgba(50, 150, 255, 0.15);
+    color: #3296ff;
   }
 </style>

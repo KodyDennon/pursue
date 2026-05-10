@@ -59,10 +59,10 @@ impl KVCache {
     }
 }
 
-struct MLP {
-    gate_proj: Linear,
-    up_proj: Linear,
-    down_proj: Linear,
+pub struct MLP {
+    pub gate_proj: Linear,
+    pub up_proj: Linear,
+    pub down_proj: Linear,
 }
 
 impl MLP {
@@ -82,7 +82,7 @@ impl Module for MLP {
     }
 }
 
-struct RotaryEmbedding {
+pub struct RotaryEmbedding {
     sin: Tensor,
     cos: Tensor,
 }
@@ -117,29 +117,45 @@ impl RotaryEmbedding {
     }
 }
 
-struct Attention {
-    q_proj: Linear,
-    k_proj: Linear,
-    v_proj: Linear,
-    o_proj: Linear,
-    num_heads: usize,
-    num_kv_heads: usize,
-    head_dim: usize,
-    rotary: RotaryEmbedding,
+pub struct Attention {
+    pub q_proj: Linear,
+    pub k_proj: Linear,
+    pub v_proj: Linear,
+    pub o_proj: Linear,
+    pub q_norm: Option<RmsNorm>,
+    pub k_norm: Option<RmsNorm>,
+    pub num_heads: usize,
+    pub num_kv_heads: usize,
+    pub head_dim: usize,
+    pub rotary: RotaryEmbedding,
 }
 
 impl Attention {
-    fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
+    pub fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
         let q_proj = candle_nn::linear_no_bias(cfg.hidden_size, cfg.num_attention_heads * cfg.head_dim, vb.pp("q_proj"))?;
         let k_proj = candle_nn::linear_no_bias(cfg.hidden_size, cfg.num_key_value_heads * cfg.head_dim, vb.pp("k_proj"))?;
         let v_proj = candle_nn::linear_no_bias(cfg.hidden_size, cfg.num_key_value_heads * cfg.head_dim, vb.pp("v_proj"))?;
         let o_proj = candle_nn::linear_no_bias(cfg.num_attention_heads * cfg.head_dim, cfg.hidden_size, vb.pp("o_proj"))?;
+        
+        let q_norm = if vb.contains_tensor("q_norm.weight") {
+            Some(rms_norm(cfg.head_dim, cfg.rms_norm_eps, vb.pp("q_norm"))?)
+        } else {
+            None
+        };
+        let k_norm = if vb.contains_tensor("k_norm.weight") {
+            Some(rms_norm(cfg.head_dim, cfg.rms_norm_eps, vb.pp("k_norm"))?)
+        } else {
+            None
+        };
+
         let rotary = RotaryEmbedding::new(cfg, vb.device())?;
         Ok(Self {
             q_proj,
             k_proj,
             v_proj,
             o_proj,
+            q_norm,
+            k_norm,
             num_heads: cfg.num_attention_heads,
             num_kv_heads: cfg.num_key_value_heads,
             head_dim: cfg.head_dim,
@@ -147,11 +163,19 @@ impl Attention {
         })
     }
 
-    fn forward(&self, x: &Tensor, index: usize, mask: Option<&Tensor>, cache: &mut KVCache) -> Result<Tensor> {
+    pub fn forward(&self, x: &Tensor, index: usize, mask: Option<&Tensor>, cache: &mut KVCache) -> Result<Tensor> {
         let (b_sz, seq_len, _) = x.dims3()?;
-        let q = self.q_proj.forward(x)?;
-        let k = self.k_proj.forward(x)?;
+        let mut q = self.q_proj.forward(x)?;
+        let mut k = self.k_proj.forward(x)?;
         let v = self.v_proj.forward(x)?;
+
+        if let (Some(q_n), Some(k_n)) = (&self.q_norm, &self.k_norm) {
+            // Apply normalization to head dimension
+            q = q.reshape((b_sz, seq_len, self.num_heads, self.head_dim))?;
+            q = q_n.forward(&q)?.reshape((b_sz, seq_len, ()))?;
+            k = k.reshape((b_sz, seq_len, self.num_kv_heads, self.head_dim))?;
+            k = k_n.forward(&k)?.reshape((b_sz, seq_len, ()))?;
+        }
 
         let q = q.reshape((b_sz, seq_len, self.num_heads, self.head_dim))?.transpose(1, 2)?;
         let k = k.reshape((b_sz, seq_len, self.num_kv_heads, self.head_dim))?.transpose(1, 2)?;
@@ -186,63 +210,62 @@ impl Attention {
     }
 }
 
-struct DecoderLayer {
-    self_attn: Attention,
-    mlp: MLP,
-    input_layernorm: RmsNorm,
-    post_attention_layernorm: RmsNorm,
-    ple_embedding: Option<candle_nn::Embedding>,
-    ple_proj: Option<Linear>,
-    ple_gate: Option<Linear>,
+pub struct DecoderLayer {
+    pub self_attn: Attention,
+    pub mlp: MLP,
+    pub input_layernorm: RmsNorm,
+    pub post_attention_layernorm: RmsNorm,
+    pub per_layer_input_gate: Option<Linear>,
+    pub per_layer_projection: Option<Linear>,
+    pub post_per_layer_input_norm: Option<RmsNorm>,
 }
 
 impl DecoderLayer {
     fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
         let self_attn = Attention::new(cfg, vb.pp("self_attn"))?;
         let mlp = MLP::new(cfg, vb.pp("mlp"))?;
-        // Gemma adds 1.0 to rms norm weights internally, candle expects explicit weights.
         let input_layernorm = rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?;
         let post_attention_layernorm = rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("post_attention_layernorm"))?;
         
-        let ple_embedding = if cfg.hidden_size_per_layer_input > 0 {
-            Some(candle_nn::embedding(cfg.vocab_size, cfg.hidden_size_per_layer_input, vb.pp("ple_embedding"))?)
+        let per_layer_input_gate = if cfg.hidden_size_per_layer_input > 0 {
+            Some(candle_nn::linear_no_bias(cfg.hidden_size, cfg.hidden_size_per_layer_input, vb.pp("per_layer_input_gate"))?)
         } else {
             None
         };
         
-        let ple_proj = if cfg.hidden_size_per_layer_input > 0 {
-            Some(candle_nn::linear_no_bias(cfg.hidden_size_per_layer_input, cfg.hidden_size, vb.pp("ple_proj"))?)
+        let per_layer_projection = if cfg.hidden_size_per_layer_input > 0 {
+            Some(candle_nn::linear_no_bias(cfg.hidden_size_per_layer_input, cfg.hidden_size, vb.pp("per_layer_projection"))?)
         } else {
             None
         };
 
-        let ple_gate = if cfg.hidden_size_per_layer_input > 0 {
-            Some(candle_nn::linear(cfg.hidden_size, cfg.hidden_size, vb.pp("ple_gate"))?)
+        let post_per_layer_input_norm = if cfg.hidden_size_per_layer_input > 0 {
+            Some(rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("post_per_layer_input_norm"))?)
         } else {
             None
         };
 
         Ok(Self {
             self_attn, mlp, input_layernorm, post_attention_layernorm,
-            ple_embedding, ple_proj, ple_gate,
+            per_layer_input_gate, per_layer_projection, post_per_layer_input_norm,
         })
     }
 
-    fn forward(&self, x: &Tensor, tokens: &Tensor, index: usize, mask: Option<&Tensor>, cache: &mut KVCache) -> Result<Tensor> {
+    pub fn forward(&self, x: &Tensor, ple_x: Option<&Tensor>, index: usize, mask: Option<&Tensor>, cache: &mut KVCache) -> Result<Tensor> {
         let mut x = x.clone();
-        if let (Some(emb), Some(proj), Some(gate)) = (&self.ple_embedding, &self.ple_proj, &self.ple_gate) {
-            let ple_x = emb.forward(tokens)?;
-            let ple_proj = proj.forward(&ple_x)?;
-            // Corrected Sigmoid using candle_core::ops
+        if let (Some(px), Some(proj), Some(gate)) = (ple_x, &self.per_layer_projection, &self.per_layer_input_gate) {
             let g = candle_nn::ops::sigmoid(&gate.forward(&x)?)?;
-            x = x.add(&(g * ple_proj)?)?;
+            let gated_px = px.broadcast_mul(&g)?;
+            let mut ple_proj = proj.forward(&gated_px)?;
+            
+            if let Some(norm) = &self.post_per_layer_input_norm {
+                ple_proj = norm.forward(&ple_proj)?;
+            }
+            x = x.add(&ple_proj)?;
         }
 
         let residual = x.clone();
-        // Gemma normalizes by subtracting 1.0 from weights (candle's RMS norm expects raw weights, handled if weights loaded are raw)
         let mut x = self.input_layernorm.forward(&x)?;
-        // Multiply by (1.0 + weight) - candle rms_norm does not do the +1 by default for Gemma.
-        // We will assume standard Safetensors are converted to standard RMSNorm.
         x = self.self_attn.forward(&x, index, mask, cache)?;
         let mut x = x.add(&residual)?;
 
@@ -254,25 +277,72 @@ impl DecoderLayer {
 }
 
 pub struct Model {
-    embed_tokens: candle_nn::Embedding,
-    layers: Vec<DecoderLayer>,
-    norm: RmsNorm,
-    lm_head: Linear,
-    device: Device,
-    hidden_size: f64,
+    pub embed_tokens: candle_nn::Embedding,
+    pub embed_tokens_per_layer: Option<candle_nn::Embedding>,
+    pub layers: Vec<DecoderLayer>,
+    pub norm: RmsNorm,
+    pub lm_head: Linear,
+    pub device: Device,
+    pub hidden_size: f64,
 }
 
 impl Model {
     pub fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
-        let embed_tokens = candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb.pp("model.embed_tokens"))?;
+        // Find the architecture root by checking for common embedding or layer tensor paths
+        let mut model_prefix = None;
+        let prefixes = ["model.language_model", "language_model", "model", "transformer", "gemma", "gemma2", "gemma4", "gemma-4"];
+        
+        for p in prefixes {
+            if vb.contains_tensor(&format!("{}.embed_tokens.weight", p)) || 
+               vb.contains_tensor(&format!("{}.layers.0.self_attn.q_proj.weight", p)) {
+                model_prefix = Some(p);
+                break;
+            }
+        }
+
+        let vb_m = match model_prefix {
+            Some(p) => vb.pp(p),
+            None => vb.clone(),
+        };
+
+        let embed_tokens = candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb_m.pp("embed_tokens"))?;
+        
+        let embed_tokens_per_layer = if cfg.hidden_size_per_layer_input > 0 {
+            Some(candle_nn::embedding(cfg.vocab_size, cfg.hidden_size_per_layer_input, vb_m.pp("embed_tokens_per_layer"))?)
+        } else {
+            None
+        };
+
         let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
-        let vb_layers = vb.pp("model.layers");
+        let vb_layers = vb_m.pp("layers");
         for i in 0..cfg.num_hidden_layers {
             layers.push(DecoderLayer::new(cfg, vb_layers.pp(i))?);
         }
-        let norm = rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("model.norm"))?;
-        let lm_head = candle_nn::linear_no_bias(cfg.hidden_size, cfg.vocab_size, vb.pp("lm_head"))?;
-        Ok(Self { embed_tokens, layers, norm, lm_head, device: vb.device().clone(), hidden_size: cfg.hidden_size as f64 })
+        let norm = rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb_m.pp("norm"))?;
+        
+        // lm_head detection: try root first, then inside model prefix
+        let vb_head = if vb.contains_tensor("lm_head.weight") {
+            vb.pp("lm_head")
+        } else if vb_m.contains_tensor("lm_head.weight") {
+            vb_m.pp("lm_head")
+        } else if vb_m.contains_tensor("embed_tokens.weight") {
+            // Some models share embedding weights for the head
+            vb_m.pp("embed_tokens")
+        } else {
+            vb.pp("lm_head") // fallback
+        };
+        
+        let lm_head = candle_nn::linear_no_bias(cfg.hidden_size, cfg.vocab_size, vb_head)?;
+        
+        Ok(Self { 
+            embed_tokens, 
+            embed_tokens_per_layer,
+            layers, 
+            norm, 
+            lm_head, 
+            device: vb.device().clone(), 
+            hidden_size: cfg.hidden_size as f64 
+        })
     }
 
     pub fn forward(&self, tokens: &Tensor, index: usize, cache: &mut [KVCache]) -> Result<Tensor> {
@@ -280,6 +350,12 @@ impl Model {
         // Gemma scales embeddings
         x = (x * self.hidden_size.sqrt())?;
         
+        let ple_x = if let Some(emb) = &self.embed_tokens_per_layer {
+            Some(emb.forward(tokens)?)
+        } else {
+            None
+        };
+
         let (_, seq_len) = tokens.dims2()?;
         let mask = if seq_len > 1 {
             let mask_vec: Vec<_> = (0..seq_len)
@@ -291,7 +367,7 @@ impl Model {
         };
 
         for (i, layer) in self.layers.iter().enumerate() {
-            x = layer.forward(&x, tokens, index, mask.as_ref(), &mut cache[i])?;
+            x = layer.forward(&x, ple_x.as_ref(), index, mask.as_ref(), &mut cache[i])?;
         }
         let x = self.norm.forward(&x)?;
         let x = x.i((.., seq_len - 1, ..))?;

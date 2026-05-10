@@ -28,17 +28,29 @@ pub async fn check_model_status(state: State<'_, AppState>) -> Result<std::colle
     let manager = ModelManager::new(&state.library);
     let mut status = std::collections::HashMap::new();
 
-    let models = vec![
+    // Single-file models: check file exists directly
+    let single_file_models = vec![
         ("bge-small", "bge-small-en-v1.5.onnx"),
         ("tokenizer", "tokenizer.json"),
-        ("gemma-4-e4b", "google_gemma-4-E4B-it-Q4_K_M.gguf"),
-        ("gemma-4-e2b", "google_gemma-4-E2B-it-Q4_K_M.gguf"),
     ];
 
-
-    for (id, filename) in models {
+    for (id, filename) in single_file_models {
         let path = manager.models_dir().join(filename);
         status.insert(id.to_string(), path.exists());
+    }
+
+    // Repository-based models: check directory exists AND contains model.safetensors
+    let repo_models = vec![
+        "gemma-4-e4b",
+        "gemma-4-e2b",
+    ];
+
+    for id in repo_models {
+        let repo_dir = manager.models_dir().join(id);
+        let safetensors = repo_dir.join("model.safetensors");
+        let has_config = repo_dir.join("config.json").exists();
+        let has_weights = safetensors.exists();
+        status.insert(id.to_string(), has_config && has_weights);
     }
 
     Ok(status)
@@ -271,8 +283,22 @@ pub async fn get_evidence_stats(state: State<'_, AppState>) -> Result<serde_json
     let local_count: i64 = row.get("local_count");
     let total_size: i64 = row.get("total_size");
 
-    let unanalyzed: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM records WHERE analysis_status IS NULL OR analysis_status != 'completed'"
+    let pending_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE analysis_status IS NULL OR analysis_status = 'pending'"
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(to_error)?;
+
+    let indexed_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE analysis_status = 'indexed'"
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(to_error)?;
+
+    let completed_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE analysis_status = 'completed'"
     )
     .fetch_one(&pool)
     .await
@@ -282,6 +308,9 @@ pub async fn get_evidence_stats(state: State<'_, AppState>) -> Result<serde_json
         "total_count": total_count,
         "local_count": local_count,
         "total_size": total_size,
-        "unanalyzed_count": unanalyzed
+        "pending_count": pending_count,
+        "indexed_count": indexed_count,
+        "completed_count": completed_count,
+        "unanalyzed_count": pending_count + indexed_count
     }))
 }

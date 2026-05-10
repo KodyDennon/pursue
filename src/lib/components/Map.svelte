@@ -297,6 +297,11 @@
     background: rgba(77, 243, 169, 0.1);
   }
 
+  :global(.tactical-popup .status.indexed) {
+    color: #3296ff;
+    background: rgba(50, 150, 255, 0.1);
+  }
+
   :global(.tactical-popup p) {
     margin: 0;
     font-size: 13px;

@@ -1,6 +1,5 @@
 use anyhow::Result;
 use sqlx::{SqlitePool, Row};
-use std::sync::Arc;
 use crate::library::LibraryManager;
 use crate::models::DatabaseStatus;
 
@@ -14,20 +13,9 @@ pub use analysis::*;
 pub use cases::*;
 pub use system::*;
 
-pub struct AppState {
-    pub db: SqlitePool,
-    pub library: Arc<LibraryManager>,
-}
+pub use crate::AppState;
 
-pub fn to_error(error: impl std::fmt::Display) -> String {
-    let msg = error.to_string();
-    log::error!("Backend command failed: {}", msg);
-    msg
-}
-
-pub fn now() -> String {
-    chrono::Utc::now().to_rfc3339()
-}
+pub use crate::common::{now, to_error};
 
 pub async fn count_scalar(db: &SqlitePool, sql: &str) -> Result<i64> {
     Ok(sqlx::query_scalar::<_, i64>(sql).fetch_one(db).await?)

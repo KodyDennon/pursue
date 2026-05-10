@@ -19,6 +19,7 @@ use std::sync::Arc;
 use tauri_plugin_log::log::{info, warn};
 use tokio::fs;
 use uuid::Uuid;
+use tauri::Emitter;
 
 use crate::analysis::diagnostics::{get_hardware_specs, IntelligenceTier};
 use crate::analysis::extraction::{ExtractionConfig, IntelligenceExtractor};
@@ -55,86 +56,107 @@ impl AnalysisManager {
         }
     }
 
-    pub async fn analyze_record(&self, app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
-        self.mark_analysis_processing(record_id).await?;
-        match self.analyze_record_inner(app, record_id).await {
+    /// Pre-provision required models in the background without blocking
+    pub async fn provision_models(&self, app: &tauri::AppHandle) -> Result<()> {
+        info!("Starting background model provisioning...");
+        
+        let _ = self.models.ensure_model(app, "bge-small", "bge-small-en-v1.5.onnx", 
+            "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx")
+            .await
+            .map_err(|e| {
+                warn!("Background: Failed to provision embedding model: {}", e);
+                e
+            });
+            
+        let _ = self.models.ensure_model(app, "tokenizer", "tokenizer.json", 
+            "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json")
+            .await
+            .map_err(|e| {
+                warn!("Background: Failed to provision tokenizer: {}", e);
+                e
+            });
+
+        let specs = get_hardware_specs();
+        let (model_id, preferred_model, preferred_url) = match specs.recommended_tier {
+            IntelligenceTier::Elite => (
+                "gemma-4-e4b", 
+                "gemma-4-e4b", 
+                "google/gemma-4-E4B-it"
+            ),
+            _ => (
+                "gemma-4-e2b", 
+                "gemma-4-e2b", 
+                "google/gemma-4-E2B-it"
+            ),
+        };
+        
+        let _ = self.models.ensure_model(app, model_id, preferred_model, preferred_url)
+            .await
+            .map_err(|e| {
+                warn!("Background: Failed to provision main intelligence model: {}", e);
+                e
+            });
+
+        info!("Background model provisioning completed");
+        Ok(())
+    }
+
+    pub async fn index_record(&self, app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
+        info!("Indexing record: {}", record_id);
+        sqlx::query("UPDATE records SET analysis_status = 'indexing', analysis_error = NULL WHERE id = ?").bind(record_id).execute(&self.db).await?;
+        match self.index_record_inner(app, record_id).await {
             Ok(report) => Ok(report),
             Err(error) => {
                 let message = error.to_string();
-                if let Err(status_error) = self.mark_analysis_failed(record_id, &message).await {
-                    warn!("Failed to persist analysis failure for {}: {}", record_id, status_error);
-                }
+                let _ = sqlx::query("UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?").bind(&message).bind(record_id).execute(&self.db).await;
                 Err(error)
             }
         }
     }
 
-    async fn analyze_record_inner(&self, app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
+    pub async fn synthesize_intelligence(&self, app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
+        info!("Synthesizing intelligence for record: {}", record_id);
+        sqlx::query("UPDATE records SET analysis_status = 'synthesizing', analysis_error = NULL WHERE id = ?").bind(record_id).execute(&self.db).await?;
+        match self.synthesize_intelligence_inner(app, record_id).await {
+            Ok(report) => Ok(report),
+            Err(error) => {
+                let message = error.to_string();
+                let _ = sqlx::query("UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?").bind(&message).bind(record_id).execute(&self.db).await;
+                Err(error)
+            }
+        }
+    }
+
+    async fn index_record_inner(&self, _app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
         let record = records::find_by_id(&self.db, record_id).await?.ok_or_else(|| anyhow!("record not found: {record_id}"))?;
         let relative_path = record.local_path.as_deref().ok_or_else(|| anyhow!("record has no local artifact. please download it first."))?;
         let full_path = self.library.get_full_path(relative_path);
-        if !full_path.exists() {
-            return Err(anyhow!("local artifact file is missing from vault: {}", full_path.display()));
-        }
         let extension = full_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
-        // 1. Model Provisioning
-        let specs = get_hardware_specs();
-        let _ = self.models.ensure_model(app, "bge-small", "bge-small-en-v1.5.onnx", "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx").await
-            .map_err(|e| anyhow!("Failed to ensure embedding model: {}", e))?;
-        let _ = self.models.ensure_model(app, "tokenizer", "tokenizer.json", "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json").await
-            .map_err(|e| anyhow!("Failed to ensure tokenizer: {}", e))?;
-            
-        // Gemma selection based on tier
-        let (model_id, preferred_model, preferred_url) = match specs.recommended_tier {
-            IntelligenceTier::Elite => (
-                "gemma-4-e4b", 
-                "google_gemma-4-E4B-it-Q4_K_M.gguf", 
-                "https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/google_gemma-4-E4B-it-Q4_K_M.gguf"
-            ),
-            _ => (
-                "gemma-4-e2b", 
-                "google_gemma-4-E2B-it-Q4_K_M.gguf", 
-                "https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/google_gemma-4-E2B-it-Q4_K_M.gguf"
-            ),
-        };
+        // 1. OCR (Foundation)
+        let _ = _app.emit("analysis-progress", serde_json::json!({
+            "status": "extracting-foundation",
+            "record_id": record_id
+        }));
+        let (text, engine) = self.extract_text(&full_path).await?;
         
-        let verified_model_path = self.models.ensure_model(app, model_id, preferred_model, preferred_url).await
-            .map_err(|e| anyhow!("Failed to provision intelligence model: {}", e))?;
-
-        // 2. OCR (PHASE 1)
-        info!("Executing OCR extraction for {}", record.title);
-        let (text, engine) = self.extract_text(&full_path).await
-            .map_err(|e| anyhow!("OCR extraction failed for {}: {}", full_path.display(), e))?;
-        info!("OCR Engine: {} produced {} chars", engine, text.len());
+        let _ = _app.emit("analysis-progress", serde_json::json!({
+            "status": "indexing-vector",
+            "record_id": record_id
+        }));
         
-        // ... (rest of the code should use verified_model_path)
+        // Persist raw text immediately
+        sqlx::query("INSERT INTO analysis_results (record_id, ocr_text, status, processed_at) VALUES (?, ?, 'indexed', ?) ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'indexed', processed_at = excluded.processed_at")
+            .bind(record_id).bind(&text).bind(crate::common::now()).execute(&self.db).await?;
 
-        sqlx::query(
-            r#"
-            INSERT INTO analysis_results (record_id, ocr_text, status, processed_at)
-            VALUES (?, ?, 'processing', ?)
-            ON CONFLICT(record_id) DO UPDATE SET
-                ocr_text = excluded.ocr_text,
-                status = 'processing',
-                processed_at = excluded.processed_at
-            "#
-        )
-        .bind(record_id)
-        .bind(&text)
-        .bind(now())
-        .execute(&self.db)
-        .await?;
-
-        // 3. Asset & Thumbnail Extraction (PHASE 2)
+        // 2. Asset & Thumbnail Extraction
         let mut assets = Vec::new();
         let asset_dir = self.library.get_full_path(&format!("assets/{}", record_id));
         fs::create_dir_all(&asset_dir).await?;
 
-        // Generate primary thumbnail
         let thumb_filename = "thumb_main.png";
         let thumb_path = asset_dir.join(thumb_filename);
-        if let Ok(_) = self.thumbnails.generate_thumbnail(&full_path, &thumb_path).await {
+        if self.thumbnails.generate_thumbnail(&full_path, &thumb_path).await.is_ok() {
             let rel_thumb = format!("assets/{}/{}", record_id, thumb_filename);
             sqlx::query("UPDATE records SET thumbnail_path = ? WHERE id = ?").bind(&rel_thumb).bind(record_id).execute(&self.db).await?;
         }
@@ -145,17 +167,60 @@ impl AnalysisManager {
                     let asset_id = Uuid::new_v4().to_string();
                     let rel_path = format!("assets/{}/{}", record_id, filename);
                     let size = fs::metadata(asset_dir.join(&filename)).await.map(|m| m.len() as i64).ok();
-                    sqlx::query(r#"INSERT INTO record_assets (id, record_id, asset_type, local_path, mime_type, file_size, created_at) VALUES (?, ?, 'image', ?, ?, ?, ?)"#)
-                    .bind(&asset_id).bind(record_id).bind(&rel_path).bind(&mime).bind(size).bind(now()).execute(&self.db).await?;
-                    assets.push(RecordAsset { id: asset_id, record_id: record_id.to_string(), asset_type: "image".to_string(), local_path: rel_path, mime_type: Some(mime), file_size: size, metadata_json: None, created_at: now() });
+                    sqlx::query("INSERT INTO record_assets (id, record_id, asset_type, local_path, mime_type, file_size, created_at) VALUES (?, ?, 'image', ?, ?, ?, ?)")
+                        .bind(&asset_id).bind(record_id).bind(&rel_path).bind(&mime).bind(size).bind(crate::common::now()).execute(&self.db).await?;
+                    assets.push(RecordAsset { id: asset_id, record_id: record_id.to_string(), asset_type: "image".to_string(), local_path: rel_path, mime_type: Some(mime), file_size: size, metadata_json: None, created_at: crate::common::now() });
                 }
             }
         }
 
-        // 4. Neural Extraction (PHASE 3)
-        info!("Initiating Forensic Intelligence Synthesis...");
+        // 3. Forensic Layer Extraction (Rule-based)
+        let forensics = if extension == "pdf" { self.pdf.extract_forensics(&full_path).unwrap_or_default() } else { Vec::new() };
+        self.persist_forensics(record_id, &forensics).await?;
+
+        // 4. Entity Extraction & Persistence
+        let entities = extract_entities(&text);
+        self.persist_entities(record_id, &entities).await?;
+
+        // 5. Vector Indexing
+        let chunks_indexed = self.persist_chunks(record_id, &record.title, &text, &entities).await?;
         
-        // Gather images for multimodal analysis
+        let _ = _app.emit("analysis-progress", serde_json::json!({
+            "status": "indexing-vector",
+            "record_id": record_id,
+            "chunk_count": chunks_indexed
+        }));
+
+        // 6. Final State Update
+        let redaction_score = self.ocr.analyze_redactions(&full_path).unwrap_or(0.0);
+        sqlx::query("UPDATE records SET analysis_status = 'indexed', redaction_score = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+            .bind(redaction_score).bind(record_id).execute(&self.db).await?;
+
+        Ok(AnalysisReport {
+            record_id: record_id.to_string(),
+            status: "indexed".to_string(),
+            ocr_text: text,
+            entities,
+            chunks_indexed,
+            engine,
+            intelligence_json: None,
+            assets,
+        })
+    }
+
+    async fn synthesize_intelligence_inner(&self, app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
+        let record = records::find_by_id(&self.db, record_id).await?.ok_or_else(|| anyhow!("record not found"))?;
+        let res_row = sqlx::query("SELECT ocr_text FROM analysis_results WHERE record_id = ?").bind(record_id).fetch_one(&self.db).await?;
+        let text: String = res_row.get("ocr_text");
+        let assets = sqlx::query_as::<_, RecordAsset>("SELECT * FROM record_assets WHERE record_id = ?").bind(record_id).fetch_all(&self.db).await?;
+        
+        let specs = get_hardware_specs();
+        let preferred_model = match specs.recommended_tier {
+            IntelligenceTier::Elite => "gemma-4-e4b",
+            _ => "gemma-4-e2b",
+        };
+        let verified_model_path = self.models.models_dir().join(preferred_model);
+        
         let mut image_paths = Vec::new();
         for asset in &assets {
             if asset.asset_type == "image" {
@@ -163,96 +228,46 @@ impl AnalysisManager {
             }
         }
 
-        // Perform Forensic Layer Extraction
-        let forensics = if extension == "pdf" {
-            self.pdf.extract_forensics(&full_path).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        self.persist_forensics(record_id, &forensics).await?;
-
-        let forensic_context = if !forensics.is_empty() {
-            format!("\n[FORENSIC LAYERS]: Found {} potential hidden layers or metadata leaks.", forensics.len())
-        } else {
-            "".to_string()
-        };
-
-        let extraction_input = format!("{}{}{}", text, if assets.is_empty() { "" } else { "\n[IMAGE ASSETS]: Visual data available." }, forensic_context);
-        
         let intelligence_json = self.extractor.extract_forensics(
             app,
             record_id,
             ExtractionConfig { 
                 preferred_model_path: Some(verified_model_path), 
-                fallback_model_path: Some(self.models.models_dir().join("gemma-4-e2b-it.gguf")), 
+                fallback_model_path: Some(self.models.models_dir().join("gemma-4-e2b")), 
                 force_cpu: !specs.gpu_acceleration_available 
             },
-            &extraction_input,
+            &text,
             image_paths
-        ).await
-        .map_err(|e| anyhow!("Intelligence synthesis failed: {}", e))?;
+        ).await?;
 
-        let intelligence_json_str = serde_json::to_string(&intelligence_json)?;
+        let intel_str = serde_json::to_string(&intelligence_json)?;
+        let summary = extraction_summary(&Some(intel_str.clone()));
+        let extracted_loc = extraction_location(&Some(intel_str.clone()));
 
-        // 5. Post-Processing
-        let redaction_score = self.ocr.analyze_redactions(&full_path).unwrap_or(0.0);
-        let entities = extract_entities(&text);
-        self.persist_entities(record_id, &entities).await
-            .map_err(|e| anyhow!("Failed to persist entities for {}: {}", record_id, e))?;
-        let chunks_indexed = self.persist_chunks(record_id, &record.title, &text, &entities).await
-            .map_err(|e| anyhow!("Failed to index chunks for {}: {}", record_id, e))?;
-
-        // 6. FINAL PERSISTENCE
-        let summary = extraction_summary(&Some(intelligence_json_str.clone()));
-        
-        // Smarter location handling: overwrite N/A, Unknown, or Global with more specific results
+        // Smart location handling: only overwrite vague/unknown locations
         let current_location = record.incident_location.as_deref().unwrap_or("N/A");
-        let extracted_loc = extraction_location(&Some(intelligence_json_str.clone()));
         let final_location = if is_unspecified_location(current_location) {
-            extracted_loc.or(Some(current_location.to_string()))
+            extracted_loc.or_else(|| Some(current_location.to_string()))
         } else {
             Some(current_location.to_string())
         };
 
         sqlx::query(
-            r#"
-            UPDATE records SET 
-                analysis_status = 'completed',
-                intelligence_json = ?,
-                redaction_score = ?,
-                analysis_error = NULL,
-                summary = ?,
-                incident_location = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            "#,
+            "UPDATE records SET analysis_status = 'completed', intelligence_json = ?, summary = ?, incident_location = ?, analysis_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
         )
-        .bind(&intelligence_json_str)
-        .bind(redaction_score)
-        .bind(summary)
-        .bind(final_location)
-        .bind(record_id)
-        .execute(&self.db)
-        .await?;
+            .bind(&intel_str).bind(summary).bind(final_location).bind(record_id)
+            .execute(&self.db).await?;
 
-        sqlx::query(
-            "UPDATE analysis_results SET status = 'completed', processed_at = ? WHERE record_id = ?"
-        )
-        .bind(now())
-        .bind(record_id)
-        .execute(&self.db)
-        .await?;
+        sqlx::query("UPDATE analysis_results SET status = 'completed', processed_at = ? WHERE record_id = ?")
+            .bind(now()).bind(record_id).execute(&self.db).await?;
 
-        Ok(AnalysisReport {
-            record_id: record_id.to_string(),
-            status: "completed".to_string(),
-            ocr_text: text,
-            entities,
-            chunks_indexed,
-            engine: format!("gemma-4-{:?}", specs.recommended_tier),
-            intelligence_json: Some(intelligence_json_str),
-            assets,
-        })
+        self.get_analysis(record_id).await?.ok_or_else(|| anyhow!("failed to retrieve final report"))
+    }
+
+    pub async fn analyze_record(&self, app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
+        // Legacy entry point: Run both in sequence for backward compatibility
+        self.index_record(app, record_id).await?;
+        self.synthesize_intelligence(app, record_id).await
     }
 
     pub async fn get_analysis(&self, record_id: &str) -> Result<Option<AnalysisReport>> {
@@ -269,15 +284,6 @@ impl AnalysisManager {
         Ok(Some(AnalysisReport { record_id: record_id.to_string(), status, ocr_text, entities, chunks_indexed: chunks_indexed as usize, engine: "stored".to_string(), intelligence_json, assets }))
     }
 
-    async fn mark_analysis_processing(&self, record_id: &str) -> Result<()> {
-        sqlx::query("UPDATE records SET analysis_status = 'processing', analysis_error = NULL WHERE id = ?").bind(record_id).execute(&self.db).await?;
-        Ok(())
-    }
-
-    async fn mark_analysis_failed(&self, record_id: &str, error: &str) -> Result<()> {
-        sqlx::query("UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?").bind(error).bind(record_id).execute(&self.db).await?;
-        Ok(())
-    }
 
     async fn extract_text(&self, path: &Path) -> Result<(String, String)> {
         let extension = path.extension().and_then(|v| v.to_str()).unwrap_or("").to_lowercase();
@@ -349,10 +355,11 @@ impl AnalysisManager {
         for (i, chunk) in chunks.iter().enumerate() {
             let cid = Uuid::new_v4().to_string();
             let emb = vectorize_text(chunk).await?;
-            let vjson = serde_json::to_string(&emb)?;
             let vblob: &[u8] = unsafe { std::slice::from_raw_parts(emb.as_ptr() as *const u8, emb.len() * 4) };
-            sqlx::query("INSERT INTO analysis_chunks (id, record_id, chunk_index, text, vector_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-            .bind(&cid).bind(record_id).bind(i as i64).bind(chunk).bind(vjson).bind(now()).execute(&self.db).await?;
+            
+            sqlx::query("INSERT INTO analysis_chunks (id, record_id, chunk_index, text, engine_name, model_version, created_at) VALUES (?, ?, ?, ?, 'bge-small', 'v1.5', ?)")
+            .bind(&cid).bind(record_id).bind(i as i64).bind(chunk).bind(now()).execute(&self.db).await?;
+            
             sqlx::query("INSERT INTO vec_analysis_chunks (chunk_id, embedding) VALUES (?, ?)")
             .bind(&cid).bind(vblob).execute(&self.db).await?;
             sqlx::query("INSERT INTO analysis_chunks_fts (chunk_id, record_id, title, text, entities) VALUES (?, ?, ?, ?, ?)")
@@ -411,7 +418,7 @@ fn add_entity(e: &mut BTreeMap<(String, String), EntityHit>, n: &str, ty: &str, 
     e.entry((name.to_lowercase(), ty.to_string())).or_insert(EntityHit { id: Uuid::new_v4().to_string(), name, entity_type: ty.to_string(), confidence: c, source: s.to_string() });
 }
 
-fn now() -> String { chrono::Utc::now().to_rfc3339() }
+fn now() -> String { crate::common::now() }
 
 fn extraction_summary(j: &Option<String>) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(j.as_ref()?).ok()?;

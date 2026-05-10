@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { RecordSummary } from "$lib/types";
-  import { FileText, CheckCircle2, Clock, Download, ExternalLink } from "lucide-svelte";
+  import { FileText, CheckCircle2, Clock, Download, ExternalLink, Zap } from "lucide-svelte";
 
   let { records, selectedRecordId = null, onSelect } = $props<{
     records: RecordSummary[];
@@ -40,9 +40,11 @@
           onclick={() => onSelect(record)}
         >
           <td class="col-status">
-            <div class="status-indicator" class:ready={record.analysis_status === 'completed'}>
+            <div class="status-indicator" class:ready={record.analysis_status === 'completed'} class:indexed={record.analysis_status === 'indexed'}>
               {#if record.analysis_status === 'completed'}
                 <CheckCircle2 size={14} />
+              {:else if record.analysis_status === 'indexed'}
+                <Zap size={14} />
               {:else}
                 <Clock size={14} />
               {/if}
@@ -141,6 +143,10 @@
 
   .status-indicator.ready {
     color: var(--accent-success);
+  }
+
+  .status-indicator.indexed {
+    color: #3296ff;
   }
 
   .title-cell {

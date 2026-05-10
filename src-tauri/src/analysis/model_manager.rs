@@ -94,8 +94,32 @@ impl ModelManager {
         result
     }
 
-    /// Downloads all required files for a Safetensors model repository
+    /// Downloads repository using HTTP from Hugging Face without requiring external CLI tools
     pub async fn provision_repository(
+        &self,
+        app: &AppHandle,
+        model_id: &str,
+        repo_id: &str,
+    ) -> Result<PathBuf> {
+        let repo_dir = self.models_dir.join(model_id);
+        fs::create_dir_all(&repo_dir).await?;
+
+        info!("Downloading repository {} via HTTP to {}", repo_id, repo_dir.display());
+        
+        let _ = app.emit("model-progress", ModelProgress {
+            model_id: model_id.to_string(),
+            bytes_downloaded: 0,
+            total_bytes: None,
+            status: format!("Initializing download for {}...", repo_id),
+            speed_mbps: None,
+            eta_seconds: None,
+        });
+
+        self.provision_repository_http(app, model_id, repo_id).await
+    }
+
+    /// Downloads all required files for a repository via HTTP
+    async fn provision_repository_http(
         &self,
         app: &AppHandle,
         model_id: &str,
@@ -106,7 +130,7 @@ impl ModelManager {
 
         // 1. Fetch file list from HF API
         let hf_token = self.get_hf_token().await;
-        let mut request = self.client.get(format!("https://huggingface.co/api/models/{}/tree/main", repo_id));
+        let mut request = self.client.get(format!("https://huggingface.co/api/models/{}/tree/main?recursive=1", repo_id));
         if let Some(token) = &hf_token {
             request = request.header("Authorization", format!("Bearer {}", token));
         }
@@ -140,14 +164,14 @@ impl ModelManager {
 
             info!("Syncing repo file [{}/{}]: {}", i + 1, files_to_download.len(), file_path);
             
-            let _ = app.emit("model-progress", serde_json::json!({
-                "model_id": model_id,
-                "status": format!("Syncing {} ({} of {})", file_path, i+1, files_to_download.len()),
-                "bytes_downloaded": 0,
-                "total_bytes": files_to_download.len() as u64,
-                "speed_mbps": null,
-                "eta_seconds": null
-            }));
+            let _ = app.emit("model-progress", ModelProgress {
+                model_id: model_id.to_string(),
+                bytes_downloaded: (i * 100) as u64,
+                total_bytes: Some(files_to_download.len() as u64 * 100),
+                status: format!("Syncing {} ({} of {})", file_path, i+1, files_to_download.len()),
+                speed_mbps: None,
+                eta_seconds: None,
+            });
 
             self.ensure_model_inner(app, model_id, file_path, &download_url, &target_file_path, hf_token.clone()).await?;
         }
@@ -183,22 +207,61 @@ impl ModelManager {
     ) -> Result<PathBuf> {
         if target_path.exists() {
             let is_gguf = model_name.ends_with(".gguf");
+            let is_safetensors = model_name.ends_with(".safetensors");
             
             if let Ok(file_metadata) = fs::metadata(&target_path).await {
                 let size = file_metadata.len();
                 if let Ok(mut file) = tokio::fs::File::open(&target_path).await {
                     use tokio::io::AsyncReadExt;
-                    let mut magic = [0u8; 4];
+                    let mut magic = [0u8; 8];
                     if file.read_exact(&mut magic).await.is_ok() {
                         let mut is_corrupted = false;
                         if is_gguf {
-                            if &magic != b"GGUF" {
+                            if &magic[..4] != b"GGUF" {
                                 warn!("Model file {} is corrupted (invalid GGUF magic).", model_name);
                                 is_corrupted = true;
                             } else if size < 100 * 1024 * 1024 {
                                 is_corrupted = true;
                             }
-                        } else if &magic == b"<!DO" || &magic == b"<htm" {
+                        } else if is_safetensors {
+                            // Safetensors: first 8 bytes = LE u64 header length
+                            let header_len = u64::from_le_bytes(magic);
+                            if header_len == 0 || header_len > 100_000_000 {
+                                warn!("Safetensors {} has invalid header length: {}", model_name, header_len);
+                                is_corrupted = true;
+                            } else {
+                                // Read header JSON and sum tensor sizes to get expected file size
+                                let mut header_buf = vec![0u8; header_len as usize];
+                                if file.read_exact(&mut header_buf).await.is_ok() {
+                                    if let Ok(header_json) = serde_json::from_slice::<serde_json::Value>(&header_buf) {
+                                        // Calculate total tensor data size from offsets
+                                        let mut max_end: u64 = 0;
+                                        if let Some(obj) = header_json.as_object() {
+                                            for (key, val) in obj {
+                                                if key == "__metadata__" { continue; }
+                                                if let Some(offsets) = val.get("data_offsets") {
+                                                    if let Some(arr) = offsets.as_array() {
+                                                        if let Some(end) = arr.get(1).and_then(|v| v.as_u64()) {
+                                                            max_end = max_end.max(end);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        let expected_size = 8 + header_len + max_end;
+                                        if size != expected_size {
+                                            warn!("Safetensors {} size mismatch: file={} expected={}", model_name, size, expected_size);
+                                            is_corrupted = true;
+                                        }
+                                    } else {
+                                        warn!("Safetensors {} has invalid header JSON", model_name);
+                                        is_corrupted = true;
+                                    }
+                                } else {
+                                    is_corrupted = true;
+                                }
+                            }
+                        } else if &magic[..4] == b"<!DO" || &magic[..4] == b"<htm" {
                             is_corrupted = true;
                         }
 
@@ -242,6 +305,7 @@ impl ModelManager {
             let content_len = response.content_length().unwrap_or(0);
             (file, Some(content_len + downloaded))
         } else {
+            // Server ignored Range header (common after redirects) — start fresh
             downloaded = 0;
             let file = fs::File::create(&part_path).await?;
             (file, response.content_length())

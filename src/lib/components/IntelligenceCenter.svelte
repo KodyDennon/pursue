@@ -100,16 +100,32 @@
 
     unlistenAnalysis = listen("analysis-progress", (event: any) => {
       const { current, total, status } = event.payload;
-      if (total > 0) {
-        analysisProgress = (current / total) * 100;
-      }
-      if (status === "completed") {
+      
+      if (status === "completed" || status === "batch-complete") {
         analysisActive = false;
-        analysisStatus = "Complete";
+        analysisStatus = "Intelligence Standby";
         loadStatus();
+      } else if (status === "synthesizing" || status === "synthesizing-start") {
+        analysisActive = true;
+        const curToken = event.payload.token_index ?? 0;
+        const totToken = event.payload.token_limit ?? 2048;
+        analysisStatus = `Neural Synthesis: Auditing Artifact...`;
+        analysisProgress = (curToken / totToken) * 100;
       } else {
         analysisActive = true;
-        analysisStatus = `Processing ${current} of ${total}`;
+        const cur = current ?? 0;
+        const tot = total ?? 0;
+        if (tot > 0) {
+          analysisProgress = (cur / tot) * 100;
+        }
+        
+        if (status === "extracting-foundation") {
+            analysisStatus = "Foundation OCR In Progress...";
+        } else if (status === "indexing-vector") {
+            analysisStatus = "Vectorizing Semantic Chunks...";
+        } else {
+            analysisStatus = `Batch Process: ${cur} of ${tot}`;
+        }
       }
     });
 
@@ -259,7 +275,11 @@
           </div>
           <div class="metric">
             <span>Search Engine</span>
-            <strong>ONNX Runtime v1.17</strong>
+            <strong>ONNX / Vector (BGE)</strong>
+          </div>
+          <div class="metric">
+            <span>OCR Infrastructure</span>
+            <strong>Native (Vision/Media)</strong>
           </div>
         </div>
       {:else}
