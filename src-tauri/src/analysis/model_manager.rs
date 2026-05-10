@@ -1,13 +1,16 @@
 use crate::library::LibraryManager;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use rquest::Client;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_log::log::warn;
+use tauri_plugin_log::log::{info, warn};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
 #[derive(Clone, Serialize)]
 pub struct ModelProgress {
@@ -20,6 +23,7 @@ pub struct ModelProgress {
 pub struct ModelManager {
     client: Client,
     models_dir: PathBuf,
+    active_locks: Arc<Mutex<HashSet<String>>>,
 }
 
 impl ModelManager {
@@ -34,6 +38,7 @@ impl ModelManager {
         Self {
             client,
             models_dir,
+            active_locks: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -50,30 +55,63 @@ impl ModelManager {
     ) -> Result<PathBuf> {
         let target_path = self.models_dir.join(model_name);
         
+        // Wait for lock on this specific model
+        loop {
+            let mut locks = self.active_locks.lock().await;
+            if locks.contains(model_name) {
+                drop(locks);
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                continue;
+            }
+            locks.insert(model_name.to_string());
+            break;
+        }
+
+        let result = self.ensure_model_inner(app, model_id, model_name, url, &target_path).await;
+        
+        // Release lock
+        let mut locks = self.active_locks.lock().await;
+        locks.remove(model_name);
+        
+        result
+    }
+
+    async fn ensure_model_inner(
+        &self,
+        app: &AppHandle,
+        model_id: &str,
+        model_name: &str,
+        url: &str,
+        target_path: &PathBuf,
+    ) -> Result<PathBuf> {
         if target_path.exists() {
             let is_gguf = model_name.ends_with(".gguf");
             
-            if let Ok(mut file) = tokio::fs::File::open(&target_path).await {
-                use tokio::io::AsyncReadExt;
-                let mut magic = [0u8; 4];
-                if file.read_exact(&mut magic).await.is_ok() {
-                    let mut is_corrupted = false;
-                    
-                    if is_gguf {
-                        if &magic != b"GGUF" {
-                            warn!("Model file {} is corrupted (invalid GGUF magic).", model_name);
-                            is_corrupted = true;
-                        } else if file.metadata().await?.len() < 100 * 1024 * 1024 {
-                            warn!("Model file {} is too small for a GGUF model.", model_name);
+            if let Ok(file_metadata) = fs::metadata(&target_path).await {
+                let size = file_metadata.len();
+                // Validate existing file
+                if let Ok(mut file) = tokio::fs::File::open(&target_path).await {
+                    use tokio::io::AsyncReadExt;
+                    let mut magic = [0u8; 4];
+                    if file.read_exact(&mut magic).await.is_ok() {
+                        let mut is_corrupted = false;
+                        
+                        if is_gguf {
+                            if &magic != b"GGUF" {
+                                warn!("Model file {} is corrupted (invalid GGUF magic).", model_name);
+                                is_corrupted = true;
+                            } else if size < 100 * 1024 * 1024 {
+                                warn!("Model file {} is too small ({:.2} MB) for a GGUF model.", model_name, size as f64 / 1024.0 / 1024.0);
+                                is_corrupted = true;
+                            }
+                        } else if &magic == b"<!DO" || &magic == b"<htm" {
+                            warn!("Model file {} appears to be an HTML error page.", model_name);
                             is_corrupted = true;
                         }
-                    } else if &magic == b"<!DO" || &magic == b"<htm" {
-                        warn!("Model file {} appears to be an HTML error page.", model_name);
-                        is_corrupted = true;
-                    }
 
-                    if !is_corrupted {
-                        return Ok(target_path);
+                        if !is_corrupted {
+                            return Ok(target_path.clone());
+                        }
                     }
                 }
             }
@@ -82,6 +120,7 @@ impl ModelManager {
         }
 
         fs::create_dir_all(&self.models_dir).await?;
+        info!("Initiating download for model: {} from {}", model_name, url);
 
         // Atomic & Resumable download: stream to .part file first
         let part_path = target_path.with_extension("part");
@@ -98,8 +137,17 @@ impl ModelManager {
             request = request.header("Range", format!("bytes={}-", downloaded));
         }
 
-        let response = request.send().await?;
+        let response = request.send().await?
+            .error_for_status()?; // CRITICAL: Catch 404, 401, 403, 500 errors
         
+        // Final validation: Ensure we aren't downloading an HTML login page or error
+        if let Some(content_type) = response.headers().get("content-type") {
+            let ct = content_type.to_str().unwrap_or_default();
+            if ct.contains("text/html") {
+                return Err(anyhow!("HuggingFace returned an HTML page instead of the model file. This repo may be restricted or requires a token. URL: {}", url));
+            }
+        }
+
         // Handle response status (200 OK or 206 Partial Content)
         let (mut file, total_bytes) = if response.status() == rquest::StatusCode::PARTIAL_CONTENT {
             let file = fs::OpenOptions::new()
@@ -114,9 +162,15 @@ impl ModelManager {
             (file, response.content_length())
         };
 
+        if let Some(total) = total_bytes {
+            if total < 1024 * 1024 {
+                 return Err(anyhow!("Reported total size ({:.2} MB) is too small for model {}. Download aborted.", total as f64 / 1024.0 / 1024.0, model_name));
+            }
+        }
+
         let mut stream = response.bytes_stream();
 
-        app.emit(
+        let _ = app.emit(
             "model-progress",
             ModelProgress {
                 model_id: model_id.to_string(),
@@ -124,7 +178,7 @@ impl ModelManager {
                 total_bytes,
                 status: "starting".to_string(),
             },
-        )?;
+        );
 
         while let Some(item) = stream.next().await {
             let chunk = item?;
@@ -145,10 +199,17 @@ impl ModelManager {
         file.flush().await?;
         drop(file);
 
+        // Verify final size before finalizing
+        let final_metadata = fs::metadata(&part_path).await?;
+        if final_metadata.len() < 100 * 1024 * 1024 && model_name.ends_with(".gguf") {
+             let _ = fs::remove_file(&part_path).await;
+             return Err(anyhow!("Download completed but file is too small (integrity failure). URL likely returned truncated content."));
+        }
+
         // Finalize atomic download
         fs::rename(&part_path, &target_path).await?;
 
-        app.emit(
+        let _ = app.emit(
             "model-progress",
             ModelProgress {
                 model_id: model_id.to_string(),
@@ -156,8 +217,8 @@ impl ModelManager {
                 total_bytes,
                 status: "completed".to_string(),
             },
-        )?;
+        );
 
-        Ok(target_path)
+        Ok(target_path.clone())
     }
 }

@@ -79,8 +79,11 @@ impl AnalysisManager {
 
         // 1. Model Provisioning
         let specs = get_hardware_specs();
-        self.models.ensure_model(app, "bge-small", "bge-small-en-v1.5.onnx", "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx").await?;
-        self.models.ensure_model(app, "tokenizer", "tokenizer.json", "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json").await?;
+        let _ = self.models.ensure_model(app, "bge-small", "bge-small-en-v1.5.onnx", "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx").await
+            .map_err(|e| anyhow!("Failed to ensure embedding model: {}", e))?;
+        let _ = self.models.ensure_model(app, "tokenizer", "tokenizer.json", "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json").await
+            .map_err(|e| anyhow!("Failed to ensure tokenizer: {}", e))?;
+            
         // Gemma selection based on tier
         let (model_id, preferred_model, preferred_url) = match specs.recommended_tier {
             IntelligenceTier::Elite => (
@@ -94,11 +97,17 @@ impl AnalysisManager {
                 "https://huggingface.co/google/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-e2b-it.Q4_K_M.gguf"
             ),
         };
-        self.models.ensure_model(app, model_id, preferred_model, preferred_url).await?;
+        
+        let verified_model_path = self.models.ensure_model(app, model_id, preferred_model, preferred_url).await
+            .map_err(|e| anyhow!("Failed to provision intelligence model: {}", e))?;
+
         // 2. OCR (PHASE 1)
         info!("Executing OCR extraction for {}", record.title);
-        let (text, engine) = self.extract_text(&full_path).await?;
+        let (text, engine) = self.extract_text(&full_path).await
+            .map_err(|e| anyhow!("OCR extraction failed for {}: {}", full_path.display(), e))?;
         info!("OCR Engine: {} produced {} chars", engine, text.len());
+        
+        // ... (rest of the code should use verified_model_path)
 
         sqlx::query(
             r#"
@@ -173,21 +182,24 @@ impl AnalysisManager {
             app,
             record_id,
             ExtractionConfig { 
-                preferred_model_path: Some(self.models.models_dir().join(preferred_model)), 
+                preferred_model_path: Some(verified_model_path), 
                 fallback_model_path: Some(self.models.models_dir().join("gemma-4-e2b-it.gguf")), 
                 force_cpu: !specs.gpu_acceleration_available 
             },
             &extraction_input,
             image_paths
-        ).await?;
+        ).await
+        .map_err(|e| anyhow!("Intelligence synthesis failed: {}", e))?;
 
         let intelligence_json_str = serde_json::to_string(&intelligence_json)?;
 
         // 5. Post-Processing
         let redaction_score = self.ocr.analyze_redactions(&full_path).unwrap_or(0.0);
         let entities = extract_entities(&text);
-        self.persist_entities(record_id, &entities).await?;
-        let chunks_indexed = self.persist_chunks(record_id, &record.title, &text, &entities).await?;
+        self.persist_entities(record_id, &entities).await
+            .map_err(|e| anyhow!("Failed to persist entities for {}: {}", record_id, e))?;
+        let chunks_indexed = self.persist_chunks(record_id, &record.title, &text, &entities).await
+            .map_err(|e| anyhow!("Failed to index chunks for {}: {}", record_id, e))?;
 
         // 6. FINAL PERSISTENCE
         let summary = extraction_summary(&Some(intelligence_json_str.clone()));

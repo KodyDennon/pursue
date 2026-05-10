@@ -73,10 +73,18 @@ impl IntelligenceExtractor {
             use tauri::Emitter;
             let model_params = LlamaModelParams::default();
             
+            // Explicit existence check to avoid llama_cpp_2 internal panic
+            if !model_path.exists() {
+                return Err(anyhow!("Intelligence model missing: {:?}. Please re-initiate analysis to download it.", model_path));
+            }
+
             let model = match LlamaModel::load_from_file(backend, &model_path, &model_params) {
                 Ok(m) => m,
                 Err(e) => {
-                    let _ = std::fs::remove_file(&model_path);
+                    // Only purge if it still exists and we are the only one failing
+                    if model_path.exists() {
+                        let _ = std::fs::remove_file(&model_path);
+                    }
                     return Err(anyhow!("Intelligence model load failure ({:?}). Corrupted file purged. Re-initiate analysis to trigger a fresh download.", e));
                 }
             };
