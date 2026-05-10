@@ -48,9 +48,9 @@ impl AnalysisManager {
         }
     }
 
-    pub async fn analyze_record(&self, record_id: &str) -> Result<AnalysisReport> {
+    pub async fn analyze_record(&self, app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
         self.mark_analysis_processing(record_id).await?;
-        match self.analyze_record_inner(record_id).await {
+        match self.analyze_record_inner(app, record_id).await {
             Ok(report) => Ok(report),
             Err(error) => {
                 let message = error.to_string();
@@ -65,7 +65,7 @@ impl AnalysisManager {
         }
     }
 
-    async fn analyze_record_inner(&self, record_id: &str) -> Result<AnalysisReport> {
+    async fn analyze_record_inner(&self, app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
         let record = records::find_by_id(&self.db, record_id)
             .await?
             .ok_or_else(|| anyhow!("record not found: {record_id}"))?;
@@ -91,25 +91,29 @@ impl AnalysisManager {
         // Always need BGE for embeddings
         self.models
             .ensure_model(
+                app,
+                "bge-small",
                 "bge-small-en-v1.5.onnx",
                 "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx",
             )
             .await?;
         self.models
             .ensure_model(
+                app,
+                "tokenizer",
                 "tokenizer.json",
                 "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json",
             )
             .await?;
 
         // Gemma selection based on tier
-        let (preferred_model, preferred_url) = match specs.recommended_tier {
-            IntelligenceTier::Elite => ("gemma-4-e4b.gguf", "https://huggingface.co/google/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it.Q4_K_M.gguf"),
-            _ => ("gemma-4-e2b.gguf", "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf"),
+        let (model_id, preferred_model, preferred_url) = match specs.recommended_tier {
+            IntelligenceTier::Elite => ("gemma-4b", "gemma-4-e4b.gguf", "https://huggingface.co/google/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it.Q4_K_M.gguf"),
+            _ => ("gemma-2b", "gemma-4-e2b.gguf", "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf"),
         };
 
         self.models
-            .ensure_model(preferred_model, preferred_url)
+            .ensure_model(app, model_id, preferred_model, preferred_url)
             .await?;
 
         // 2. OCR / Text Extraction
@@ -139,8 +143,8 @@ impl AnalysisManager {
             .extractor
             .load_and_extract(
                 ExtractionConfig {
-                    preferred_model_path: Some(Path::new("models").join(preferred_model)),
-                    fallback_model_path: Some(Path::new("models/gemma-4-e2b.gguf").to_path_buf()),
+                    preferred_model_path: Some(self.models.models_dir().join(preferred_model)),
+                    fallback_model_path: Some(self.models.models_dir().join("gemma-4-e2b.gguf")),
                     force_cpu: !specs.gpu_acceleration_available,
                 },
                 &text,

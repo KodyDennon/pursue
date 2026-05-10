@@ -67,7 +67,9 @@ pub fn run() {
             update_case_notes,
             add_record_to_case,
             export_case,
-            get_hardware_diagnostics
+            get_hardware_diagnostics,
+            provision_model,
+            check_model_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

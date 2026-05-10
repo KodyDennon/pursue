@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
 use rquest::{header, Client};
+use rquest_util::{Emulation, EmulationOption};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
@@ -55,7 +56,15 @@ impl LibraryManager {
             header::HeaderValue::from_static("https://www.war.gov/"),
         );
 
-        let client = Client::builder().default_headers(headers).build()?;
+        let emulation = EmulationOption::builder()
+            .emulation(Emulation::Chrome124)
+            .skip_http2(true)
+            .build();
+
+        let client = Client::builder()
+            .emulation(emulation)
+            .default_headers(headers)
+            .build()?;
 
         Ok(Self {
             app_data_dir,

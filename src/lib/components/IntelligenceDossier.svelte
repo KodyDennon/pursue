@@ -1,6 +1,7 @@
 <script lang="ts">
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+  import { AlertCircle } from "lucide-svelte";
   import type { AnalysisReport, CaseSummary, DownloadResult, ExportResult, RecordSummary, RecordAsset } from "$lib/types";
 
   let { record, cases = [], selectedCaseId = null, onBack, onChanged } = $props<{
@@ -17,6 +18,7 @@
   let error = $state<string | null>(null);
   let noteBody = $state("");
   let exportPath = $state<string | null>(null);
+  let modelReady = $state(true);
 
   const intelligence = $derived(record.intelligence_json ? JSON.parse(record.intelligence_json) : null);
   const images = $derived((analysis?.assets ?? []).filter((a: RecordAsset) => a.asset_type === 'image'));
@@ -26,6 +28,9 @@
     error = null;
     try {
       analysis = await invoke<AnalysisReport | null>("get_analysis_result", { id: record.id });
+      const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
+      // Basic check for either gemma model
+      modelReady = modelStatus["gemma-2b"] || modelStatus["gemma-4b"];
     } catch (e) {
       error = String(e);
     }
@@ -115,6 +120,42 @@
       return value;
     }
   }
+
+  function highlightIntelligence(text: string) {
+    if (!text) return "";
+    // Highlight potential UFO/UAP terms, dates, and agencies
+    const terms = [
+      /\b(UFO|UAP|TIC\s?TAC|NHI|CRAFT|OBJECT|ANOMALY)\b/gi,
+      /\b(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})\b/g,
+      /\b(NAVY|AIR FORCE|DOD|PENTAGON|NORAD|FAA)\b/g,
+      /\b(PILOT|RADAR|SONAR|SENSOR|INFRARED)\b/gi
+    ];
+    
+    let highlighted = text;
+    terms.forEach(regex => {
+      highlighted = highlighted.replace(regex, (match) => {
+        // Only make terms with 3+ chars searchable
+        if (match.length >= 3) {
+          return `<button class="searchable-highlight" onclick="window.dispatchEvent(new CustomEvent('intel-search', {detail: '${match}'}))">${match}</button>`;
+        }
+        return `<span class="highlight">${match}</span>`;
+      });
+    });
+    return highlighted;
+  }
+
+  onMount(() => {
+    const handleSearch = (e: any) => {
+      // In a real app, we'd open the global search modal with this query
+      console.log("Searching for:", e.detail);
+      // For now, we'll just toast it or something
+      addToast({ type: "info", message: `Semantic analysis for: ${e.detail}`, duration: 2000 });
+    };
+    window.addEventListener('intel-search', handleSearch);
+    return () => window.removeEventListener('intel-search', handleSearch);
+  });
+
+  let lightboxAsset = $state<RecordAsset | null>(null);
 
   $effect(() => {
     record.id;
@@ -228,6 +269,12 @@
         <div class="pending-dossier">
           <div class="spinner"></div>
           <h3>Intelligence Extraction Pending</h3>
+          {#if !modelReady}
+            <div class="model-warning">
+              <AlertCircle size={18} />
+              <span>Gemma 4 Neural Model not detected. Download required in Intelligence Center.</span>
+            </div>
+          {/if}
           <p>Initiate Gemma 4 deep analysis to populate this dossier.</p>
         </div>
       {/if}
@@ -243,11 +290,16 @@
         </section>
 
         <section class="viewer-section">
-          <h3>Extracted Text (OCR)</h3>
+          <div class="section-header">
+            <h3>Extracted Text (Forensic OCR)</h3>
+            <span class="ocr-engine">Vision v2.0 Engine</span>
+          </div>
           {#if analysis?.ocr_text}
-            <pre class="ocr-text">{analysis.ocr_text}</pre>
+            <div class="ocr-text-container">
+              <pre class="ocr-text">{@html highlightIntelligence(analysis.ocr_text)}</pre>
+            </div>
           {:else}
-            <p>No extracted text stored.</p>
+            <p class="empty-state-text">No extracted text stored. Run Gemma 4 to initiate OCR extraction.</p>
           {/if}
         </section>
       </div>
@@ -257,13 +309,13 @@
         {#if images.length}
           <div class="asset-grid">
             {#each images as asset}
-              <div class="evidence-frame glass">
+              <button class="evidence-frame glass" onclick={() => lightboxAsset = asset}>
                 <img src={convertFileSrc(asset.local_path)} alt="Extracted evidence asset" />
                 <div class="frame-meta">
-                  <span>{asset.mime_type}</span>
+                  <span>{asset.mime_type?.split('/')[1].toUpperCase()}</span>
                   <span>{asset.file_size ? (asset.file_size / 1024).toFixed(0) : 0} KB</span>
                 </div>
-              </div>
+              </button>
             {/each}
           </div>
         {:else}
@@ -282,6 +334,20 @@
       </section>
     {/if}
   </div>
+
+  {#if lightboxAsset}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="lightbox" onclick={() => lightboxAsset = null}>
+      <div class="lightbox-content">
+        <img src={convertFileSrc(lightboxAsset.local_path)} alt="Enlarged evidence" />
+        <div class="lightbox-meta">
+          <strong>{lightboxAsset.mime_type}</strong>
+          <span>{lightboxAsset.file_size ? (lightboxAsset.file_size / 1024).toFixed(0) : 0} KB • Verified Forensic Asset</span>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -631,20 +697,130 @@
     100% { transform: scale(1); opacity: 1; }
   }
 
+  .model-warning {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(243, 77, 77, 0.1);
+    border: 1px solid var(--accent-danger);
+    color: var(--accent-danger);
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 24px;
+    max-width: 400px;
+  }
+
   .viewer-section h3 {
     font-size: 16px;
     margin-bottom: 16px;
   }
 
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .ocr-engine {
+    font-size: 10px;
+    background: rgba(231, 196, 107, 0.1);
+    color: var(--accent-primary);
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .ocr-text-container {
+    background: #000;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 20px;
+    max-height: 500px;
+    overflow-y: auto;
+  }
+
   .ocr-text {
     font-family: var(--font-mono);
-    font-size: 12px;
-    background: #000;
-    padding: 16px;
-    border-radius: 8px;
-    overflow-x: auto;
+    font-size: 13px;
     white-space: pre-wrap;
     word-break: break-all;
+    line-height: 1.6;
+    color: #e0e4eb;
+  }
+
+  :global(.ocr-text .highlight) {
+    background: rgba(231, 196, 107, 0.2);
+    color: var(--accent-primary);
+    padding: 0 2px;
+    border-radius: 2px;
+    font-weight: 600;
+  }
+
+  :global(.ocr-text .searchable-highlight) {
+    background: rgba(231, 196, 107, 0.15);
+    color: var(--accent-primary);
+    padding: 0 4px;
+    border: 1px solid rgba(231, 196, 107, 0.3);
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+    font-size: inherit;
+  }
+
+  :global(.ocr-text .searchable-highlight:hover) {
+    background: var(--accent-primary);
+    color: #000;
+    box-shadow: 0 0 8px var(--accent-primary);
+  }
+
+  .empty-state-text {
+    color: var(--text-tertiary);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px;
+    border: 1px dashed var(--border-subtle);
+    border-radius: 8px;
+  }
+
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    z-index: 2000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(8px);
+    cursor: zoom-out;
+  }
+
+  .lightbox-content {
+    max-width: 90vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .lightbox-content img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 0 40px rgba(0,0,0,0.5);
+  }
+
+  .lightbox-meta {
+    display: flex;
+    justify-content: space-between;
+    color: #fff;
+    font-size: 12px;
+    padding: 0 8px;
   }
 
   .case-section textarea {

@@ -38,6 +38,7 @@ pub struct RecordSummary {
     pub redaction_score: Option<f64>,
     pub analysis_error: Option<String>,
     pub entity_count: i64,
+    pub thumbnail_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +59,16 @@ pub struct CsvRecord {
     pub title: String,
     #[serde(rename = "Type")]
     pub doc_type: Option<String>,
+    #[serde(rename = "Video Pairing")]
+    pub video_pairing: Option<String>,
+    #[serde(rename = "PDF Pairing")]
+    pub pdf_pairing: Option<String>,
+    #[serde(rename = "Description Blurb")]
+    pub description: Option<String>,
+    #[serde(rename = "DVIDS Video ID")]
+    pub dvids_video_id: Option<String>,
+    #[serde(rename = "Video Title")]
+    pub video_title: Option<String>,
     #[serde(rename = "Agency")]
     pub agency: Option<String>,
     #[serde(rename = "Incident Date")]
@@ -66,8 +77,8 @@ pub struct CsvRecord {
     pub incident_location: Option<String>,
     #[serde(rename = "PDF | Image Link")]
     pub document_url: Option<String>,
-    #[serde(rename = "Description Blurb")]
-    pub description: Option<String>,
+    #[serde(rename = "Modal Image")]
+    pub modal_image: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

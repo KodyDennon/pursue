@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use csv::ReaderBuilder;
 use rquest::{header, Client};
+use rquest_util::{Emulation, EmulationOption};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
@@ -40,18 +41,42 @@ pub async fn sync_official_source(
         header::HeaderValue::from_static("https://www.war.gov/"),
     );
 
+    let emulation = EmulationOption::builder()
+        .emulation(Emulation::Chrome124)
+        .skip_http2(true)
+        .build();
+
     let client = Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .emulation(emulation)
         .default_headers(headers)
         .build()?;
 
-    let bytes = client
+    let response = client
         .get(WAR_GOV_CSV_URL)
         .send()
         .await
-        .context("WAR.gov source request failed")?
-        .error_for_status()
-        .context("WAR.gov source returned an error status")?
+        .context("WAR.gov source request failed")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_else(|_| "Could not read body".to_string());
+        tauri_plugin_log::log::error!("WAR.gov sync failed with status {}: {}", status, body);
+        
+        // Fallback to local file if it exists in Downloads
+        if let Ok(home) = std::env::var("HOME") {
+            let local_path = std::path::PathBuf::from(home).join("Downloads").join("uap-csv.csv");
+            if local_path.exists() {
+                tauri_plugin_log::log::info!("Attempting fallback to local CSV: {:?}", local_path);
+                if let Ok(local_bytes) = fs::read(&local_path).await {
+                    return sync_official_source_from_bytes(pool, library, &local_bytes).await;
+                }
+            }
+        }
+        
+        return Err(anyhow!("WAR.gov source returned error status {}: {}", status, body));
+    }
+
+    let bytes = response
         .bytes()
         .await
         .context("WAR.gov source body could not be read")?;
@@ -229,7 +254,7 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
         .has_headers(true)
         .from_reader(bytes);
 
-    let mut records = Vec::new();
+    let mut records_map = HashMap::new();
     for result in reader.deserialize() {
         let csv: CsvRecord = match result {
             Ok(csv) => csv,
@@ -243,12 +268,16 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
         }
         let stable_key = stable_key(&csv);
         let content_hash = hash_json(&csv)?;
-        records.push(ParsedOfficialRecord {
+        
+        // Keep the first record encountered for each stable_key
+        records_map.entry(stable_key.clone()).or_insert(ParsedOfficialRecord {
             csv,
             stable_key,
             content_hash,
         });
     }
+
+    let records: Vec<ParsedOfficialRecord> = records_map.into_values().collect();
 
     if records.is_empty() {
         return Err(anyhow!(
@@ -387,20 +416,26 @@ async fn prior_title(pool: &SqlitePool, stable_key: &str) -> Result<Option<Strin
 }
 
 fn stable_key(record: &CsvRecord) -> String {
-    if let Some(url) = record
-        .document_url
-        .as_deref()
-        .filter(|url| !url.trim().is_empty())
-    {
-        return format!("url:{}", url.trim());
+    let title = record.title.trim();
+    let date = record.release_date.as_deref().unwrap_or("").trim();
+    let agency = record.agency.as_deref().unwrap_or("").trim();
+    
+    let url = record.document_url.as_deref().unwrap_or("").trim();
+    let has_real_url = url.starts_with("http://") || url.starts_with("https://");
+
+    if has_real_url {
+        // Even with a URL, combine with title to handle multiple records for same document
+        format!("url:{}|title:{}", url, title)
+    } else {
+        let raw = format!(
+            "{}|{}|{}|{}",
+            title,
+            date,
+            agency,
+            url // Include the "PDF" or other placeholder too
+        );
+        format!("meta:{}", hash_bytes(raw.as_bytes()))
     }
-    let raw = format!(
-        "{}|{}|{}",
-        record.title.trim(),
-        record.release_date.as_deref().unwrap_or("").trim(),
-        record.agency.as_deref().unwrap_or("").trim()
-    );
-    format!("meta:{}", hash_bytes(raw.as_bytes()))
 }
 
 fn hash_json(record: &CsvRecord) -> Result<String> {
@@ -414,6 +449,11 @@ fn hash_json(record: &CsvRecord) -> Result<String> {
         "file_type": record.doc_type,
         "summary": record.description,
         "redaction": record.redaction,
+        "video_pairing": record.video_pairing,
+        "pdf_pairing": record.pdf_pairing,
+        "dvids_video_id": record.dvids_video_id,
+        "video_title": record.video_title,
+        "modal_image": record.modal_image,
     });
     Ok(hash_bytes(serde_json::to_string(&canonical)?.as_bytes()))
 }

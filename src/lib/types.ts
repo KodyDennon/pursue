@@ -20,6 +20,7 @@ export interface RecordSummary {
   redaction_score: number | null;
   analysis_error: string | null;
   entity_count: number;
+  thumbnail_path: string | null;
 }
 
 export type Record = RecordSummary;

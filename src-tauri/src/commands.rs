@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::analysis::diagnostics;
 use crate::analysis::diagnostics::HardwareSpecs;
+use crate::analysis::model_manager::ModelManager;
 use crate::analysis::AnalysisManager;
 use crate::cases;
 use crate::db::records;
@@ -269,9 +270,10 @@ pub async fn ingest_web_page(
 pub async fn analyze_record(
     id: String,
     state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
 ) -> Result<AnalysisReport, String> {
     let manager = AnalysisManager::new(state.db.clone(), state.library.clone());
-    manager.analyze_record(&id).await.map_err(to_error)
+    manager.analyze_record(&app_handle, &id).await.map_err(to_error)
 }
 
 #[tauri::command]
@@ -582,6 +584,9 @@ async fn run_download_job(
         .bind(job_id)
         .execute(&db)
         .await?;
+
+        // Small delay to be polite and avoid WAF/rate-limiting
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 
     let status = if failed == 0 {
@@ -607,6 +612,42 @@ async fn run_download_job(
     .execute(&db)
     .await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn check_model_status(state: State<'_, AppState>) -> Result<std::collections::HashMap<String, bool>, String> {
+    let manager = ModelManager::new(&state.library);
+    let mut status = std::collections::HashMap::new();
+    
+    let model_files = vec![
+        ("bge-small", "bge-small-en-v1.5.onnx"),
+        ("tokenizer", "tokenizer.json"),
+        ("gemma-2b", "gemma-4-e2b.gguf"),
+        ("gemma-4b", "gemma-4-e4b.gguf"),
+    ];
+
+    for (id, filename) in model_files {
+        let path = manager.models_dir().join(filename);
+        status.insert(id.to_string(), path.exists());
+    }
+
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn provision_model(
+    id: String,
+    url: String,
+    name: String,
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<String, String> {
+    let manager = ModelManager::new(&state.library);
+    manager
+        .ensure_model(&app_handle, &id, &name, &url)
+        .await
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(to_error)
 }
 
 fn to_error(error: impl std::fmt::Display) -> String {

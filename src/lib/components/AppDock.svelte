@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Map, Database, BrainCircuit, Settings, Search } from "lucide-svelte";
+  import { Map, Database, BrainCircuit, Settings, Search, DownloadCloud, Brain } from "lucide-svelte";
   import Logo from "$lib/components/Logo.svelte";
   import { activeView, globalSearchOpen } from "$lib/store";
 </script>
@@ -20,6 +20,12 @@
       <button class="nav-item" class:active={$activeView === 'link-analysis'} onclick={() => $activeView = 'link-analysis'} title="Link Analysis">
         <BrainCircuit size={22} />
       </button>
+      <button class="nav-item" class:active={$activeView === 'intelligence'} onclick={() => $activeView = 'intelligence'} title="Intelligence Center">
+        <Brain size={22} />
+      </button>
+      <button class="nav-item" class:active={$activeView === 'agent'} onclick={() => $activeView = 'agent'} title="Intelligence Agent">
+        <DownloadCloud size={22} />
+      </button>
       <button class="nav-item" onclick={() => $globalSearchOpen = true} title="Global Search">
         <Search size={22} />
       </button>
@@ -27,7 +33,7 @@
   </div>
 
   <div class="dock-bottom">
-    <button class="nav-item" title="Settings">
+    <button class="nav-item" class:active={$activeView === 'settings'} onclick={() => $activeView = 'settings'} title="Settings">
       <Settings size={22} />
     </button>
   </div>
