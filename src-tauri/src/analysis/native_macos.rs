@@ -6,10 +6,9 @@ mod macos_impl {
     use super::*;
     use objc2::rc::Retained;
     use objc2::msg_send;
-    use objc2::AnyThread;
-    use objc2_foundation::{NSArray, NSDictionary, NSString, NSURL};
+    use objc2_foundation::{NSArray, NSDictionary, NSString, NSURL, NSObject};
     use objc2_vision::{
-        VNImageRequestHandler, VNRecognizeTextRequest, VNRequestTextRecognitionLevel, VNRequest,
+        VNImageRequestHandler, VNRecognizeTextRequest, VNRequest,
     };
     use objc2_pdf_kit::{PDFDocument, PDFPage};
     use objc2_app_kit::NSImage;
@@ -17,6 +16,10 @@ mod macos_impl {
     use objc2::runtime::AnyObject;
 
     pub fn extract_text(path: &Path) -> Result<String> {
+        if !path.exists() {
+            return Err(anyhow!("File does not exist: {}", path.display()));
+        }
+
         objc2::rc::autoreleasepool(|_| {
             let path_str = path.to_str().ok_or_else(|| anyhow!("invalid path"))?;
             let url = NSURL::fileURLWithPath(&NSString::from_str(path_str));
@@ -31,120 +34,96 @@ mod macos_impl {
     }
 
     fn extract_image_text(url: &Retained<NSURL>) -> Result<String> {
-        let handler = unsafe {
-            VNImageRequestHandler::initWithURL_options(
-                VNImageRequestHandler::alloc(),
-                url,
-                &NSDictionary::new(),
-            )
-        };
-
-        perform_vision_ocr(&handler)
+        unsafe {
+            let cls = objc2::runtime::AnyClass::get(std::ffi::CStr::from_bytes_with_nul(b"VNImageRequestHandler\0").unwrap()).unwrap();
+            let handler: *mut VNImageRequestHandler = msg_send![cls, alloc];
+            let options = NSDictionary::<NSObject, NSObject>::new();
+            let handler: *mut VNImageRequestHandler = msg_send![handler, initWithURL: &**url, options: &*options];
+            let handler = Retained::from_raw(handler).unwrap();
+            perform_vision_ocr(&handler)
+        }
     }
 
     fn extract_pdf_text(url: &Retained<NSURL>) -> Result<String> {
-        let doc = unsafe { PDFDocument::initWithURL(PDFDocument::alloc(), url) }
-            .ok_or_else(|| anyhow!("Failed to load PDF document"))?;
+        unsafe {
+            let cls = objc2::runtime::AnyClass::get(std::ffi::CStr::from_bytes_with_nul(b"PDFDocument\0").unwrap()).unwrap();
+            let doc: *mut PDFDocument = msg_send![cls, alloc];
+            let doc: *mut PDFDocument = msg_send![doc, initWithURL: &**url];
+            if doc.is_null() { return Err(anyhow!("Failed to load PDF document")); }
+            let doc = Retained::from_raw(doc).unwrap();
 
-        let count = unsafe { doc.pageCount() };
-        let mut full_text = String::new();
+            let count: isize = msg_send![&*doc, pageCount];
+            let mut full_text = String::new();
 
-        for i in 0..count {
-            // Process each page in a fresh autorelease pool to keep memory tight
-            objc2::rc::autoreleasepool(|_| {
-                let page = unsafe { doc.pageAtIndex(i) };
-                if let Some(p) = page {
-                    if let Ok(page_text) = extract_page_text(&p) {
-                        full_text.push_str(&page_text);
-                        full_text.push_str("\n--- PAGE BREAK ---\n");
+            for i in 0..count {
+                objc2::rc::autoreleasepool(|_| {
+                    let page: *mut PDFPage = msg_send![&*doc, pageAtIndex: i];
+                    if let Some(p) = page.as_ref() {
+                        if let Ok(page_text) = extract_page_text(p) {
+                            full_text.push_str(&page_text);
+                            full_text.push_str("\n--- PAGE BREAK ---\n");
+                        }
                     }
-                }
-            });
+                });
+            }
+            Ok(full_text)
         }
-        Ok(full_text)
     }
 
     fn extract_page_text(page: &PDFPage) -> Result<String> {
-        // 1. Render page to high-res image (4x scale for forensic clarity)
-        let box_rect: [f64; 4] = unsafe { msg_send![&*page, boundsForBox: 0] }; // 0 = kPDFDisplayBoxMediaBox
-        let size = [box_rect[2] * 4.0, box_rect[3] * 4.0];
-        
-        // PDFPage thumbnailOfSize:forBox: returns an autoreleased NSImage (+0)
-        let ns_image: *mut NSImage = unsafe { msg_send![&*page, thumbnailOfSize: size, forBox: 0] };
-        if ns_image.is_null() { return Err(anyhow!("Failed to render page")); }
-        
-        // Take ownership of the autoreleased object
-        let ns_image = unsafe { Retained::retain_autoreleased(ns_image) }.ok_or_else(|| anyhow!("Failed to retain image"))?;
+        unsafe {
+            let box_rect: [f64; 4] = msg_send![page, boundsForBox: 0]; // 0 = kPDFDisplayBoxMediaBox
+            let size = [box_rect[2] * 4.0, box_rect[3] * 4.0];
+            
+            let ns_image: *mut NSImage = msg_send![page, thumbnailOfSize: size, forBox: 0];
+            if ns_image.is_null() { return Err(anyhow!("Failed to render page")); }
+            let ns_image = Retained::retain_autoreleased(ns_image).ok_or_else(|| anyhow!("Failed to retain image"))?;
 
-        // 2. Convert to CGImage
-        let cg_image_ptr: *mut CGImage = unsafe { msg_send![&*ns_image, CGImageForProposedRect: 0, context: 0, hints: 0] };
-        if cg_image_ptr.is_null() { return Err(anyhow!("Failed to get CGImage")); }
-        let cg_image = unsafe { &*cg_image_ptr };
+            let cg_image: *mut CGImage = msg_send![&*ns_image, CGImageForProposedRect: 0, context: 0, hints: 0];
+            if cg_image.is_null() { return Err(anyhow!("Failed to get CGImage")); }
 
-        // 3. Perform OCR
-        let handler = unsafe {
-            VNImageRequestHandler::initWithCGImage_options(
-                VNImageRequestHandler::alloc(),
-                cg_image,
-                &NSDictionary::new()
-            )
-        };
+            let cls = objc2::runtime::AnyClass::get(std::ffi::CStr::from_bytes_with_nul(b"VNImageRequestHandler\0").unwrap()).unwrap();
+            let handler: *mut VNImageRequestHandler = msg_send![cls, alloc];
+            let options = NSDictionary::<NSObject, NSObject>::new();
+            let handler: *mut VNImageRequestHandler = msg_send![handler, initWithCGImage: cg_image, options: &*options];
+            let handler = Retained::from_raw(handler).unwrap();
 
-        perform_vision_ocr(&handler)
+            perform_vision_ocr(&handler)
+        }
     }
 
     fn perform_vision_ocr(handler: &VNImageRequestHandler) -> Result<String> {
         unsafe {
-            // 2026 Strategy: Check for the structured 'VNRecognizeDocumentsRequest' first
-            let cls_name = std::ffi::CStr::from_bytes_with_nul(b"VNRecognizeDocumentsRequest\0").unwrap();
-            let structured_cls = objc2::runtime::AnyClass::get(cls_name);
+            let cls = objc2::runtime::AnyClass::get(std::ffi::CStr::from_bytes_with_nul(b"VNRecognizeTextRequest\0").unwrap()).unwrap();
+            let request: *mut VNRecognizeTextRequest = msg_send![cls, alloc];
+            let request: *mut VNRecognizeTextRequest = msg_send![request, init];
+            let request = Retained::from_raw(request).unwrap();
             
-            if let Some(cls) = structured_cls {
-                let request: *mut VNRequest = msg_send![cls, alloc];
-                let request: *mut VNRequest = msg_send![request, init];
-                if !request.is_null() {
-                    let request = Retained::from_raw(request).unwrap();
-                    
-                    let requests = NSArray::from_slice(&[&*request]);
-                    let _: bool = msg_send![handler, performRequests: &*requests, error: 0];
-                    
-                    let results: *mut NSArray<AnyObject> = msg_send![&*request, results];
-                    if !results.is_null() {
-                        let results = &*results;
-                        let mut full_text = String::new();
-                        for i in 0..results.count() {
-                            let obs = results.objectAtIndex(i);
-                            // In 2026, DocumentObservation has a 'transcript' property
-                            let transcript: *mut NSString = msg_send![&*obs, transcript];
-                            if !transcript.is_null() {
-                                full_text.push_str(&(*transcript).to_string());
-                                full_text.push('\n');
-                            }
-                        }
-                        if !full_text.is_empty() {
-                            return Ok(full_text);
-                        }
-                    }
-                }
-            }
-
-            // Fallback to stable RecognizeTextRequest
-            let request = VNRecognizeTextRequest::init(VNRecognizeTextRequest::alloc());
-            request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
-            request.setUsesLanguageCorrection(true);
+            let _: () = msg_send![&*request, setRecognitionLevel: 1]; // 1 = Accurate
+            let _: () = msg_send![&*request, setUsesLanguageCorrection: true];
 
             let requests = NSArray::from_slice(&[&*Retained::cast_unchecked::<VNRequest>(request.clone())]);
-            let _: bool = msg_send![handler, performRequests: &*requests, error: 0];
+            
+            let mut error: *mut objc2_foundation::NSError = std::ptr::null_mut();
+            let success: bool = msg_send![handler, performRequests: &*requests, error: &mut error];
 
-            let results = request.results().ok_or_else(|| anyhow!("no results"))?;
+            if !success {
+                return Err(anyhow!("Vision request failed"));
+            }
+
+            let results: *mut NSArray<AnyObject> = msg_send![&*request, results];
+            if results.is_null() { return Err(anyhow!("no results")); }
+            let results = &*results;
+            
             let mut full_text = String::new();
 
             for i in 0..results.count() {
-                let observation = results.objectAtIndex(i);
-                let candidates = observation.topCandidates(1);
-                if candidates.count() > 0 {
-                    let text = candidates.objectAtIndex(0).string();
-                    full_text.push_str(&text.to_string());
+                let obs = results.objectAtIndex(i);
+                let candidates: *mut NSArray<AnyObject> = msg_send![&*obs, topCandidates: 1];
+                if !candidates.is_null() && (*candidates).count() > 0 {
+                    let top = (*candidates).objectAtIndex(0);
+                    let text: *mut NSString = msg_send![&*top, string];
+                    full_text.push_str(&(*text).to_string());
                     full_text.push('\n');
                 }
             }
@@ -154,8 +133,14 @@ mod macos_impl {
     }
 }
 
-#[cfg(target_os = "macos")]
 pub async fn extract_text_macos<P: AsRef<Path>>(path: P) -> Result<String> {
-    let path = path.as_ref().to_path_buf();
-    tokio::task::spawn_blocking(move || macos_impl::extract_text(&path)).await?
+    #[cfg(target_os = "macos")]
+    {
+        let path = path.as_ref().to_path_buf();
+        tokio::task::spawn_blocking(move || macos_impl::extract_text(&path)).await?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow!("macOS Vision OCR is only available on macOS"))
+    }
 }
