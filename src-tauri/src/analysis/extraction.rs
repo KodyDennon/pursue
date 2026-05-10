@@ -27,29 +27,6 @@ pub struct ExtractionConfig {
     pub force_cpu: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ForensicResult {
-    pub summary: String,
-    pub redactions: Vec<RedactionProfile>,
-    pub corrections: Vec<OcrCorrection>,
-    pub intelligence_score: f32,
-    pub thought_log: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RedactionProfile {
-    pub description: String,
-    pub suspected_content: String,
-    pub confidence: f32,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OcrCorrection {
-    pub original: String,
-    pub corrected: String,
-    pub reason: String,
-}
-
 impl IntelligenceExtractor {
     pub fn new() -> Result<Self> {
         let backend = LLAMA_BACKEND.as_ref()
@@ -59,23 +36,6 @@ impl IntelligenceExtractor {
         })
     }
 
-    pub async fn load_and_extract(&self, app: &tauri::AppHandle, record_id: &str, config: ExtractionConfig, text: &str) -> Result<Value> {
-        let model_path = if let Some(path) = &config.preferred_model_path {
-            if path.exists() {
-                path.clone()
-            } else if let Some(fallback) = &config.fallback_model_path {
-                fallback.clone()
-            } else {
-                anyhow::bail!("Preferred model missing and no fallback provided");
-            }
-        } else {
-            config
-                .fallback_model_path
-                .ok_or_else(|| anyhow!("No model path provided"))?
-        };
-
-        self.extract_metadata(app, record_id, model_path, text, None).await
-    }
 
     pub async fn extract_forensics(
         &self, 
@@ -144,7 +104,6 @@ impl IntelligenceExtractor {
                     _ => "".to_string(),
                 };
 
-            let is_forensic = images.is_some();
             let image_context = if let Some(imgs) = &images {
                 format!("Visual Context: {} asset(s) provided. RECONCILE TEXT AGAINST VISUALS. IDENTIFY REDACTIONS.", imgs.len())
             } else {

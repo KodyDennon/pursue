@@ -157,7 +157,7 @@ return () => {
 
   let hasLoaded = false;
   $effect(() => {
-    if (isProvisioned && !initializing && !hasLoaded) {
+    if (isProvisioned && !hasLoaded) {
         if ($activeView === 'dashboard') {
             hasLoaded = true;
             void loadInitialData();

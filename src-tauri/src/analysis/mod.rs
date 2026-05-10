@@ -68,8 +68,11 @@ impl AnalysisManager {
 
     async fn analyze_record_inner(&self, app: &tauri::AppHandle, record_id: &str) -> Result<AnalysisReport> {
         let record = records::find_by_id(&self.db, record_id).await?.ok_or_else(|| anyhow!("record not found: {record_id}"))?;
-        let relative_path = record.local_path.as_deref().ok_or_else(|| anyhow!("record has no local artifact"))?;
+        let relative_path = record.local_path.as_deref().ok_or_else(|| anyhow!("record has no local artifact. please download it first."))?;
         let full_path = self.library.get_full_path(relative_path);
+        if !full_path.exists() {
+            return Err(anyhow!("local artifact file is missing from vault: {}", full_path.display()));
+        }
         let extension = full_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
         // 1. Model Provisioning
@@ -335,16 +338,18 @@ impl AnalysisManager {
         sqlx::query("DELETE FROM record_forensics WHERE record_id = ?").bind(record_id).execute(&self.db).await?;
         for discovery in discoveries {
             let id = Uuid::new_v4().to_string();
+            let bbox_json = discovery.metadata.get("bbox").map(|b| b.to_string());
             let mjson = serde_json::to_string(&discovery.metadata)?;
             sqlx::query(
-                "INSERT INTO record_forensics (id, record_id, layer_type, content, confidence, metadata_json, created_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO record_forensics (id, record_id, layer_type, content, confidence, bounding_box_json, metadata_json, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(&id)
             .bind(record_id)
             .bind(&discovery.layer_type)
             .bind(&discovery.content)
             .bind(discovery.confidence as f64)
+            .bind(bbox_json)
             .bind(mjson)
             .bind(now())
             .execute(&self.db)

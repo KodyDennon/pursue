@@ -3,6 +3,7 @@
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { openPath, openUrl } from "@tauri-apps/plugin-opener";
   import { AlertCircle, Brain, Loader2, FileText, ImageIcon, Settings as CaseIcon, ChevronLeft, Download, ExternalLink, HardDrive, ShieldCheck, Activity } from "lucide-svelte";
+  import ForensicAuditViewer from "./ForensicAuditViewer.svelte";
   import { addToast } from "$lib/toastStore";
   import type { AnalysisReport, CaseSummary, DownloadResult, ExportResult, RecordSummary, RecordAsset, RecordForensics, IntelligenceLog } from "$lib/types";
 
@@ -288,83 +289,8 @@
             {/if}
           </div>
         {:else if activeTab === 'forensics'}
-          <div class="forensic-view custom-scrollbar">
-            {#if forensics.length > 0 || intelLogs.length > 0}
-               <div class="forensic-grid">
-                  <div class="f-main-col">
-                    <header class="section-head">
-                      <span class="prefix">NEURAL FORENSIC RECONSTRUCTION</span>
-                    </header>
-                    
-                    {#if forensics.filter(f => f.layer_type === 'hidden_text').length > 0}
-                      <div class="f-section">
-                        <h4 class="f-subhead">Recovered Hidden Layers</h4>
-                        <div class="f-discovery-list">
-                          {#each forensics.filter(f => f.layer_type === 'hidden_text') as item}
-                            <div class="f-item hidden-layer">
-                              <div class="f-item-header">
-                                <span class="f-type">GHOST TEXT</span>
-                                <span class="f-conf">{Math.round(item.confidence * 100)}% Match</span>
-                              </div>
-                              <p class="f-content">{item.content}</p>
-                            </div>
-                          {/each}
-                        </div>
-                      </div>
-                    {/if}
-
-                    {#if intelLogs.length > 0}
-                       <div class="f-section">
-                        <h4 class="f-subhead">Gemma 4 Chain of Thought</h4>
-                        {#each intelLogs as log}
-                          <div class="thought-log-card">
-                            <div class="t-header">
-                              <Activity size={14} /> 
-                              <span>Reasoning Block ({new Date(log.created_at).toLocaleTimeString()})</span>
-                            </div>
-                            <div class="t-body">
-                              {log.thought_block || "No thought block recorded for this interaction."}
-                            </div>
-                          </div>
-                        {/each}
-                      </div>
-                    {/if}
-                  </div>
-
-                  <aside class="f-side-col">
-                     <div class="f-stat-card">
-                        <span class="f-label">MODALITY AUDIT</span>
-                        <div class="audit-status">
-                          <ShieldCheck size={20} class="accent-icon" />
-                          <span>Gemma 4 Verified</span>
-                        </div>
-                     </div>
-
-                     {#if intelligence?.redaction_profiles?.length}
-                        <div class="f-section">
-                          <span class="f-label">REDACTION PROFILES</span>
-                          <div class="r-profile-list">
-                            {#each intelligence.redaction_profiles as profile}
-                              <div class="r-profile">
-                                <span class="r-suspect">{profile.suspected_content}</span>
-                                <p class="r-desc">{profile.description}</p>
-                                <div class="r-bar">
-                                  <div class="r-fill" style="width: {profile.confidence * 100}%"></div>
-                                </div>
-                              </div>
-                            {/each}
-                          </div>
-                        </div>
-                     {/if}
-                  </div>
-               </div>
-            {:else}
-              <div class="pending-intel">
-                <ShieldCheck size={48} class="accent-icon" />
-                <h3>No Forensic Audit Data</h3>
-                <p>Run Deep Intelligence analysis to reconstruct hidden layers and audit redactions.</p>
-              </div>
-            {/if}
+          <div class="forensic-view-container">
+            <ForensicAuditViewer recordId={record.id} {forensics} {images} />
           </div>
         {:else if activeTab === 'raw'}
            <div class="raw-view custom-scrollbar">
@@ -518,40 +444,7 @@
 
   .fidelity-card { text-align: center; margin-bottom: 40px; }
   .fidelity-dial { position: relative; width: 100px; height: 100px; margin: 20px auto; }
-  .f-percent { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: var(--accent-primary); }
-
-  .multimodal-reference { display: flex; flex-direction: column; gap: 12px; }
-  .m-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .m-thumb { aspect-ratio: 1; background: #000; border: 1px solid var(--border-subtle); border-radius: 4px; overflow: hidden; }
-  .m-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.8; }
-  .m-caption { font-size: 11px; color: var(--text-tertiary); font-style: italic; line-height: 1.4; }
-
-  /* Forensic View Styles */
-  .forensic-view { padding: 32px; height: 100%; }
-  .forensic-grid { display: grid; grid-template-columns: 1fr 280px; gap: 40px; }
-  .f-main-col { display: flex; flex-direction: column; gap: 32px; }
-  .f-subhead { font-size: 12px; font-weight: 800; color: var(--text-secondary); margin-bottom: 16px; border-left: 2px solid var(--accent-primary); padding-left: 12px; }
-  
-  .f-item { background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
-  .f-item.hidden-layer { border-left: 4px solid var(--accent-primary); background: linear-gradient(90deg, rgba(255, 179, 0, 0.05) 0%, rgba(0,0,0,0) 100%); }
-  .f-item-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
-  .f-type { font-size: 9px; font-weight: 900; color: var(--accent-primary); letter-spacing: 0.1em; }
-  .f-conf { font-size: 9px; color: var(--text-tertiary); }
-  .f-content { font-size: 13px; color: var(--text-primary); line-height: 1.5; font-family: var(--font-mono); }
-
-  .thought-log-card { background: #000; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
-  .t-header { background: rgba(255,255,255,0.03); padding: 8px 16px; display: flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 800; color: var(--text-tertiary); border-bottom: 1px solid var(--border-subtle); }
-  .t-body { padding: 16px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: var(--accent-primary); opacity: 0.8; white-space: pre-wrap; }
-
-  .f-stat-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); padding: 20px; border-radius: 8px; margin-bottom: 24px; }
-  .audit-status { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 14px; font-weight: 700; color: var(--text-primary); }
-
-  .r-profile-list { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
-  .r-profile { padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-  .r-suspect { font-size: 12px; font-weight: 800; color: var(--accent-primary); display: block; margin-bottom: 4px; }
-  .r-desc { font-size: 11px; color: var(--text-tertiary); line-height: 1.4; margin: 0 0 8px 0; }
-  .r-bar { height: 2px; background: rgba(255,255,255,0.05); border-radius: 1px; }
-  .r-fill { height: 100%; background: var(--accent-primary); }
+  .forensic-view-container { height: 100%; overflow: hidden; }
 
   .raw-view { padding: 32px; height: 100%; }
   .text-blob { font-family: var(--font-mono); font-size: 12px; line-height: 1.8; color: var(--text-secondary); white-space: pre-wrap; }

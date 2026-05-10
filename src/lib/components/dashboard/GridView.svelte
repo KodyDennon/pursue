@@ -31,6 +31,11 @@
         onclick={() => onSelect(record)}
       >
         <div class="card-glow"></div>
+        <div class="corner-bracket tl"></div>
+        <div class="corner-bracket tr"></div>
+        <div class="corner-bracket bl"></div>
+        <div class="corner-bracket br"></div>
+        <div class="scanning-line"></div>
         
         {#if record.thumbnail_path}
           <div class="card-preview">
@@ -132,6 +137,35 @@
   }
 
   .evidence-card:hover .card-glow { opacity: 1; }
+
+  .corner-bracket { position: absolute; width: 10px; height: 10px; border: 1px solid rgba(231, 196, 107, 0.3); pointer-events: none; opacity: 0; transition: opacity 0.3s; }
+  .corner-bracket.tl { top: 12px; left: 12px; border-right: none; border-bottom: none; }
+  .corner-bracket.tr { top: 12px; right: 12px; border-left: none; border-bottom: none; }
+  .corner-bracket.bl { bottom: 12px; left: 12px; border-right: none; border-top: none; }
+  .corner-bracket.br { bottom: 12px; right: 12px; border-left: none; border-top: none; }
+  .evidence-card:hover .corner-bracket { opacity: 1; }
+
+  .scanning-line {
+    position: absolute;
+    top: -10%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+    box-shadow: 0 0 15px var(--accent-primary);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .evidence-card:hover .scanning-line {
+    animation: scan 2.5s linear infinite;
+    opacity: 0.4;
+  }
+
+  @keyframes scan {
+    0% { top: -10%; }
+    100% { top: 110%; }
+  }
 
   .card-preview {
     width: 100%;

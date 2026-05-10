@@ -31,16 +31,14 @@ pub async fn list(
             r.removed_from_source_at,
             a.sha256 AS artifact_sha256,
             COALESCE(a.byte_size, 0) AS artifact_size,
-            COALESCE(ar.status, r.analysis_status) AS analysis_status,
+            r.analysis_status,
             r.intelligence_json,
             r.redaction_score,
             r.analysis_error,
-            COUNT(re.entity_id) AS entity_count,
+            (SELECT COUNT(*) FROM record_entities WHERE record_id = r.id) AS entity_count,
             COALESCE(r.thumbnail_path, (SELECT local_path FROM record_assets WHERE record_id = r.id AND asset_type = 'image' LIMIT 1)) AS thumbnail_path
         FROM records r
         LEFT JOIN artifacts a ON a.record_id = r.id
-        LEFT JOIN analysis_results ar ON ar.record_id = r.id
-        LEFT JOIN record_entities re ON re.record_id = r.id
         WHERE (?1 IS NULL OR r.source_type = ?1)
           AND (?2 IS NULL OR r.agency = ?2)
           AND (?3 = 0 OR r.local_path IS NOT NULL)
@@ -51,7 +49,6 @@ pub async fn list(
             lower(COALESCE(r.agency, '')) LIKE '%' || lower(?4) || '%' OR
             lower(COALESCE(r.incident_location, '')) LIKE '%' || lower(?4) || '%'
           )
-        GROUP BY r.id
         ORDER BY COALESCE(r.release_date, r.created_at) DESC, r.title ASC
         "#,
     )
