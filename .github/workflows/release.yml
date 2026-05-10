@@ -13,7 +13,8 @@ permissions:
 
 env:
   BUN_VERSION: "1.3.9"
-  NODE_VERSION: "22"
+  NODE_VERSION: "24"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   verify:
@@ -100,7 +101,7 @@ jobs:
       - name: install node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       - name: generate manifest
         run: |
           node scripts/generate-updater-manifest.js
