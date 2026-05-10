@@ -61,6 +61,11 @@ impl ModelManager {
         model_name: &str,
         url: &str,
     ) -> Result<PathBuf> {
+        // If the URL is a repo ID (no resolve/gguf/onnx), provision as repo
+        if !url.contains("/resolve/") && !url.ends_with(".gguf") && !url.ends_with(".onnx") {
+             return self.provision_repository(app, model_id, url).await;
+        }
+
         let target_path = self.models_dir.join(model_name);
         
         // Wait for lock on this specific model
@@ -76,20 +81,7 @@ impl ModelManager {
         }
 
         // Fetch HF token if available
-        let mut hf_token = None;
-        if let Some(pool) = &self.db {
-            if let Ok(Some(row)) = sqlx::query("SELECT value_json FROM app_settings WHERE key = 'huggingface_token'")
-                .fetch_optional(pool)
-                .await 
-            {
-                let val: String = row.get("value_json");
-                if let Ok(token) = serde_json::from_str::<String>(&val) {
-                    if !token.trim().is_empty() {
-                        hf_token = Some(token);
-                    }
-                }
-            }
-        }
+        let hf_token = self.get_hf_token().await;
 
         let result = self.ensure_model_inner(app, model_id, model_name, url, &target_path, hf_token).await;
         
@@ -98,6 +90,82 @@ impl ModelManager {
         locks.remove(model_name);
         
         result
+    }
+
+    /// Downloads all required files for a Safetensors model repository
+    pub async fn provision_repository(
+        &self,
+        app: &AppHandle,
+        model_id: &str,
+        repo_id: &str,
+    ) -> Result<PathBuf> {
+        let repo_dir = self.models_dir.join(model_id);
+        fs::create_dir_all(&repo_dir).await?;
+
+        // 1. Fetch file list from HF API
+        let hf_token = self.get_hf_token().await;
+        let mut request = self.client.get(format!("https://huggingface.co/api/models/{}/tree/main", repo_id));
+        if let Some(token) = &hf_token {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        }
+
+        let response = request.send().await?.error_for_status()?;
+        let files: Vec<serde_json::Value> = response.json().await?;
+
+        // 2. Identify required files
+        let required_patterns = [".json", ".safetensors", ".txt", ".model"];
+        let mut files_to_download = Vec::new();
+        for file in files {
+            if let Some(path) = file["path"].as_str() {
+                if required_patterns.iter().any(|p| path.ends_with(p)) {
+                    files_to_download.push(path.to_string());
+                }
+            }
+        }
+
+        if files_to_download.is_empty() {
+            return Err(anyhow!("No model files found in repository {}", repo_id));
+        }
+
+        // 3. Download each file
+        for (i, file_path) in files_to_download.iter().enumerate() {
+            let download_url = format!("https://huggingface.co/{}/resolve/main/{}", repo_id, file_path);
+            let target_file_path = repo_dir.join(file_path);
+            
+            if let Some(parent) = target_file_path.parent() {
+                fs::create_dir_all(parent).await?;
+            }
+
+            info!("Syncing repo file [{}/{}]: {}", i + 1, files_to_download.len(), file_path);
+            
+            let _ = app.emit("model-progress", serde_json::json!({
+                "model_id": model_id,
+                "status": format!("Syncing {} ({} of {})", file_path, i+1, files_to_download.len()),
+                "bytes_downloaded": 0,
+                "total_bytes": files_to_download.len() as u64
+            }));
+
+            self.ensure_model_inner(app, model_id, file_path, &download_url, &target_file_path, hf_token.clone()).await?;
+        }
+
+        Ok(repo_dir)
+    }
+
+    async fn get_hf_token(&self) -> Option<String> {
+        if let Some(pool) = &self.db {
+            if let Ok(Some(row)) = sqlx::query("SELECT value_json FROM app_settings WHERE key = 'huggingface_token'")
+                .fetch_optional(pool)
+                .await 
+            {
+                let val: String = row.get("value_json");
+                if let Ok(token) = serde_json::from_str::<String>(&val) {
+                    if !token.trim().is_empty() {
+                        return Some(token);
+                    }
+                }
+            }
+        }
+        None
     }
 
     async fn ensure_model_inner(
@@ -114,23 +182,19 @@ impl ModelManager {
             
             if let Ok(file_metadata) = fs::metadata(&target_path).await {
                 let size = file_metadata.len();
-                // Validate existing file
                 if let Ok(mut file) = tokio::fs::File::open(&target_path).await {
                     use tokio::io::AsyncReadExt;
                     let mut magic = [0u8; 4];
                     if file.read_exact(&mut magic).await.is_ok() {
                         let mut is_corrupted = false;
-                        
                         if is_gguf {
                             if &magic != b"GGUF" {
                                 warn!("Model file {} is corrupted (invalid GGUF magic).", model_name);
                                 is_corrupted = true;
                             } else if size < 100 * 1024 * 1024 {
-                                warn!("Model file {} is too small ({:.2} MB) for a GGUF model.", model_name, size as f64 / 1024.0 / 1024.0);
                                 is_corrupted = true;
                             }
                         } else if &magic == b"<!DO" || &magic == b"<htm" {
-                            warn!("Model file {} appears to be an HTML error page.", model_name);
                             is_corrupted = true;
                         }
 
@@ -140,14 +204,10 @@ impl ModelManager {
                     }
                 }
             }
-            warn!("Purging {} for re-download.", model_name);
             let _ = fs::remove_file(&target_path).await;
         }
 
         fs::create_dir_all(&self.models_dir).await?;
-        info!("Initiating download for model: {} from {}", model_name, url);
-
-        // Atomic & Resumable download: stream to .part file first
         let part_path = target_path.with_extension("part");
         let mut downloaded = 0u64;
         
@@ -161,93 +221,45 @@ impl ModelManager {
         if downloaded > 0 {
             request = request.header("Range", format!("bytes={}-", downloaded));
         }
-
         if let Some(token) = hf_token {
             request = request.header("Authorization", format!("Bearer {}", token));
         }
 
-        let response = request.send().await?
-            .error_for_status()?; // CRITICAL: Catch 404, 401, 403, 500 errors
+        let response = request.send().await?.error_for_status()?;
         
-        // Final validation: Ensure we aren't downloading an HTML login page or error
         if let Some(content_type) = response.headers().get("content-type") {
-            let ct = content_type.to_str().unwrap_or_default();
-            if ct.contains("text/html") {
-                return Err(anyhow!("HuggingFace returned an HTML page instead of the model file. This repo may be restricted or requires a token. URL: {}", url));
+            if content_type.to_str().unwrap_or_default().contains("text/html") {
+                return Err(anyhow!("HuggingFace returned an HTML page instead of the model file. URL: {}", url));
             }
         }
 
-        // Handle response status (200 OK or 206 Partial Content)
         let (mut file, total_bytes) = if response.status() == rquest::StatusCode::PARTIAL_CONTENT {
-            let file = fs::OpenOptions::new()
-                .append(true)
-                .open(&part_path)
-                .await?;
+            let file = fs::OpenOptions::new().append(true).open(&part_path).await?;
             let content_len = response.content_length().unwrap_or(0);
             (file, Some(content_len + downloaded))
         } else {
-            downloaded = 0; // Reset if server doesn't support range
+            downloaded = 0;
             let file = fs::File::create(&part_path).await?;
             (file, response.content_length())
         };
 
-        if let Some(total) = total_bytes {
-            if total < 1024 * 1024 {
-                 return Err(anyhow!("Reported total size ({:.2} MB) is too small for model {}. Download aborted.", total as f64 / 1024.0 / 1024.0, model_name));
-            }
-        }
-
         let mut stream = response.bytes_stream();
-
-        let _ = app.emit(
-            "model-progress",
-            ModelProgress {
-                model_id: model_id.to_string(),
-                bytes_downloaded: downloaded,
-                total_bytes,
-                status: "starting".to_string(),
-            },
-        );
-
         while let Some(item) = stream.next().await {
             let chunk = item?;
             downloaded += chunk.len() as u64;
             file.write_all(&chunk).await?;
 
-            let _ = app.emit(
-                "model-progress",
-                ModelProgress {
-                    model_id: model_id.to_string(),
-                    bytes_downloaded: downloaded,
-                    total_bytes,
-                    status: "downloading".to_string(),
-                },
-            );
+            let _ = app.emit("model-progress", ModelProgress {
+                model_id: model_id.to_string(),
+                bytes_downloaded: downloaded,
+                total_bytes,
+                status: "downloading".to_string(),
+            });
         }
 
         file.flush().await?;
         drop(file);
-
-        // Verify final size before finalizing
-        let final_metadata = fs::metadata(&part_path).await?;
-        if final_metadata.len() < 100 * 1024 * 1024 && model_name.ends_with(".gguf") {
-             let _ = fs::remove_file(&part_path).await;
-             return Err(anyhow!("Download completed but file is too small (integrity failure). URL likely returned truncated content."));
-        }
-
-        // Finalize atomic download
         fs::rename(&part_path, &target_path).await?;
-
-        let _ = app.emit(
-            "model-progress",
-            ModelProgress {
-                model_id: model_id.to_string(),
-                bytes_downloaded: downloaded,
-                total_bytes,
-                status: "completed".to_string(),
-            },
-        );
-
         Ok(target_path.clone())
     }
 }

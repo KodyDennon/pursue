@@ -1,5 +1,6 @@
 pub mod diagnostics;
 pub mod extraction;
+pub mod gemma4;
 pub mod model_manager;
 #[cfg(target_os = "macos")]
 pub mod native_macos;

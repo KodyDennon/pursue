@@ -1,16 +1,11 @@
 [package]
 name = "pursue-data-analyzer"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local-first PURSUE/WAR.gov OSINT evidence analyzer"
 authors = ["PURSUE Data Analyzer contributors"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "pursue_data_analyzer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -29,7 +24,6 @@ rquest-util = "2"
 tokio = { version = "1", features = ["full"] }
 sysinfo = "0.39"
 lazy_static = "1"
-# sqlite-vec is the modern vector search extension
 sqlite-vec = "0.1"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -61,8 +55,11 @@ tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
+candle-core = "0.8.2"
+candle-nn = "0.8.2"
+candle-transformers = "0.8.2"
 tokenizers = "0.23"
-ort = { version = "2.0.0-rc.12", features = ["copy-dylibs", "onnxruntime"] }
+ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
@@ -71,3 +68,4 @@ objc2-vision = { version = "0.3", features = ["VNRequestHandler", "VNRecognizeTe
 objc2-pdf-kit = { version = "0.3", features = ["PDFDocument", "PDFPage"] }
 objc2-core-graphics = { version = "0.3", features = ["CGImage", "CGGeometry"] }
 objc2-app-kit = { version = "0.3", features = ["NSImage"] }
+accelerate-src = "0.3"
