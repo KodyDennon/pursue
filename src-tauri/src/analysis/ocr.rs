@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
 use std::path::Path;
-use ocrs::{OcrEngine as NativeOcr, OcrEngineParams};
-use rten::Model;
+use ocrs::OcrEngine as NativeOcr;
 use std::sync::OnceLock;
 
 static OCR_INSTANCE: OnceLock<NativeOcr> = OnceLock::new();

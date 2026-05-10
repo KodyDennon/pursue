@@ -1,7 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use lopdf::Document;
 use std::path::Path;
-use tokio::process::Command;
 
 pub struct ForensicDiscovery {
     pub layer_type: String,
@@ -207,13 +206,4 @@ impl PdfAnalyzer {
 
         Ok(extracted)
     }
-}
-
-async fn command_available(command: &str) -> bool {
-    Command::new(command)
-        .arg("-v")
-        .output()
-        .await
-        .map(|output| output.status.success() || !output.stderr.is_empty())
-        .unwrap_or(false)
 }
