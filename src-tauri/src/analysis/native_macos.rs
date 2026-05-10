@@ -31,10 +31,9 @@ mod macos_impl {
 
     fn extract_image_text(url: &Retained<NSURL>) -> Result<String> {
         let request = unsafe { VNRecognizeTextRequest::init(VNRecognizeTextRequest::alloc()) };
-        unsafe {
-            request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
-            request.setUsesLanguageCorrection(true);
-        }
+        
+        request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
+        request.setUsesLanguageCorrection(true);
 
         let handler = unsafe {
             VNImageRequestHandler::initWithURL_options(
@@ -96,9 +95,8 @@ mod macos_impl {
             let cg_image = unsafe { &*cg_image_ptr };
 
             let request = unsafe { VNRecognizeTextRequest::init(VNRecognizeTextRequest::alloc()) };
-            unsafe {
-                request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
-            }
+            
+            request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
             
             let handler = unsafe {
                 VNImageRequestHandler::initWithCGImage_options(

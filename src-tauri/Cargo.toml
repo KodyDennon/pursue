@@ -1,6 +1,6 @@
 [package]
 name = "pursue-data-analyzer"
-version = "0.3.0"
+version = "0.3.1"
 description = "Local-first PURSUE/WAR.gov OSINT evidence analyzer"
 authors = ["PURSUE Data Analyzer contributors"]
 edition = "2021"
