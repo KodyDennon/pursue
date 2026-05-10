@@ -69,9 +69,12 @@ mod macos_impl {
         let box_rect: [f64; 4] = unsafe { msg_send![&*page, boundsForBox: 0] }; // 0 = kPDFDisplayBoxMediaBox
         let size = [box_rect[2] * 4.0, box_rect[3] * 4.0];
         
+        // PDFPage thumbnailOfSize:forBox: returns an autoreleased NSImage (+0)
         let ns_image: *mut NSImage = unsafe { msg_send![&*page, thumbnailOfSize: size, forBox: 0] };
         if ns_image.is_null() { return Err(anyhow!("Failed to render page")); }
-        let ns_image = unsafe { Retained::from_raw(ns_image) }.unwrap();
+        
+        // Take ownership of the autoreleased object
+        let ns_image = unsafe { Retained::retain_autoreleased(ns_image) }.ok_or_else(|| anyhow!("Failed to retain image"))?;
 
         // 2. Convert to CGImage
         let cg_image_ptr: *mut CGImage = unsafe { msg_send![&*ns_image, CGImageForProposedRect: 0, context: 0, hints: 0] };
@@ -99,26 +102,28 @@ mod macos_impl {
             if let Some(cls) = structured_cls {
                 let request: *mut VNRequest = msg_send![cls, alloc];
                 let request: *mut VNRequest = msg_send![request, init];
-                let request = Retained::from_raw(request).unwrap();
-                
-                let requests = NSArray::from_slice(&[&*request]);
-                let _: bool = msg_send![handler, performRequests: &*requests, error: 0];
-                
-                let results: *mut NSArray<AnyObject> = msg_send![&*request, results];
-                if !results.is_null() {
-                    let results = &*results;
-                    let mut full_text = String::new();
-                    for i in 0..results.count() {
-                        let obs = results.objectAtIndex(i);
-                        // In 2026, DocumentObservation has a 'transcript' property
-                        let transcript: *mut NSString = msg_send![&*obs, transcript];
-                        if !transcript.is_null() {
-                            full_text.push_str(&(*transcript).to_string());
-                            full_text.push('\n');
+                if !request.is_null() {
+                    let request = Retained::from_raw(request).unwrap();
+                    
+                    let requests = NSArray::from_slice(&[&*request]);
+                    let _: bool = msg_send![handler, performRequests: &*requests, error: 0];
+                    
+                    let results: *mut NSArray<AnyObject> = msg_send![&*request, results];
+                    if !results.is_null() {
+                        let results = &*results;
+                        let mut full_text = String::new();
+                        for i in 0..results.count() {
+                            let obs = results.objectAtIndex(i);
+                            // In 2026, DocumentObservation has a 'transcript' property
+                            let transcript: *mut NSString = msg_send![&*obs, transcript];
+                            if !transcript.is_null() {
+                                full_text.push_str(&(*transcript).to_string());
+                                full_text.push('\n');
+                            }
                         }
-                    }
-                    if !full_text.is_empty() {
-                        return Ok(full_text);
+                        if !full_text.is_empty() {
+                            return Ok(full_text);
+                        }
                     }
                 }
             }
@@ -150,7 +155,7 @@ mod macos_impl {
 }
 
 #[cfg(target_os = "macos")]
-pub async fn extract_text_macos<P: AsRef<Path>>(_path: P) -> Result<String> {
-    let path = _path.as_ref().to_path_buf();
+pub async fn extract_text_macos<P: AsRef<Path>>(path: P) -> Result<String> {
+    let path = path.as_ref().to_path_buf();
     tokio::task::spawn_blocking(move || macos_impl::extract_text(&path)).await?
 }
