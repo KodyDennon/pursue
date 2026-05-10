@@ -38,6 +38,14 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
 
     sqlx::migrate!("./migrations").run(&pool).await?;
     
+    // Cleanup stalled jobs from previous sessions
+    let _ = sqlx::query("UPDATE download_jobs SET status = 'failed', summary_json = '{\"error\": \"Application interrupted\"}' WHERE status IN ('running', 'queued')")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("UPDATE download_job_items SET status = 'failed', error = 'Application interrupted' WHERE status IN ('downloading', 'queued')")
+        .execute(&pool)
+        .await;
+
     // Automatic Maintenance: WAL Checkpointing
     // Prevents the -wal file from growing indefinitely by truncating it periodically
     let pool_clone = pool.clone();

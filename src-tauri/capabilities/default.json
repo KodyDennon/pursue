@@ -11,6 +11,6 @@
     "fs:default",
     "fs:allow-appdata-read",
     "updater:default",
-    "process:allow-relaunch"
+    "process:allow-restart"
   ]
 }

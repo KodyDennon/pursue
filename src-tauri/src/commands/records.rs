@@ -95,6 +95,16 @@ pub async fn download_record_with_bytes(
 
 #[tauri::command]
 pub async fn download_missing_records(state: State<'_, AppState>) -> Result<String, String> {
+    // Check for existing active job
+    let active_job: Option<String> = sqlx::query_scalar("SELECT id FROM download_jobs WHERE status IN ('running', 'queued') ORDER BY updated_at DESC LIMIT 1")
+        .fetch_optional(&state.db)
+        .await
+        .map_err(to_error)?;
+    
+    if let Some(id) = active_job {
+        return Ok(id);
+    }
+
     let job_id = create_download_job(&state.db).await.map_err(to_error)?;
     let db = state.db.clone();
     let library = state.library.clone();

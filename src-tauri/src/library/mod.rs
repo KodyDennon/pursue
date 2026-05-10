@@ -233,14 +233,54 @@ impl LibraryManager {
     async fn download_to_library(&self, url: &str) -> Result<IngestedArtifact> {
         let parsed_url = Url::parse(url).with_context(|| format!("failed to parse URL: {url}"))?;
         
-        let response = self
-            .client
-            .get(parsed_url)
+        // Deterministic temp path for resuming
+        let mut url_hasher = Sha256::new();
+        url_hasher.update(url.as_bytes());
+        let url_hash = hex::encode(url_hasher.finalize());
+        let part_path = self.app_data_dir.join(format!("dl-{}.part", &url_hash[..16]));
+        
+        let mut downloaded_bytes = 0_u64;
+        let mut hasher = Sha256::new();
+
+        if part_path.exists() {
+            if let Ok(metadata) = fs::metadata(&part_path).await {
+                let size = metadata.len();
+                if size > 0 {
+                    // Re-read existing content to initialize hasher
+                    let mut file = fs::File::open(&part_path).await?;
+                    let mut buffer = [0u8; 64 * 1024];
+                    loop {
+                        let n = file.read(&mut buffer).await?;
+                        if n == 0 { break; }
+                        hasher.update(&buffer[..n]);
+                    }
+                    downloaded_bytes = size;
+                }
+            }
+        }
+
+        let mut request = self.client.get(parsed_url);
+        if downloaded_bytes > 0 {
+            request = request.header(header::RANGE, format!("bytes={}-", downloaded_bytes));
+        }
+
+        let response = request
             .send()
             .await
-            .with_context(|| format!("failed to request {url}"))?
-            .error_for_status()
-            .with_context(|| format!("download failed for {url}"))?;
+            .with_context(|| format!("failed to request {url}"))?;
+
+        let (mut temp_file, byte_size) = if response.status() == rquest::StatusCode::PARTIAL_CONTENT {
+            let file = fs::OpenOptions::new()
+                .append(true)
+                .open(&part_path)
+                .await?;
+            (file, downloaded_bytes as i64)
+        } else {
+            // Server doesn't support range or file didn't exist
+            let file = fs::File::create(&part_path).await?;
+            hasher = Sha256::new(); // Reset hasher
+            (file, 0_i64)
+        };
 
         let media_type = response
             .headers()
@@ -249,31 +289,34 @@ impl LibraryManager {
             .map(str::to_string);
         let original_filename = filename_from_url(url);
 
-        let temp_path = self
-            .app_data_dir
-            .join(format!("download-{}.tmp", Uuid::new_v4()));
-        let mut temp_file = fs::File::create(&temp_path).await?;
-        let mut hasher = Sha256::new();
-        let mut byte_size = 0_i64;
+        let mut total_downloaded = byte_size;
         let mut stream = response.bytes_stream();
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            byte_size += i64::try_from(chunk.len()).unwrap_or(0);
+            total_downloaded += i64::try_from(chunk.len()).unwrap_or(0);
             hasher.update(&chunk);
             temp_file.write_all(&chunk).await?;
         }
         temp_file.flush().await?;
+        drop(temp_file);
 
-        self.commit_temp_file(
-            temp_path,
+        let artifact = self.commit_temp_file(
+            part_path.clone(),
             hasher,
-            byte_size,
+            total_downloaded,
             original_filename,
             media_type,
             Some(url.to_string()),
         )
-        .await
+        .await?;
+
+        // Clean up part file if it wasn't renamed (commit_temp_file might skip if existing)
+        if part_path.exists() {
+            let _ = fs::remove_file(&part_path).await;
+        }
+
+        Ok(artifact)
     }
 
     async fn copy_file_to_library(&self, path: &Path) -> Result<IngestedArtifact> {

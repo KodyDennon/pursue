@@ -6,7 +6,6 @@ use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
 use serde_json::{json, Value};
-use sqlx::SqlitePool;
 use std::path::PathBuf;
 use tauri::Manager;
 
