@@ -3,6 +3,13 @@ use lopdf::Document;
 use std::path::Path;
 use tokio::process::Command;
 
+pub struct ForensicDiscovery {
+    pub layer_type: String,
+    pub content: String,
+    pub confidence: f32,
+    pub metadata: serde_json::Value,
+}
+
 pub struct PdfAnalyzer;
 
 impl PdfAnalyzer {
@@ -36,6 +43,57 @@ impl PdfAnalyzer {
         Ok(lopdf_text)
     }
 
+    pub fn extract_forensics<P: AsRef<Path>>(&self, path: P) -> Result<Vec<ForensicDiscovery>> {
+        let doc = Document::load(path)?;
+        let mut discoveries = Vec::new();
+
+        // 1. Check for Hidden Text Layers (Text objects not in the primary visible stream)
+        // Forensic heuristic: look for text operations in all streams/XObjects
+        for (object_id, object) in doc.objects.iter() {
+            if let Ok(stream) = object.as_stream() {
+                if let Ok(content) = stream.decode_content() {
+                    let mut stream_text = String::new();
+                    for operation in content.operations {
+                        if operation.operator == "Tj" || operation.operator == "TJ" {
+                            for operand in operation.operands {
+                                if let Ok(s) = operand.as_str() {
+                                    stream_text.push_str(&String::from_utf8_lossy(s));
+                                }
+                            }
+                        }
+                    }
+                    
+                    if !stream_text.trim().is_empty() && stream_text.len() > 5 {
+                        discoveries.push(ForensicDiscovery {
+                            layer_type: "hidden_text".to_string(),
+                            content: stream_text.trim().to_string(),
+                            confidence: 0.8,
+                            metadata: serde_json::json!({ "object_id": format!("{}_{}", object_id.0, object_id.1) }),
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2. Metadata Deep Dive
+        if let Ok(info_ref) = doc.trailer.get(b"Info").and_then(|obj| obj.as_reference()) {
+            if let Ok(info) = doc.get_dict(info_ref) {
+                for (key, value) in info.iter() {
+                    if let Ok(s) = value.as_str() {
+                        discoveries.push(ForensicDiscovery {
+                            layer_type: "metadata_leak".to_string(),
+                            content: format!("{}: {}", String::from_utf8_lossy(key), String::from_utf8_lossy(s)),
+                            confidence: 1.0,
+                            metadata: serde_json::json!({ "key": String::from_utf8_lossy(key) }),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(discoveries)
+    }
+
     fn extract_with_lopdf<P: AsRef<Path>>(&self, path: P) -> Result<String> {
         let doc = Document::load(path)?;
         let mut text = String::new();
@@ -50,6 +108,7 @@ impl PdfAnalyzer {
 
         Ok(text)
     }
+
     pub async fn extract_images<P: AsRef<Path>>(
         &self,
         path: P,

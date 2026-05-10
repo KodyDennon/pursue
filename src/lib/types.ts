@@ -195,10 +195,33 @@ export interface CaseSummary {
   note_count: number;
 }
 
+
 export interface ExportResult {
   export_id: string;
   case_id: string;
   format: string;
   relative_path: string;
   absolute_path: string;
+}
+
+export interface RecordForensics {
+  id: string;
+  record_id: string;
+  layer_type: string;
+  content: string;
+  confidence: number;
+  bounding_box_json: string | null;
+  metadata_json: string | null;
+  created_at: string;
+}
+
+export interface IntelligenceLog {
+  id: string;
+  record_id: string | null;
+  system_prompt: string;
+  user_prompt: string;
+  thought_block: string | null;
+  response_json: string;
+  model_id: string;
+  created_at: string;
 }

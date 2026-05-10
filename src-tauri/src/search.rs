@@ -93,12 +93,13 @@ pub async fn vector_search(pool: &SqlitePool, request: SearchRequest) -> Result<
         r#"
         SELECT 
             r.id, r.title, r.agency, r.release_date, r.document_url, r.local_path, 
-            r.intelligence_json as summary, r.artifact_sha256,
+            r.intelligence_json as summary, a.sha256 as artifact_sha256,
             vec_distance_cosine(v.embedding, ?) as distance,
             c.text as excerpt
         FROM vec_analysis_chunks v
         JOIN analysis_chunks c ON c.id = v.chunk_id
         JOIN records r ON r.id = c.record_id
+        LEFT JOIN artifacts a ON a.record_id = r.id
         WHERE v.embedding MATCH ? AND k = 20
           AND (? IS NULL OR r.source_type = ?)
           AND (? = 0 OR r.local_path IS NOT NULL)
@@ -209,11 +210,12 @@ async fn keyword_search(
         r#"
         SELECT
             r.id, r.title, r.agency, r.release_date, r.document_url, r.local_path,
-            r.intelligence_json as summary, r.artifact_sha256,
+            r.intelligence_json as summary, a.sha256 as artifact_sha256,
             0.0 as distance,
             c.text as excerpt
         FROM analysis_chunks c
         JOIN records r ON r.id = c.record_id
+        LEFT JOIN artifacts a ON a.record_id = r.id
         WHERE (r.title LIKE ? OR c.text LIKE ?)
           AND (? IS NULL OR r.source_type = ?)
           AND (? = 0 OR r.local_path IS NOT NULL)

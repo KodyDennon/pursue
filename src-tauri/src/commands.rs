@@ -3,7 +3,8 @@ use futures_util::StreamExt;
 use sqlx::{Row, SqlitePool};
 use std::path::Path;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Manager, State};
+use tauri_plugin_log::log::info;
 use uuid::Uuid;
 
 use crate::analysis::diagnostics;
@@ -18,6 +19,7 @@ use crate::models::{
     AddRecordToCaseRequest, AnalysisReport, BulkDownloadItem, BulkDownloadReport,
     BulkDownloadStatus, CaseNotesRequest, CaseSummary, CreateCaseRequest, DatabaseStatus,
     DownloadResult, ExportCaseRequest, ExportResult, ManualImportRequest, RecordFilter,
+    RecordForensics, IntelligenceLog,
     RecordSummary, SearchRequest, SearchResults, SyncReport,
 };
 use crate::sources::war_gov;
@@ -283,7 +285,19 @@ pub async fn analyze_record(
         "record_id": id
     }));
 
-    let result = manager.analyze_record(&app_handle, &id).await.map_err(to_error)?;
+    let result = match manager.analyze_record(&app_handle, &id).await {
+        Ok(res) => res,
+        Err(e) => {
+            let _ = app_handle.emit("analysis-progress", serde_json::json!({
+                "current": 0,
+                "total": 1,
+                "status": "failed",
+                "record_id": id,
+                "error": e.to_string()
+            }));
+            return Err(e.to_string());
+        }
+    };
     
     let _ = app_handle.emit("analysis-progress", serde_json::json!({
         "current": 1,
@@ -328,7 +342,16 @@ pub async fn analyze_all_records(state: State<'_, AppState>, app_handle: tauri::
                 let completed = completed.clone();
                 
                 async move {
-                    let _ = manager.analyze_record(&handle, &id).await;
+                    match manager.analyze_record(&handle, &id).await {
+                        Ok(_) => {},
+                        Err(e) => {
+                             let _ = handle.emit("analysis-progress", serde_json::json!({
+                                "status": "record-failed",
+                                "record_id": id,
+                                "error": e.to_string()
+                            }));
+                        }
+                    }
                     let mut c = completed.lock().await;
                     *c += 1;
                     let _ = handle.emit("analysis-progress", serde_json::json!({
@@ -371,6 +394,30 @@ pub async fn get_analysis_result(
 ) -> Result<Option<AnalysisReport>, String> {
     let manager = AnalysisManager::new(state.db.clone(), state.library.clone());
     manager.get_analysis(&id).await.map_err(to_error)
+}
+
+#[tauri::command]
+pub async fn get_forensic_report(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<RecordForensics>, String> {
+    sqlx::query_as::<_, RecordForensics>("SELECT * FROM record_forensics WHERE record_id = ? ORDER BY confidence DESC")
+        .bind(&id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(to_error)
+}
+
+#[tauri::command]
+pub async fn get_intelligence_logs(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<IntelligenceLog>, String> {
+    sqlx::query_as::<_, IntelligenceLog>("SELECT * FROM intelligence_logs WHERE record_id = ? ORDER BY created_at DESC")
+        .bind(&id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(to_error)
 }
 
 #[tauri::command]
@@ -471,6 +518,15 @@ async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Result<Da
     .fetch_optional(db)
     .await?;
 
+    let total_records = count_scalar(db, "SELECT COUNT(*) FROM records").await?;
+    let official_records = count_scalar(db, "SELECT COUNT(*) FROM records WHERE source_type = 'official'").await?;
+    let manual_records = count_scalar(db, "SELECT COUNT(*) FROM records WHERE source_type = 'manual'").await?;
+    let local_records = count_scalar(db, "SELECT COUNT(*) FROM records WHERE local_path IS NOT NULL").await?;
+    let artifact_bytes = count_scalar(db, "SELECT COALESCE(SUM(byte_size), 0) FROM artifacts").await?;
+    let analyzed_records = count_scalar(db, "SELECT COUNT(*) FROM records WHERE analysis_status = 'completed'").await?;
+    let failed_analysis_records = count_scalar(db, "SELECT COUNT(*) FROM records WHERE analysis_status = 'failed'").await?;
+    let unanalyzed_count = count_scalar(db, "SELECT COUNT(*) FROM records WHERE analysis_status IS NULL OR analysis_status != 'completed'").await?;
+
     Ok(DatabaseStatus {
         app_data_dir: library.app_data_dir().to_string_lossy().into_owned(),
         database_path: library
@@ -481,37 +537,19 @@ async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Result<Da
         library_path: library.library_dir().to_string_lossy().into_owned(),
         snapshots_path: library.snapshots_dir().to_string_lossy().into_owned(),
         exports_path: library.exports_dir().to_string_lossy().into_owned(),
-        total_records: count_scalar(db, "SELECT COUNT(*) FROM records").await?,
-        official_records: count_scalar(
-            db,
-            "SELECT COUNT(*) FROM records WHERE source_type = 'official'",
-        )
-        .await?,
-        manual_records: count_scalar(
-            db,
-            "SELECT COUNT(*) FROM records WHERE source_type = 'manual'",
-        )
-        .await?,
+        total_records,
+        official_records,
+        manual_records,
         downloadable_records: count_scalar(
             db,
             "SELECT COUNT(*) FROM records WHERE source_type = 'official' AND document_url IS NOT NULL AND document_url != ''",
         )
         .await?,
-        local_records: count_scalar(db, "SELECT COUNT(*) FROM records WHERE local_path IS NOT NULL")
-            .await?,
+        local_records,
         artifact_count: count_scalar(db, "SELECT COUNT(*) FROM artifacts").await?,
-        artifact_bytes: count_scalar(db, "SELECT COALESCE(SUM(byte_size), 0) FROM artifacts")
-            .await?,
-        analyzed_records: count_scalar(
-            db,
-            "SELECT COUNT(*) FROM records WHERE analysis_status = 'completed'",
-        )
-        .await?,
-        failed_analysis_records: count_scalar(
-            db,
-            "SELECT COUNT(*) FROM records WHERE analysis_status = 'failed'",
-        )
-        .await?,
+        artifact_bytes,
+        analyzed_records,
+        failed_analysis_records,
         analysis_chunks: count_scalar(db, "SELECT COUNT(*) FROM analysis_chunks").await?,
         vector_chunks: count_scalar(db, "SELECT COUNT(*) FROM vec_analysis_chunks").await?,
         entity_count: count_scalar(db, "SELECT COUNT(*) FROM entities").await?,
@@ -531,6 +569,9 @@ async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Result<Da
             "SELECT COUNT(*) FROM download_jobs WHERE status IN ('queued', 'running')",
         )
         .await?,
+        total_count: total_records,
+        total_size: artifact_bytes,
+        unanalyzed_count,
     })
 }
 
@@ -762,12 +803,12 @@ pub async fn get_evidence_stats(state: State<'_, AppState>) -> Result<serde_json
 pub async fn check_model_status(state: State<'_, AppState>) -> Result<std::collections::HashMap<String, bool>, String> {
     let manager = ModelManager::new(&state.library);
     let mut status = std::collections::HashMap::new();
-    
+
     let model_files = vec![
         ("bge-small", "bge-small-en-v1.5.onnx"),
         ("tokenizer", "tokenizer.json"),
-        ("gemma-2b", "gemma-4-2b-it.gguf"),
-        ("gemma-4b", "gemma-4-4b-it.gguf"),
+        ("gemma-4-e2b", "gemma-4-e2b-it.gguf"),
+        ("gemma-4-e4b", "gemma-4-e4b-it.gguf"),
     ];
 
     for (id, filename) in model_files {
@@ -777,7 +818,6 @@ pub async fn check_model_status(state: State<'_, AppState>) -> Result<std::colle
 
     Ok(status)
 }
-
 #[tauri::command]
 pub async fn provision_model(
     id: String,
@@ -975,6 +1015,30 @@ pub async fn cleanup_duplicates(state: State<'_, AppState>) -> Result<usize, Str
     }
     
     Ok(removed)
+}
+
+#[tauri::command]
+#[allow(unreachable_code)]
+pub async fn factory_reset(state: State<'_, AppState>, handle: tauri::AppHandle) -> Result<(), String> {
+    info!("INITIATING FULL SYSTEM PURGE (Factory Reset)");
+    
+    // 1. Close database pool explicitly to avoid file locks
+    state.db.close().await;
+    
+    // 2. Identify the app data directory
+    let app_dir = handle.path().app_data_dir().map_err(to_error)?;
+    
+    // 3. Delete the entire directory recursively
+    if app_dir.exists() {
+        std::fs::remove_dir_all(&app_dir).map_err(to_error)?;
+    }
+    
+    info!("System purge complete. Triggering restart...");
+    
+    // 4. Restart the app to force a clean initialization
+    handle.restart();
+    
+    Ok(())
 }
 
 fn to_error(error: impl std::fmt::Display) -> String {

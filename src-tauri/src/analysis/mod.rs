@@ -10,10 +10,10 @@ pub mod thumbnails;
 use anyhow::{anyhow, Result};
 use regex::Regex;
 use sqlx::{Row, SqlitePool};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
-use tauri_plugin_log::log::{error, info, warn};
+use tauri_plugin_log::log::{info, warn};
 use tokio::fs;
 use uuid::Uuid;
 
@@ -76,20 +76,40 @@ impl AnalysisManager {
         let specs = get_hardware_specs();
         self.models.ensure_model(app, "bge-small", "bge-small-en-v1.5.onnx", "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx").await?;
         self.models.ensure_model(app, "tokenizer", "tokenizer.json", "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json").await?;
+        // Gemma selection based on tier
         let (model_id, preferred_model, preferred_url) = match specs.recommended_tier {
-            IntelligenceTier::Elite => ("gemma-4b", "gemma-4-4b-it.gguf", "https://huggingface.co/google/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it.Q4_K_M.gguf"),
-            _ => ("gemma-2b", "gemma-4-2b-it.gguf", "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf"),
+            IntelligenceTier::Elite => (
+                "gemma-4-e4b", 
+                "gemma-4-e4b-it.gguf", 
+                "https://huggingface.co/google/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-e4b-it.Q4_K_M.gguf"
+            ),
+            _ => (
+                "gemma-4-e2b", 
+                "gemma-4-e2b-it.gguf", 
+                "https://huggingface.co/google/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-e2b-it.Q4_K_M.gguf"
+            ),
         };
         self.models.ensure_model(app, model_id, preferred_model, preferred_url).await?;
-
         // 2. OCR (PHASE 1)
         info!("Executing OCR extraction for {}", record.title);
         let (text, engine) = self.extract_text(&full_path).await?;
         info!("OCR Engine: {} produced {} chars", engine, text.len());
-        
-        sqlx::query(r#"INSERT INTO analysis_results (record_id, ocr_text, status, processed_at) VALUES (?, ?, 'processing', ?)
-            ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'processing', processed_at = excluded.processed_at"#)
-        .bind(record_id).bind(&text).bind(now()).execute(&self.db).await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO analysis_results (record_id, ocr_text, status, processed_at)
+            VALUES (?, ?, 'processing', ?)
+            ON CONFLICT(record_id) DO UPDATE SET
+                ocr_text = excluded.ocr_text,
+                status = 'processing',
+                processed_at = excluded.processed_at
+            "#
+        )
+        .bind(record_id)
+        .bind(&text)
+        .bind(now())
+        .execute(&self.db)
+        .await?;
 
         // 3. Asset & Thumbnail Extraction (PHASE 2)
         let mut assets = Vec::new();
@@ -118,21 +138,45 @@ impl AnalysisManager {
         }
 
         // 4. Neural Extraction (PHASE 3)
-        info!("Initiating Neural Intelligence Synthesis...");
-        let asset_context = if !assets.is_empty() {
-            format!("\nNote: {} image(s) segmented from document.", assets.len())
+        info!("Initiating Forensic Intelligence Synthesis...");
+        
+        // Gather images for multimodal analysis
+        let mut image_paths = Vec::new();
+        for asset in &assets {
+            if asset.asset_type == "image" {
+                image_paths.push(self.library.get_full_path(&asset.local_path));
+            }
+        }
+
+        // Perform Forensic Layer Extraction
+        let forensics = if extension == "pdf" {
+            self.pdf.extract_forensics(&full_path).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        self.persist_forensics(record_id, &forensics).await?;
+
+        let forensic_context = if !forensics.is_empty() {
+            format!("\n[FORENSIC LAYERS]: Found {} potential hidden layers or metadata leaks.", forensics.len())
         } else {
             "".to_string()
         };
 
-        let extraction_input = format!("{}{}", text, asset_context);
-        let intelligence_json = match self.extractor.load_and_extract(
-            ExtractionConfig { preferred_model_path: Some(self.models.models_dir().join(preferred_model)), fallback_model_path: Some(self.models.models_dir().join("gemma-4-2b-it.gguf")), force_cpu: !specs.gpu_acceleration_available },
+        let extraction_input = format!("{}{}{}", text, if assets.is_empty() { "" } else { "\n[IMAGE ASSETS]: Visual data available." }, forensic_context);
+        
+        let intelligence_json = self.extractor.extract_forensics(
+            app,
+            record_id,
+            ExtractionConfig { 
+                preferred_model_path: Some(self.models.models_dir().join(preferred_model)), 
+                fallback_model_path: Some(self.models.models_dir().join("gemma-4-e2b-it.gguf")), 
+                force_cpu: !specs.gpu_acceleration_available 
+            },
             &extraction_input,
-        ).await {
-            Ok(json) => Some(serde_json::to_string(&json)?),
-            Err(e) => { warn!("Neural synthesis failed: {}", e); None }
-        };
+            image_paths
+        ).await?;
+
+        let intelligence_json_str = serde_json::to_string(&intelligence_json)?;
 
         // 5. Post-Processing
         let redaction_score = self.ocr.analyze_redactions(&full_path).unwrap_or(0.0);
@@ -141,24 +185,56 @@ impl AnalysisManager {
         let chunks_indexed = self.persist_chunks(record_id, &record.title, &text, &entities).await?;
 
         // 6. FINAL PERSISTENCE
-        let summary = extraction_summary(&intelligence_json);
+        let summary = extraction_summary(&Some(intelligence_json_str.clone()));
         
         // Smarter location handling: overwrite N/A, Unknown, or Global with more specific results
         let current_location = record.incident_location.as_deref().unwrap_or("N/A");
-        let extracted_loc = extraction_location(&intelligence_json);
+        let extracted_loc = extraction_location(&Some(intelligence_json_str.clone()));
         let final_location = if is_placeholder_location(current_location) {
             extracted_loc.or(Some(current_location.to_string()))
         } else {
             Some(current_location.to_string())
         };
 
-        sqlx::query(r#"UPDATE records SET analysis_status = 'completed', intelligence_json = ?, redaction_score = ?, summary = ?, incident_location = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"#)
-        .bind(&intelligence_json).bind(redaction_score).bind(summary).bind(final_location).bind(record_id).execute(&self.db).await?;
+        sqlx::query(
+            r#"
+            UPDATE records SET 
+                analysis_status = 'completed',
+                intelligence_json = ?,
+                redaction_score = ?,
+                analysis_error = NULL,
+                summary = ?,
+                incident_location = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            "#,
+        )
+        .bind(&intelligence_json_str)
+        .bind(redaction_score)
+        .bind(summary)
+        .bind(final_location)
+        .bind(record_id)
+        .execute(&self.db)
+        .await?;
 
-        sqlx::query("UPDATE analysis_results SET status = 'completed', processed_at = ? WHERE record_id = ?")
-        .bind(now()).bind(record_id).execute(&self.db).await?;
+        sqlx::query(
+            "UPDATE analysis_results SET status = 'completed', processed_at = ? WHERE record_id = ?"
+        )
+        .bind(now())
+        .bind(record_id)
+        .execute(&self.db)
+        .await?;
 
-        Ok(AnalysisReport { record_id: record_id.to_string(), status: "completed".to_string(), ocr_text: text, entities, chunks_indexed, engine: format!("gemma-4-{:?}", specs.recommended_tier), intelligence_json, assets })
+        Ok(AnalysisReport {
+            record_id: record_id.to_string(),
+            status: "completed".to_string(),
+            ocr_text: text,
+            entities,
+            chunks_indexed,
+            engine: format!("gemma-4-{:?}", specs.recommended_tier),
+            intelligence_json: Some(intelligence_json_str),
+            assets,
+        })
     }
 
     pub async fn get_analysis(&self, record_id: &str) -> Result<Option<AnalysisReport>> {
@@ -253,6 +329,28 @@ impl AnalysisManager {
             .bind(&cid).bind(record_id).bind(title).bind(chunk).bind(&etext).execute(&self.db).await?;
         }
         Ok(chunks.len())
+    }
+
+    async fn persist_forensics(&self, record_id: &str, discoveries: &[self::pdf::ForensicDiscovery]) -> Result<()> {
+        sqlx::query("DELETE FROM record_forensics WHERE record_id = ?").bind(record_id).execute(&self.db).await?;
+        for discovery in discoveries {
+            let id = Uuid::new_v4().to_string();
+            let mjson = serde_json::to_string(&discovery.metadata)?;
+            sqlx::query(
+                "INSERT INTO record_forensics (id, record_id, layer_type, content, confidence, metadata_json, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(&id)
+            .bind(record_id)
+            .bind(&discovery.layer_type)
+            .bind(&discovery.content)
+            .bind(discovery.confidence as f64)
+            .bind(mjson)
+            .bind(now())
+            .execute(&self.db)
+            .await?;
+        }
+        Ok(())
     }
 }
 

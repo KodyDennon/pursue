@@ -128,38 +128,38 @@
         console.warn("Failed to poll system stats", e);
       }
     }, 2000);
+// Auto-detect provisioning
+(async () => {
+  try {
+    const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
+    const specs = await invoke<any>("get_hardware_diagnostics");
 
-    (async () => {
-      try {
-        const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
-        const specs = await invoke<any>("get_hardware_diagnostics");
-        
-        const required = ["bge-small", "tokenizer"];
-        if (specs.recommended_tier === "Elite") {
-          required.push("gemma-4b");
-        } else {
-          required.push("gemma-2b");
-        }
+    const required = ["bge-small", "tokenizer"];
+    if (specs.recommended_tier === "Elite") {
+      required.push("gemma-4b");
+    } else {
+      required.push("gemma-2b");
+    }
 
-        const allPresent = required.every(id => modelStatus[id]);
-        if (allPresent) {
-          isProvisioned = true;
-        }
-      } catch (e) {
-        console.error("Provisioning check failed", e);
-      }
+    const allPresent = required.every(id => modelStatus[id]);
+    if (allPresent) {
+      isProvisioned = true;
+    }
+  } catch (e) {
+    console.error("Provisioning check failed", e);
+  }
+})();
 
-      if (isProvisioned) void loadInitialData();
-    })();
+return () => {
+  clearInterval(statsInterval);
+};
+});
 
-    return () => {
-      clearInterval(statsInterval);
-    };
-  });
-
+  let hasLoaded = false;
   $effect(() => {
-    if (isProvisioned && !initializing) {
-        if ($activeView === 'dashboard' && records.length === 0) {
+    if (isProvisioned && !initializing && !hasLoaded) {
+        if ($activeView === 'dashboard') {
+            hasLoaded = true;
             void loadInitialData();
         }
     }
@@ -241,11 +241,14 @@
               />
             {/if}
           {:else if $activeView === 'intelligence'}
-            <IntelligenceCenter />
+            <IntelligenceCenter onAnalyze={() => (analysisModalOpen = true)} />
           {:else if $activeView === 'vault'}
             <EvidenceVault />
           {:else if $activeView === 'agent'}
-            <DownloadAgent onComplete={loadInitialData} />
+            <DownloadAgent 
+              onComplete={loadInitialData} 
+              onAnalyze={() => (analysisModalOpen = true)} 
+            />
           {:else if $activeView === 'map'}
              <div class="view-placeholder">
                <Map records={records} onSelect={(r) => (selectedRecord = r)} />
@@ -274,6 +277,7 @@
             selectedCaseId={selectedCaseId}
             onBack={() => (selectedRecord = null)}
             onChanged={() => loadInitialData()}
+            onAnalyze={() => (analysisModalOpen = true)}
           />
         </aside>
       {/if}
@@ -379,6 +383,11 @@
     flex: 1;
     overflow-y: auto;
     position: relative;
+  }
+
+  .view-container {
+    height: 100%;
+    width: 100%;
   }
 
   .os-sidebar {

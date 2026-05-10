@@ -174,6 +174,9 @@ pub struct DatabaseStatus {
     pub latest_snapshot_url: Option<String>,
     pub latest_snapshot_records: Option<i64>,
     pub active_download_jobs: i64,
+    pub total_count: i64,
+    pub total_size: i64,
+    pub unanalyzed_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -293,4 +296,28 @@ pub struct ExportResult {
     pub format: String,
     pub relative_path: String,
     pub absolute_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct RecordForensics {
+    pub id: String,
+    pub record_id: String,
+    pub layer_type: String,
+    pub content: String,
+    pub confidence: f64,
+    pub bounding_box_json: Option<String>,
+    pub metadata_json: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct IntelligenceLog {
+    pub id: String,
+    pub record_id: Option<String>,
+    pub system_prompt: String,
+    pub user_prompt: String,
+    pub thought_block: Option<String>,
+    pub response_json: String,
+    pub model_id: String,
+    pub created_at: String,
 }

@@ -20,8 +20,9 @@ pub struct HardwareSpecs {
 }
 
 pub fn get_hardware_specs() -> HardwareSpecs {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let mut sys = System::new();
+    sys.refresh_memory();
+    sys.refresh_cpu_all();
 
     let total_memory_gb = sys.total_memory() / 1024 / 1024 / 1024;
     let available_memory_gb = sys.available_memory() / 1024 / 1024 / 1024;
@@ -38,8 +39,6 @@ pub fn get_hardware_specs() -> HardwareSpecs {
         System::os_version().unwrap_or_default()
     );
 
-    // Basic heuristic for GPU acceleration detection
-    // In a real implementation, we'd check for CUDA, Metal, or DirectML explicitly
     let gpu_acceleration_available = cfg!(target_os = "macos") || cfg!(target_os = "windows");
 
     let recommended_tier = if total_memory_gb >= 16 {
@@ -69,15 +68,17 @@ pub struct SystemStats {
 }
 
 pub fn get_system_stats() -> SystemStats {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    sys.refresh_memory();
     
     let cpu_usage = sys.global_cpu_usage();
     let memory_usage_mb = (sys.total_memory() - sys.available_memory()) / 1024 / 1024;
     
-    // Get process memory
     let pid = sysinfo::get_current_pid().ok();
     let process_memory_mb = if let Some(p) = pid {
+        use sysinfo::ProcessesToUpdate;
+        sys.refresh_processes(ProcessesToUpdate::Some(&[p]), true);
         if let Some(process) = sys.process(p) {
             process.memory() / 1024 / 1024
         } else {

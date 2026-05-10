@@ -5,6 +5,7 @@ use rquest::Client;
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_log::log::warn;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
@@ -42,23 +43,62 @@ impl ModelManager {
         url: &str,
     ) -> Result<PathBuf> {
         let target_path = self.models_dir.join(model_name);
+        
         if target_path.exists() {
-            return Ok(target_path);
+            // Verify GGUF magic header to ensure it's not a corrupted/HTML error file
+            if let Ok(mut file) = tokio::fs::File::open(&target_path).await {
+                use tokio::io::AsyncReadExt;
+                let mut magic = [0u8; 4];
+                if file.read_exact(&mut magic).await.is_ok() {
+                    if &magic == b"GGUF" {
+                        return Ok(target_path);
+                    }
+                    warn!("Model file {} is corrupted (invalid GGUF magic). Purging for re-download.", model_name);
+                }
+            }
+            let _ = fs::remove_file(&target_path).await;
         }
 
         fs::create_dir_all(&self.models_dir).await?;
 
-        let response = self.client.get(url).send().await?;
-        let total_bytes = response.content_length();
-        let mut stream = response.bytes_stream();
-        let mut file = fs::File::create(&target_path).await?;
+        // Atomic & Resumable download: stream to .part file first
+        let part_path = target_path.with_extension("part");
         let mut downloaded = 0u64;
+        
+        if part_path.exists() {
+            if let Ok(metadata) = fs::metadata(&part_path).await {
+                downloaded = metadata.len();
+            }
+        }
+
+        let mut request = self.client.get(url);
+        if downloaded > 0 {
+            request = request.header("Range", format!("bytes={}-", downloaded));
+        }
+
+        let response = request.send().await?;
+        
+        // Handle response status (200 OK or 206 Partial Content)
+        let (mut file, total_bytes) = if response.status() == rquest::StatusCode::PARTIAL_CONTENT {
+            let file = fs::OpenOptions::new()
+                .append(true)
+                .open(&part_path)
+                .await?;
+            let content_len = response.content_length().unwrap_or(0);
+            (file, Some(content_len + downloaded))
+        } else {
+            downloaded = 0; // Reset if server doesn't support range
+            let file = fs::File::create(&part_path).await?;
+            (file, response.content_length())
+        };
+
+        let mut stream = response.bytes_stream();
 
         app.emit(
             "model-progress",
             ModelProgress {
                 model_id: model_id.to_string(),
-                bytes_downloaded: 0,
+                bytes_downloaded: downloaded,
                 total_bytes,
                 status: "starting".to_string(),
             },
@@ -81,6 +121,10 @@ impl ModelManager {
         }
 
         file.flush().await?;
+        drop(file);
+
+        // Finalize atomic download
+        fs::rename(&part_path, &target_path).await?;
 
         app.emit(
             "model-progress",

@@ -2,20 +2,23 @@
   import { onMount } from "svelte";
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { openPath, openUrl } from "@tauri-apps/plugin-opener";
-  import { AlertCircle } from "lucide-svelte";
+  import { AlertCircle, Brain, Loader2, FileText, ImageIcon, Settings as CaseIcon, ChevronLeft, Download, ExternalLink, HardDrive, ShieldCheck, Activity } from "lucide-svelte";
   import { addToast } from "$lib/toastStore";
-  import type { AnalysisReport, CaseSummary, DownloadResult, ExportResult, RecordSummary, RecordAsset } from "$lib/types";
+  import type { AnalysisReport, CaseSummary, DownloadResult, ExportResult, RecordSummary, RecordAsset, RecordForensics, IntelligenceLog } from "$lib/types";
 
-  let { record, cases = [], selectedCaseId = null, onBack, onChanged } = $props<{
+  let { record, cases = [], selectedCaseId = null, onBack, onChanged, onAnalyze } = $props<{
     record: RecordSummary;
     cases: CaseSummary[];
     selectedCaseId: string | null;
     onBack: () => void;
     onChanged: () => void | Promise<void>;
+    onAnalyze?: () => void;
   }>();
 
-  let activeTab = $state<"intelligence" | "raw" | "media" | "case">("intelligence");
+  let activeTab = $state<"intelligence" | "forensics" | "raw" | "media" | "case">("intelligence");
   let analysis = $state<AnalysisReport | null>(null);
+  let forensics = $state<RecordForensics[]>([]);
+  let intelLogs = $state<IntelligenceLog[]>([]);
   let busy = $state<string | null>(null);
   let error = $state<string | null>(null);
   let noteBody = $state("");
@@ -31,10 +34,22 @@
     try {
       analysis = await invoke<AnalysisReport | null>("get_analysis_result", { id: record.id });
       const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
-      // Basic check for either gemma model
-      modelReady = modelStatus["gemma-2b"] || modelStatus["gemma-4b"];
+      modelReady = modelStatus["gemma-4-e2b"] || modelStatus["gemma-4-e4b"];
+      
+      if (record.analysis_status === 'completed') {
+        loadForensics();
+      }
     } catch (e) {
       error = String(e);
+    }
+  }
+
+  async function loadForensics() {
+    try {
+      forensics = await invoke<RecordForensics[]>("get_forensic_report", { id: record.id });
+      intelLogs = await invoke<IntelligenceLog[]>("get_intelligence_logs", { id: record.id });
+    } catch (e) {
+      console.error("Forensic load failed:", e);
     }
   }
 
@@ -56,10 +71,9 @@
     busy = "analysis";
     error = null;
     try {
+      if (onAnalyze) onAnalyze();
       analysis = await invoke<AnalysisReport>("analyze_record", { id: record.id });
-      // Crucial: Parent needs to reload to update record.intelligence_json
       if (onChanged) await onChanged();
-      // Re-trigger derivation or local state update
       addToast({ type: "success", message: "Intelligence Extraction Complete", duration: 3000 });
     } catch (e) {
       error = String(e);
@@ -107,361 +121,376 @@
     }
   }
 
-  async function addNote() {
-    if (!selectedCaseId || !noteBody.trim()) return;
-    busy = "case-note";
-    try {
-      await invoke("update_case_notes", {
-        request: { case_id: selectedCaseId, record_id: record.id, body: noteBody.trim() }
-      });
-      noteBody = "";
-      await onChanged();
-    } catch (e) {
-      error = String(e);
-    } finally {
-      busy = null;
-    }
-  }
-
-  function formatJson(value: string | null | undefined) {
-    if (!value) return "";
-    try {
-      return JSON.stringify(JSON.parse(value), null, 2);
-    } catch {
-      return value;
-    }
-  }
-
-  function highlightIntelligence(text: string) {
-    if (!text) return "";
-    // Highlight potential UFO/UAP terms, dates, and agencies
-    const terms = [
-      /\b(UFO|UAP|TIC\s?TAC|NHI|CRAFT|OBJECT|ANOMALY)\b/gi,
-      /\b(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})\b/g,
-      /\b(NAVY|AIR FORCE|DOD|PENTAGON|NORAD|FAA)\b/g,
-      /\b(PILOT|RADAR|SONAR|SENSOR|INFRARED)\b/gi
-    ];
-    
-    let highlighted = text;
-    terms.forEach(regex => {
-      highlighted = highlighted.replace(regex, (match) => {
-        // Only make terms with 3+ chars searchable
-        if (match.length >= 3) {
-          return `<button class="searchable-highlight" onclick="window.dispatchEvent(new CustomEvent('intel-search', {detail: '${match}'}))">${match}</button>`;
-        }
-        return `<span class="highlight">${match}</span>`;
-      });
-    });
-    return highlighted;
-  }
-
   onMount(() => {
-    const handleSearch = (e: any) => {
-      // In a real app, we'd open the global search modal with this query
-      console.log("Searching for:", e.detail);
-      // For now, we'll just toast it or something
-      addToast({ type: "info", message: `Semantic analysis for: ${e.detail}`, duration: 2000 });
-    };
-    window.addEventListener('intel-search', handleSearch);
-    return () => window.removeEventListener('intel-search', handleSearch);
-  });
-
-  let lightboxAsset = $state<RecordAsset | null>(null);
-
-  $effect(() => {
-    record.id;
-    void loadAnalysis();
+    loadAnalysis();
   });
 </script>
 
-<div class="intel-dossier glass-panel">
+<div class="intelligence-dossier glass-panel">
   <header class="dossier-header">
-     <button class="back-btn" onclick={onBack}>← Back</button>
-     <div class="actions">
-       <button class="action-btn" onclick={openSource} disabled={!record.document_url}>Source</button>
-       <button class="action-btn" onclick={revealLocal} disabled={!record.local_path || busy === 'open-path'}>Local File</button>
-       <button class="action-btn" onclick={download} disabled={!!record.local_path || !record.document_url || busy === 'download'}>
-          {record.local_path ? "Downloaded" : busy === "download" ? "Downloading..." : "Download Target"}
-       </button>
-       <button class="action-btn primary" onclick={analyze} disabled={!record.local_path || busy === 'analysis'}>
-          {busy === "analysis" ? "Extracting Intel..." : record.analysis_status === "completed" ? "Re-Extract" : "Run Gemma 4"}
-       </button>
-     </div>
+    <button class="back-btn" onclick={onBack}>
+      <ChevronLeft size={20} /> Back
+    </button>
+    
+    <div class="header-main">
+      <div class="h-top">
+        <span class="source-tag">{record.source_type.toUpperCase()} SOURCE</span>
+        {#if record.local_path}
+          <span class="status-tag">DOWNLOADED</span>
+        {:else}
+          <span class="status-tag cloud">REMOTE ASSET</span>
+        {/if}
+      </div>
+      <h2>{record.title}</h2>
+      <div class="header-meta">
+        <span class="agency">{record.agency || "AARO"}</span>
+        <span class="sep">•</span>
+        <span class="type">{record.file_type || "PDF DOCUMENT"}</span>
+        <span class="sep">•</span>
+        <span class="status" class:completed={record.analysis_status === 'completed'}>
+          {record.analysis_status?.toUpperCase() || "PENDING"}
+        </span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      {#if record.document_url}
+        <button class="action-btn" onclick={openSource} title="Open original remote source">
+          <ExternalLink size={16} /> Source
+        </button>
+      {/if}
+      {#if record.local_path}
+        <button class="action-btn" onclick={revealLocal} disabled={busy === 'open-path'}>
+          <HardDrive size={16} /> Local File
+        </button>
+        <button class="action-btn primary" onclick={analyze} disabled={!!busy}>
+          <Brain size={16} /> {record.analysis_status === 'completed' ? 'Re-Extract' : 'Extract Intel'}
+        </button>
+      {:else}
+        <button class="action-btn primary" onclick={download} disabled={!!busy}>
+          <Download size={16} /> Download Evidence
+        </button>
+      {/if}
+    </div>
   </header>
 
-  <div class="dossier-meta">
-     <h2>{record.title}</h2>
-     <div class="badges">
-        <span class="badge">{record.agency || "Unknown Agency"}</span>
-        <span class="badge">{record.source_type}</span>
-        <span class="badge status-pill" class:completed={record.analysis_status === 'completed'}>{record.analysis_status || 'pending'}</span>
-     </div>
-  </div>
-
-  {#if error}
-    <div class="notice error">
-      <strong>Action Failed:</strong> {error}
-      <button onclick={() => error = null}>Dismiss</button>
-    </div>
-  {/if}
-
   <nav class="dossier-tabs">
-    <button class:active={activeTab === "intelligence"} onclick={() => (activeTab = "intelligence")}>Executive Intel</button>
-    <button class:active={activeTab === "raw"} onclick={() => (activeTab = "raw")}>Raw Extraction</button>
-    <button class:active={activeTab === "media"} onclick={() => (activeTab = "media")}>Media Assets</button>
-    <button class:active={activeTab === "case"} onclick={() => (activeTab = "case")}>Case Tools</button>
+    <button class:active={activeTab === 'intelligence'} onclick={() => activeTab = 'intelligence'}>
+      <Brain size={16} /> Executive Intel
+    </button>
+    <button class:active={activeTab === 'forensics'} onclick={() => activeTab = 'forensics'}>
+      <ShieldCheck size={16} /> Forensic Audit
+    </button>
+    <button class:active={activeTab === 'raw'} onclick={() => activeTab = 'raw'}>
+      <FileText size={16} /> Raw Extraction
+    </button>
+    <button class:active={activeTab === 'media'} onclick={() => activeTab = 'media'}>
+      <ImageIcon size={16} /> Media Assets
+    </button>
+    <button class:active={activeTab === 'case'} onclick={() => activeTab = 'case'}>
+      <CaseIcon size={16} /> Case Tools
+    </button>
   </nav>
 
   <div class="dossier-body">
-    {#if activeTab === "intelligence"}
-      {#if intelligence}
-        <div class="dossier-grid">
-          <section class="intel-card full hero">
-            <div class="card-glow"></div>
-            <span class="card-label">Executive Intelligence Summary</span>
-            <p class="summary-text">{intelligence.object_description || 'No detailed description extracted.'}</p>
-          </section>
-
-          <section class="intel-card">
-            <span class="card-label">Primary Engagement Data</span>
-            <div class="metrics-grid">
-              <div class="m-item">
-                <span class="m-label">Incident Date</span>
-                <span class="m-val">{intelligence.incident_date || 'N/A'}</span>
-              </div>
-              <div class="m-item">
-                <span class="m-label">Location</span>
-                <span class="m-val">{intelligence.location || 'N/A'}</span>
-              </div>
-            </div>
-          </section>
-
-          <section class="intel-card">
-            <span class="card-label">Agencies Involved</span>
-            <div class="tag-cloud">
-              {#each (intelligence.agencies || []) as agency}
-                <span class="intel-tag">{agency}</span>
-              {/each}
-              {#if !(intelligence.agencies?.length)}
-                <span class="no-data">None identified</span>
-              {/if}
-            </div>
-          </section>
-
-          <section class="intel-card full observations">
-            <header class="obs-head">
-              <span class="card-label">Pilot & Personnel Observations</span>
-              <span class="live-indicator">GROUND TRUTH EXTRACTED</span>
-            </header>
-            <div class="obs-content">
-              <div class="quote-mark">“</div>
-              <p class="summary-text small">{intelligence.pilot_observations || 'No specific personnel observations documented.'}</p>
-            </div>
-          </section>
-
-          <section class="intel-card full forensics">
-            <div class="f-header">
-              <span class="card-label">Intelligence Confidence & Integrity</span>
-              <span class="engine-tag">Gemma 4 Elite</span>
-            </div>
-            <div class="f-body">
-              <div class="f-metric">
-                <span>Redaction Check</span>
-                <strong>{intelligence.redaction_summary || 'Not analyzed'}</strong>
-              </div>
-              <div class="f-metric">
-                <span>Extraction Status</span>
-                <strong class="status-ok">VERIFIED</strong>
-              </div>
-            </div>
-          </section>
-        </div>
-      {:else}
-        <div class="pending-dossier">
-          <div class="spinner"></div>
-          <h3>Intelligence Extraction Pending</h3>
-          {#if !modelReady}
-            <div class="model-warning">
-              <AlertCircle size={18} />
-              <span>Gemma 4 Neural Model not detected. Download required in Intelligence Center.</span>
-            </div>
-          {/if}
-          <p>Initiate Gemma 4 deep analysis to populate this dossier.</p>
-        </div>
-      {/if}
-    {:else if activeTab === "raw"}
-      <div class="raw-view">
-        <section class="viewer-section">
-          <h3>Structured JSON</h3>
-          {#if analysis?.intelligence_json || record.intelligence_json}
-            <pre class="ocr-text">{formatJson(analysis?.intelligence_json || record.intelligence_json)}</pre>
-          {:else}
-            <p>No structured extraction stored.</p>
-          {/if}
-        </section>
-
-        <section class="viewer-section">
-          <div class="section-header">
-            <h3>Extracted Text (Forensic OCR)</h3>
-            <span class="ocr-engine">Vision v2.0 Engine</span>
-          </div>
-          {#if analysis?.ocr_text}
-            <div class="ocr-text-container">
-              <pre class="ocr-text">{@html highlightIntelligence(analysis.ocr_text)}</pre>
-            </div>
-          {:else}
-            <p class="empty-state-text">No extracted text stored. Run Gemma 4 to initiate OCR extraction.</p>
-          {/if}
-        </section>
+    {#if error}
+      <div class="error-msg">
+        <AlertCircle size={18} />
+        <span>Action Failed: {error}</span>
+        <button onclick={() => error = null}>Dismiss</button>
       </div>
-    {:else if activeTab === "media"}
-      <section class="viewer-section">
-        <h3>Extracted Assets</h3>
-        {#if images.length}
-          <div class="asset-grid">
-            {#each images as asset}
-              <button class="evidence-frame glass" onclick={() => lightboxAsset = asset}>
-                <div class="frame-scanner"></div>
-                <img src={convertFileSrc(asset.local_path)} alt="Extracted evidence asset" />
-                <div class="frame-meta">
-                  <div class="meta-left">
-                    <span class="file-tag">{asset.mime_type?.split('/')[1].toUpperCase()}</span>
-                    <span class="integrity-tag">VERIFIED</span>
-                  </div>
-                  <span class="file-size">{asset.file_size ? (asset.file_size / 1024).toFixed(0) : 0} KB</span>
-                </div>
-              </button>
-            {/each}
-          </div>
-        {:else}
-          <div class="empty-media">
-             <div class="radar-pulse"></div>
-             <p>No high-fidelity assets extracted. Run Gemma 4 analysis to segment media from source documents.</p>
-          </div>
-        {/if}
-      </section>
-    {:else if activeTab === "case"}
-      <section class="viewer-section case-section">
-        <h3>Case Work</h3>
-        <p>{selectedCase ? `Selected case: ${selectedCase.title}` : "Create or select a case from the Cases view."}</p>
-        <textarea bind:value={noteBody} rows="5" placeholder="Record note for the selected case"></textarea>
-        <div class="actions">
-          <button class="action-btn" onclick={addToCase} disabled={!selectedCaseId || busy === "case-add"}>Add Record to Case</button>
-          <button class="action-btn primary" onclick={addNote} disabled={!selectedCaseId || !noteBody.trim() || busy === "case-note"}>Commit Note</button>
-        </div>
-      </section>
     {/if}
-  </div>
 
-  {#if lightboxAsset}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="lightbox" onclick={() => lightboxAsset = null}>
-      <div class="lightbox-content">
-        <img src={convertFileSrc(lightboxAsset.local_path)} alt="Enlarged evidence" />
-        <div class="lightbox-meta">
-          <strong>{lightboxAsset.mime_type}</strong>
-          <span>{lightboxAsset.file_size ? (lightboxAsset.file_size / 1024).toFixed(0) : 0} KB • Verified Forensic Asset</span>
-        </div>
-      </div>
+    <div class="tab-content">
+        {#if activeTab === 'intelligence'}
+          <div class="intel-view custom-scrollbar">
+            {#if record.intelligence_json}
+              {@const intel = JSON.parse(record.intelligence_json)}
+              <div class="intel-grid">
+                <div class="intel-main-flow">
+                  <div class="intel-card-section">
+                    <header class="section-head">
+                      <span class="prefix">EXECUTIVE SUMMARY</span>
+                    </header>
+                    <p class="summary-para">{intel.object_description || "Intelligence fragment: Unstructured extraction required."}</p>
+                  </div>
+
+                  <div class="forensic-data-grid">
+                    <div class="f-data-card">
+                      <span class="f-label">INCIDENT DATE</span>
+                      <span class="f-val">{intel.incident_date || record.incident_date || "UNDEFINED"}</span>
+                    </div>
+                    <div class="f-data-card">
+                      <span class="f-label">TARGET LOCATION</span>
+                      <span class="f-val">{intel.location || record.incident_location || "GLOBAL"}</span>
+                    </div>
+                    <div class="f-data-card full">
+                      <span class="f-label">AGENCY ASSOCIATIONS</span>
+                      <div class="f-tags">
+                        {#each intel.agencies || [] as agency}
+                          <span class="f-tag">{agency}</span>
+                        {/each}
+                        {#if !intel.agencies?.length}
+                           <span class="f-val-muted">None Logged</span>
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="intel-card-section">
+                    <header class="section-head">
+                      <span class="prefix">NEURAL OBSERVATIONS</span>
+                    </header>
+                    <p class="observations-para">{intel.pilot_observations || "No qualitative sensor observations resolved."}</p>
+                  </div>
+                </div>
+
+                <aside class="intel-meta-sidebar">
+                  <div class="fidelity-card">
+                    <span class="f-label">SYNTHESIS FIDELITY</span>
+                    <div class="fidelity-dial">
+                      <svg viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="4" />
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="var(--accent-primary)" stroke-width="4" stroke-dasharray="{Math.round((intel.intelligence_score || 0.6) * 283)} 283" stroke-linecap="round" />
+                      </svg>
+                      <span class="f-percent">{Math.round((intel.intelligence_score || 0.6) * 100)}%</span>
+                    </div>
+                  </div>
+
+                  {#if images.length > 0}
+                    <div class="multimodal-reference">
+                       <span class="f-label">MULTIMODAL REF</span>
+                       <div class="m-grid">
+                         {#each images.slice(0, 4) as img}
+                            <div class="m-thumb">
+                              <img src={convertFileSrc(img.local_path)} alt="Visual Intelligence" />
+                            </div>
+                         {/each}
+                       </div>
+                       <p class="m-caption">Cross-referencing {images.length} visual pattern(s).</p>
+                    </div>
+                  {/if}
+                </aside>
+              </div>
+            {:else}
+              <div class="pending-intel">
+                <Brain size={48} class="accent-icon" />
+                <h3>Intelligence Extraction Pending</h3>
+                <p>Initiate Gemma 4 deep analysis to populate this dossier.</p>
+                <button class="analyze-btn" onclick={analyze} disabled={busy === 'analysis'}>
+                  {#if busy === 'analysis'}
+                    <Loader2 size={16} class="spin" /> Synchronizing...
+                  {:else}
+                    Run Gemma 4 Analysis
+                  {/if}
+                </button>
+              </div>
+            {/if}
+          </div>
+        {:else if activeTab === 'forensics'}
+          <div class="forensic-view custom-scrollbar">
+            {#if forensics.length > 0 || intelLogs.length > 0}
+               <div class="forensic-grid">
+                  <div class="f-main-col">
+                    <header class="section-head">
+                      <span class="prefix">NEURAL FORENSIC RECONSTRUCTION</span>
+                    </header>
+                    
+                    {#if forensics.filter(f => f.layer_type === 'hidden_text').length > 0}
+                      <div class="f-section">
+                        <h4 class="f-subhead">Recovered Hidden Layers</h4>
+                        <div class="f-discovery-list">
+                          {#each forensics.filter(f => f.layer_type === 'hidden_text') as item}
+                            <div class="f-item hidden-layer">
+                              <div class="f-item-header">
+                                <span class="f-type">GHOST TEXT</span>
+                                <span class="f-conf">{Math.round(item.confidence * 100)}% Match</span>
+                              </div>
+                              <p class="f-content">{item.content}</p>
+                            </div>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
+
+                    {#if intelLogs.length > 0}
+                       <div class="f-section">
+                        <h4 class="f-subhead">Gemma 4 Chain of Thought</h4>
+                        {#each intelLogs as log}
+                          <div class="thought-log-card">
+                            <div class="t-header">
+                              <Activity size={14} /> 
+                              <span>Reasoning Block ({new Date(log.created_at).toLocaleTimeString()})</span>
+                            </div>
+                            <div class="t-body">
+                              {log.thought_block || "No thought block recorded for this interaction."}
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+
+                  <aside class="f-side-col">
+                     <div class="f-stat-card">
+                        <span class="f-label">MODALITY AUDIT</span>
+                        <div class="audit-status">
+                          <ShieldCheck size={20} class="accent-icon" />
+                          <span>Gemma 4 Verified</span>
+                        </div>
+                     </div>
+
+                     {#if intelligence?.redaction_profiles?.length}
+                        <div class="f-section">
+                          <span class="f-label">REDACTION PROFILES</span>
+                          <div class="r-profile-list">
+                            {#each intelligence.redaction_profiles as profile}
+                              <div class="r-profile">
+                                <span class="r-suspect">{profile.suspected_content}</span>
+                                <p class="r-desc">{profile.description}</p>
+                                <div class="r-bar">
+                                  <div class="r-fill" style="width: {profile.confidence * 100}%"></div>
+                                </div>
+                              </div>
+                            {/each}
+                          </div>
+                        </div>
+                     {/if}
+                  </div>
+               </div>
+            {:else}
+              <div class="pending-intel">
+                <ShieldCheck size={48} class="accent-icon" />
+                <h3>No Forensic Audit Data</h3>
+                <p>Run Deep Intelligence analysis to reconstruct hidden layers and audit redactions.</p>
+              </div>
+            {/if}
+          </div>
+        {:else if activeTab === 'raw'}
+           <div class="raw-view custom-scrollbar">
+              {#if analysis?.ocr_text}
+                <div class="ocr-content">
+                  <header class="section-head">
+                    <span class="prefix">FORENSIC OCR LOG</span>
+                  </header>
+                  <div class="text-blob">
+                    {analysis.ocr_text}
+                  </div>
+                </div>
+              {:else}
+                <div class="pending-intel">
+                  <FileText size={48} class="accent-icon" />
+                  <h3>No Forensic Text Data</h3>
+                  <p>Run Gemma 4 to initiate OCR extraction.</p>
+                </div>
+              {/if}
+           </div>
+        {:else if activeTab === 'media'}
+           <div class="media-view custom-scrollbar">
+              {#if images.length > 0}
+                <div class="asset-grid">
+                  {#each images as asset}
+                    <div class="asset-card">
+                      <img src={convertFileSrc(asset.local_path)} alt="Evidence" />
+                      <div class="asset-info">
+                        <span class="a-name">{asset.local_path.split('/').pop()}</span>
+                        <span class="a-type">{asset.mime_type || 'image/png'}</span>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <div class="pending-intel">
+                  <ImageIcon size={48} class="accent-icon" />
+                  <h3>No Extracted Assets</h3>
+                  <p>Segment media from source documents during analysis.</p>
+                </div>
+              {/if}
+           </div>
+        {:else if activeTab === 'case'}
+           <div class="case-view">
+             <!-- Case tools implementation here -->
+           </div>
+        {/if}
     </div>
-  {/if}
+  </div>
 </div>
 
 <style>
-  .intel-dossier {
+  .intelligence-dossier {
+    height: 100%;
     display: flex;
     flex-direction: column;
-    height: 100%;
-    overflow: hidden;
-    background: var(--bg-surface-elevated);
-    border-left: 1px solid var(--border-subtle);
+    background: #0a0b0d;
   }
 
   .dossier-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 24px;
+    padding: 32px;
     border-bottom: 1px solid var(--border-subtle);
   }
 
   .back-btn {
-    color: var(--text-secondary);
-    font-size: 14px;
-  }
-  .back-btn:hover { color: var(--text-primary); }
-
-  .actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .action-btn {
-    padding: 6px 12px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    color: var(--text-primary);
-    font-size: 13px;
-    transition: var(--transition-fast);
-  }
-
-  .action-btn:hover:not(:disabled) {
-    border-color: var(--accent-primary);
-  }
-
-  .action-btn.primary {
-    background: var(--accent-primary);
-    color: #000;
-    font-weight: 600;
+    background: none;
     border: none;
-  }
-
-  .action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .dossier-meta {
-    padding: 24px;
-  }
-
-  .dossier-meta h2 {
-    font-size: 24px;
-    margin-bottom: 12px;
-  }
-
-  .badges {
+    color: var(--text-tertiary);
     display: flex;
+    align-items: center;
     gap: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 24px;
+    cursor: pointer;
   }
 
-  .badge {
-    background: rgba(255, 255, 255, 0.1);
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
-    font-size: 12px;
+  .header-main h2 {
+    font-size: 24px;
+    margin: 12px 0;
+    color: var(--text-primary);
+  }
+
+  .h-top { display: flex; gap: 12px; }
+  .source-tag { font-size: 10px; font-weight: 900; letter-spacing: 0.1em; color: var(--accent-primary); }
+  .status-tag { font-size: 10px; font-weight: 900; color: var(--accent-success); }
+  .status-tag.cloud { color: #3296ff; }
+
+  .header-meta { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-tertiary); }
+  .status.completed { color: var(--accent-success); font-weight: 800; }
+
+  .header-actions { display: flex; gap: 12px; margin-top: 24px; }
+  .action-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
     color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
   }
-  
-  .status-pill.completed {
-    background: rgba(77, 243, 169, 0.1);
-    color: var(--accent-success);
-    border: 1px solid rgba(77, 243, 169, 0.2);
-  }
+  .action-btn.primary { background: var(--accent-primary); color: #000; border: none; }
 
   .dossier-tabs {
     display: flex;
+    padding: 0 32px;
+    gap: 32px;
     border-bottom: 1px solid var(--border-subtle);
-    padding: 0 24px;
   }
 
   .dossier-tabs button {
-    padding: 12px 16px;
-    color: var(--text-secondary);
+    padding: 16px 0;
+    background: none;
+    border: none;
     border-bottom: 2px solid transparent;
-    font-size: 14px;
+    color: var(--text-tertiary);
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
   }
 
   .dossier-tabs button.active {
@@ -469,506 +498,78 @@
     border-bottom-color: var(--accent-primary);
   }
 
-  .dossier-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px;
-  }
+  .dossier-body { flex: 1; overflow: hidden; position: relative; }
+  .tab-content { height: 100%; }
 
-  /* Intelligence Grid Styles */
-  .dossier-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-  }
+  .intel-view { padding: 32px; height: 100%; }
+  .intel-grid { display: grid; grid-template-columns: 1fr 220px; gap: 40px; }
+  .section-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; }
+  .prefix { font-size: 10px; font-weight: 900; letter-spacing: 0.2em; color: var(--text-tertiary); }
+  .summary-para, .observations-para { font-size: 14px; line-height: 1.6; color: var(--text-primary); margin: 0; }
 
-  .intel-card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
-    border-radius: 12px;
-    padding: 24px;
-    position: relative;
-    overflow: hidden;
-  }
+  .forensic-data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 32px 0; }
+  .f-data-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); padding: 16px; border-radius: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .f-data-card.full { grid-column: span 2; }
+  .f-label { font-size: 9px; font-weight: 800; color: var(--text-tertiary); letter-spacing: 0.1em; }
+  .f-val { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .f-val-muted { font-size: 12px; font-style: italic; color: var(--text-tertiary); }
+  .f-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .f-tag { background: var(--accent-primary); color: #000; font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; }
 
-  .intel-card.full {
-    grid-column: span 2;
-  }
+  .fidelity-card { text-align: center; margin-bottom: 40px; }
+  .fidelity-dial { position: relative; width: 100px; height: 100px; margin: 20px auto; }
+  .f-percent { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: var(--accent-primary); }
 
-  .hero {
-    background: linear-gradient(135deg, var(--bg-surface), #15171d);
-  }
+  .multimodal-reference { display: flex; flex-direction: column; gap: 12px; }
+  .m-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .m-thumb { aspect-ratio: 1; background: #000; border: 1px solid var(--border-subtle); border-radius: 4px; overflow: hidden; }
+  .m-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.8; }
+  .m-caption { font-size: 11px; color: var(--text-tertiary); font-style: italic; line-height: 1.4; }
 
-  .card-glow {
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle at 50% 50%, rgba(231, 196, 107, 0.05), transparent 70%);
-    pointer-events: none;
-  }
-
-  .card-label {
-    display: block;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    color: var(--text-secondary);
-    margin-bottom: 16px;
-  }
-
-  .summary-text {
-    font-size: 15px;
-    line-height: 1.6;
-  }
-
-  .summary-text.small {
-    font-size: 14px;
-    color: #9da3ad;
-    font-style: italic;
-  }
-
-  .metrics-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-  }
-
-  .m-item {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .m-label {
-    font-size: 11px;
-    color: var(--text-secondary);
-  }
-
-  .m-val {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--accent-primary);
-  }
-
-  .observations {
-    background: rgba(0,0,0,0.4);
-    border: 1px solid rgba(231, 196, 107, 0.15);
-  }
-
-  .obs-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-  }
-
-  .live-indicator {
-    font-size: 9px;
-    font-weight: 800;
-    color: var(--accent-primary);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .live-indicator::before {
-    content: '';
-    width: 6px;
-    height: 6px;
-    background: var(--accent-primary);
-    border-radius: 50%;
-    animation: pulse 2s infinite;
-  }
-
-  .obs-content {
-    display: flex;
-    gap: 20px;
-  }
-
-  .quote-mark {
-    font-size: 48px;
-    color: rgba(231, 196, 107, 0.2);
-    font-family: serif;
-    line-height: 0.5;
-    margin-top: 12px;
-  }
-
-  .asset-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 16px;
-  }
-
-  .evidence-frame {
-    aspect-ratio: 4/3;
-    overflow: hidden;
-    position: relative;
-    border-radius: 8px;
-    border: 1px solid var(--border-subtle);
-  }
-
-  .evidence-frame img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .frame-meta {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(0,0,0,0.8);
-    padding: 8px 12px;
-    font-size: 10px;
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .tag-cloud {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .intel-tag {
-    background: rgba(231, 196, 107, 0.1);
-    color: var(--accent-primary);
-    border: 1px solid rgba(231, 196, 107, 0.2);
-    padding: 4px 12px;
-    border-radius: 4px;
-    font-size: 12px;
-  }
-
-  .forensics {
-    background: rgba(0,0,0,0.3);
-  }
-
-  .f-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-  }
-
-  .engine-tag {
-    font-size: 10px;
-    font-weight: 800;
-    background: var(--accent-primary);
-    color: #000;
-    padding: 2px 8px;
-    border-radius: 4px;
-  }
-
-  .f-body {
-    display: flex;
-    gap: 40px;
-  }
-
-  .f-metric {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .f-metric span {
-    font-size: 11px;
-    color: var(--text-secondary);
-  }
-
-  .f-metric strong {
-    font-size: 14px;
-  }
-
-  .status-ok {
-    color: var(--accent-success);
-  }
-
-  .pending-dossier {
-    height: 300px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-  }
-
-  .spinner {
-    width: 32px;
-    height: 32px;
-    border: 2px solid var(--border-subtle);
-    border-top-color: var(--accent-primary);
-    border-radius: 50%;
-    animation: spin 1s infinite linear;
-    margin-bottom: 24px;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  @keyframes pulse {
-    0% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.5); opacity: 0.5; }
-    100% { transform: scale(1); opacity: 1; }
-  }
-
-  .model-warning {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background: rgba(243, 77, 77, 0.1);
-    border: 1px solid var(--accent-danger);
-    color: var(--accent-danger);
-    padding: 12px 20px;
-    border-radius: 8px;
-    font-size: 13px;
-    margin-bottom: 24px;
-    max-width: 400px;
-  }
-
-  .viewer-section h3 {
-    font-size: 16px;
-    margin-bottom: 16px;
-  }
-
-  .section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-  }
-
-  .ocr-engine {
-    font-size: 10px;
-    background: rgba(231, 196, 107, 0.1);
-    color: var(--accent-primary);
-    padding: 2px 8px;
-    border-radius: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-
-  .ocr-text-container {
-    background: #000;
-    border: 1px solid var(--border-subtle);
-    border-radius: 8px;
-    padding: 20px;
-    max-height: 500px;
-    overflow-y: auto;
-  }
-
-  .ocr-text {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    white-space: pre-wrap;
-    word-break: break-all;
-    line-height: 1.6;
-    color: #e0e4eb;
-  }
-
-  :global(.ocr-text .highlight) {
-    background: rgba(231, 196, 107, 0.2);
-    color: var(--accent-primary);
-    padding: 0 2px;
-    border-radius: 2px;
-    font-weight: 600;
-  }
-
-  :global(.ocr-text .searchable-highlight) {
-    background: rgba(231, 196, 107, 0.15);
-    color: var(--accent-primary);
-    padding: 0 4px;
-    border: 1px solid rgba(231, 196, 107, 0.3);
-    border-radius: 4px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-family: inherit;
-    font-size: inherit;
-  }
-
-  :global(.ocr-text .searchable-highlight:hover) {
-    background: var(--accent-primary);
-    color: #000;
-    box-shadow: 0 0 8px var(--accent-primary);
-  }
-
-  .empty-state-text {
-    color: var(--text-tertiary);
-    font-size: 13px;
-    text-align: center;
-    padding: 40px;
-    border: 1px dashed var(--border-subtle);
-    border-radius: 8px;
-  }
-
-  .lightbox {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.9);
-    z-index: 2000;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    backdrop-filter: blur(8px);
-    cursor: zoom-out;
-  }
-
-  .lightbox-content {
-    max-width: 90vw;
-    max-height: 85vh;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .lightbox-content img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    border-radius: 8px;
-    box-shadow: 0 0 40px rgba(0,0,0,0.5);
-  }
-
-  .lightbox-meta {
-    display: flex;
-    justify-content: space-between;
-    color: #fff;
-    font-size: 12px;
-    padding: 0 8px;
-  }
-
-  .case-section textarea {
-    width: 100%;
-    background: rgba(0,0,0,0.2);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-primary);
-    padding: 12px;
-    border-radius: 8px;
-    margin: 16px 0;
-    font-family: var(--font-sans);
-    resize: vertical;
-  }
-
-  .notice {
-    margin: 0 24px 24px;
-    padding: 12px 16px;
-    background: rgba(243, 77, 77, 0.1);
-    border: 1px solid var(--accent-danger);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 14px;
-  }
-  .asset-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 16px;
-    padding: 16px 0;
-  }
+  /* Forensic View Styles */
+  .forensic-view { padding: 32px; height: 100%; }
+  .forensic-grid { display: grid; grid-template-columns: 1fr 280px; gap: 40px; }
+  .f-main-col { display: flex; flex-direction: column; gap: 32px; }
+  .f-subhead { font-size: 12px; font-weight: 800; color: var(--text-secondary); margin-bottom: 16px; border-left: 2px solid var(--accent-primary); padding-left: 12px; }
   
-  .evidence-frame {
-    position: relative;
-    padding: 8px;
-    background: rgba(0,0,0,0.4);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-    cursor: pointer;
-    transition: var(--transition-fast);
-  }
-  
-  .evidence-frame:hover {
-    border-color: var(--accent-primary);
-    transform: translateY(-2px);
-  }
-  
-  .frame-scanner {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(to bottom, transparent, var(--accent-primary), transparent);
-    z-index: 5;
-    opacity: 0;
-    pointer-events: none;
-  }
-  
-  .evidence-frame:hover .frame-scanner {
-    animation: scanner-sweep 2s infinite linear;
-    opacity: 0.5;
-  }
-  
-  @keyframes scanner-sweep {
-    0% { top: 0; }
-    100% { top: 100%; }
-  }
-  
-  .evidence-frame img {
-    width: 100%;
-    height: 120px;
-    object-fit: cover;
-    border-radius: 2px;
-    display: block;
-  }
-  
-  .frame-meta {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 8px;
-    font-size: 10px;
-    letter-spacing: 0.05em;
-  }
-  
-  .meta-left {
-    display: flex;
-    gap: 6px;
-  }
-  
-  .file-tag {
-    color: var(--text-secondary);
-    font-weight: 700;
-  }
-  
-  .integrity-tag {
-    color: var(--accent-success);
-    opacity: 0.8;
-  }
-  
-  .file-size {
-    color: var(--text-tertiary);
-  }
-  
-  .empty-media {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 64px 0;
-    text-align: center;
-    gap: 24px;
-    color: var(--text-tertiary);
-    font-size: 13px;
-  }
-  
-  .radar-pulse {
-    width: 64px;
-    height: 64px;
-    border-radius: 50%;
-    border: 2px solid var(--accent-primary);
-    position: relative;
-    opacity: 0.2;
-    animation: radar-pulse 3s infinite;
-  }
-  
-  @keyframes radar-pulse {
-    0% { transform: scale(0.8); opacity: 0.5; }
-    100% { transform: scale(2); opacity: 0; }
-  }
+  .f-item { background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .f-item.hidden-layer { border-left: 4px solid var(--accent-primary); background: linear-gradient(90deg, rgba(255, 179, 0, 0.05) 0%, rgba(0,0,0,0) 100%); }
+  .f-item-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .f-type { font-size: 9px; font-weight: 900; color: var(--accent-primary); letter-spacing: 0.1em; }
+  .f-conf { font-size: 9px; color: var(--text-tertiary); }
+  .f-content { font-size: 13px; color: var(--text-primary); line-height: 1.5; font-family: var(--font-mono); }
+
+  .thought-log-card { background: #000; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
+  .t-header { background: rgba(255,255,255,0.03); padding: 8px 16px; display: flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 800; color: var(--text-tertiary); border-bottom: 1px solid var(--border-subtle); }
+  .t-body { padding: 16px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: var(--accent-primary); opacity: 0.8; white-space: pre-wrap; }
+
+  .f-stat-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); padding: 20px; border-radius: 8px; margin-bottom: 24px; }
+  .audit-status { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 14px; font-weight: 700; color: var(--text-primary); }
+
+  .r-profile-list { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+  .r-profile { padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .r-suspect { font-size: 12px; font-weight: 800; color: var(--accent-primary); display: block; margin-bottom: 4px; }
+  .r-desc { font-size: 11px; color: var(--text-tertiary); line-height: 1.4; margin: 0 0 8px 0; }
+  .r-bar { height: 2px; background: rgba(255,255,255,0.05); border-radius: 1px; }
+  .r-fill { height: 100%; background: var(--accent-primary); }
+
+  .raw-view { padding: 32px; height: 100%; }
+  .text-blob { font-family: var(--font-mono); font-size: 12px; line-height: 1.8; color: var(--text-secondary); white-space: pre-wrap; }
+
+  .media-view { padding: 32px; height: 100%; }
+  .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+  .asset-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+  .asset-card img { width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+  .asset-info { padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .a-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .a-type { font-size: 10px; color: var(--text-tertiary); }
+
+  .pending-intel { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 16px; }
+  .analyze-btn { background: var(--accent-primary); color: #000; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 800; cursor: pointer; }
+
+  .error-msg { display: flex; align-items: center; gap: 12px; background: rgba(243, 77, 77, 0.1); border: 1px solid rgba(243, 77, 77, 0.2); padding: 12px 24px; color: #ff4d4d; font-size: 13px; }
+  .error-msg button { background: none; border: none; color: #fff; text-decoration: underline; cursor: pointer; }
+
+  :global(.spin) { animation: spin 1s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>

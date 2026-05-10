@@ -56,9 +56,17 @@
 
     listen("analysis-progress", (event: any) => {
       const payload = event.payload;
-      processedCount = payload.current;
-      totalCount = payload.total;
-      currentRecordId = payload.record_id;
+      
+      // Auto-activate and open modal if an event comes in from elsewhere
+      if (payload.status === "starting" || payload.status === "processing" || payload.status === "analyzing" || payload.status === "thought") {
+          if (!isOpen) isOpen = true;
+          busy = true;
+          status = payload.status === "analyzing" ? "processing" : payload.status === "thought" ? "reasoning" : payload.status;
+      }
+      
+      processedCount = payload.current ?? processedCount;
+      totalCount = payload.total ?? totalCount;
+      currentRecordId = payload.record_id ?? currentRecordId;
       
       if (totalCount > 0) {
         progress = (processedCount / totalCount) * 100;
@@ -69,8 +77,16 @@
         busy = false;
         addLog("Neural Extraction Task Complete.", "success");
         if (onComplete) onComplete();
+      } else if (payload.status === "thought") {
+        addLog(`Initiating step-by-step reasoning for ${payload.record_id.substring(0, 8)}...`, "info");
+      } else if (payload.status === "failed") {
+        status = "failed";
+        busy = false;
+        addLog(`System Error: ${payload.error}`, "error");
+      } else if (payload.status === "record-failed") {
+        addLog(`Record ${payload.record_id.substring(0, 8)} failed: ${payload.error}`, "error");
       } else if (currentRecordId) {
-        addLog(`Processed record: ${currentRecordId.substring(0, 8)}...`, "info");
+        addLog(`Processing record: ${currentRecordId.substring(0, 8)}...`, "info");
       }
     }).then(u => unlisten = u);
 
@@ -122,11 +138,11 @@
                 <span class="v">{currentRecordId ? currentRecordId.substring(0, 12) + '...' : 'None'}</span>
               </div>
             </div>
-            <div class="info-card">
+            <div class="info-card" class:thinking={status === 'reasoning'}>
               <Terminal size={18} />
               <div class="val">
                 <span class="l">Status</span>
-                <span class="v">{status === 'processing' ? 'EXTRACTING' : status.toUpperCase()}</span>
+                <span class="v">{status === 'processing' ? 'EXTRACTING' : status === 'reasoning' ? 'THINKING' : status.toUpperCase()}</span>
               </div>
             </div>
             <button class="start-btn" onclick={startAnalysis} disabled={busy || status === 'completed'}>
@@ -319,7 +335,19 @@
   }
 
   .start-btn:hover:not(:disabled) { transform: scale(1.02); filter: brightness(1.1); }
-  .start-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .start_btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .info-card.thinking {
+    border-color: #f3c46b;
+    background: rgba(243, 196, 107, 0.05);
+    animation: pulse-thought 2s infinite;
+  }
+
+  @keyframes pulse-thought {
+    0% { box-shadow: 0 0 0 0 rgba(243, 196, 107, 0.2); }
+    70% { box-shadow: 0 0 0 10px rgba(243, 196, 107, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(243, 196, 107, 0); }
+  }
 
   .log-section {
     flex: 1;

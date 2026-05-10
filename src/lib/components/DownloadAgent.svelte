@@ -5,7 +5,10 @@
   import type { BulkDownloadReport, BulkDownloadStatus } from "$lib/types";
   import { addToast } from "$lib/toastStore";
 
-  let { onComplete } = $props<{ onComplete?: () => void }>();
+  let { onComplete, onAnalyze } = $props<{ 
+    onComplete?: () => void;
+    onAnalyze?: () => void;
+  }>();
 
   let activeJobId = $state<string | null>(null);
   let report = $state<BulkDownloadReport | null>(null);

@@ -1,12 +1,15 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
-  import { Folder, Trash2, ShieldCheck, Cpu, HardDrive } from "lucide-svelte";
+  import { Folder, Trash2, ShieldCheck, Cpu, HardDrive, Brain, Save } from "lucide-svelte";
   import { addToast } from "$lib/toastStore";
   import type { DatabaseStatus } from "$lib/types";
 
   let status = $state<DatabaseStatus | null>(null);
   let busy = $state<string | null>(null);
+
+  let agentSettings = $state({ auto_sync: true, auto_analyze: true });
+  let personaModifier = $state("");
 
   async function loadStatus() {
     try {
@@ -16,12 +19,43 @@
     }
   }
 
+  async function loadAppSettings() {
+    try {
+      const s = await invoke<any>("get_app_settings", { key: "ingestion_agent" });
+      if (s) agentSettings = s;
+      
+      const p = await invoke<any>("get_app_settings", { key: "intelligence_persona" });
+      if (typeof p === 'string') personaModifier = p;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function saveAgentSettings() {
+    try {
+      await invoke("set_app_settings", { key: "ingestion_agent", value: agentSettings });
+      addToast({ type: "success", message: "Agent Configuration Saved", duration: 2000 });
+    } catch (e) {
+      addToast({ type: "error", message: `Failed to save settings: ${e}` });
+    }
+  }
+
+  async function savePersona() {
+    busy = "persona";
+    try {
+        await invoke("set_app_settings", { key: "intelligence_persona", value: personaModifier });
+        addToast({ type: "success", message: "Intelligence Persona Updated", duration: 2000 });
+    } catch (e) {
+        addToast({ type: "error", message: `Failed to save persona: ${e}` });
+    } finally {
+        busy = null;
+    }
+  }
+
   async function clearCache() {
     if (!confirm("Are you sure? This will delete all downloaded evidence and analysis assets.")) return;
     busy = "clear";
     try {
-      // In a real app, this would be a command
-      // await invoke("clear_evidence_cache");
       addToast({ type: "success", message: "Intelligence cache cleared." });
       await loadStatus();
     } catch (e) {
@@ -31,7 +65,23 @@
     }
   }
 
-  onMount(loadStatus);
+  async function purgeSystem() {
+    if (!confirm("CRITICAL WARNING: This will permanently delete your entire database, all downloaded intelligence models, and all evidence artifacts. The application will restart to a fresh state. PROCEED?")) return;
+    busy = "purge";
+    try {
+      addToast({ type: "info", message: "Initiating absolute system purge...", duration: 0 });
+      await invoke("factory_reset");
+    } catch (e) {
+      addToast({ type: "error", message: `Purge failed: ${e}` });
+    } finally {
+      busy = null;
+    }
+  }
+
+  onMount(() => {
+      loadStatus();
+      loadAppSettings();
+  });
 
   function formatBytes(bytes: number) {
     if (bytes === 0) return "0 B";
@@ -42,16 +92,37 @@
   }
 </script>
 
-<div class="settings-container">
+<div class="settings-container custom-scrollbar">
   <header class="settings-head">
     <h2>Secure System Settings</h2>
     <p>Manage your local intelligence environment and forensic archives.</p>
   </header>
 
   <div class="settings-grid">
+    <!-- Intelligence Persona Modifier -->
+    <section class="settings-section glass-panel full-width">
+      <div class="s-header">
+        <Brain size={18} class="accent-icon" />
+        <h3>Intelligence Persona Directive</h3>
+      </div>
+      <div class="s-body">
+        <p class="section-desc">Inject custom instructions into Gemma 4's core reasoning engine. This modifier is applied to all forensic extractions.</p>
+        <textarea 
+            bind:value={personaModifier} 
+            placeholder="e.g., 'Focus heavily on technical sensor data and skepticism regarding atmospheric phenomena...'"
+            class="persona-input"
+        ></textarea>
+      </div>
+      <footer class="s-footer">
+        <button class="s-btn primary" onclick={savePersona} disabled={busy === 'persona'}>
+          <Save size={14} /> Update Core Directive
+        </button>
+      </footer>
+    </section>
+
     <section class="settings-section glass-panel">
       <div class="s-header">
-        <HardDrive size={18} class="accent" />
+        <HardDrive size={18} class="accent-icon" />
         <h3>Data Environment</h3>
       </div>
       <div class="s-body">
@@ -66,7 +137,7 @@
         <div class="data-item">
           <span class="d-label">Storage Usage</span>
           <div class="usage-bar">
-            <div class="usage-fill" style="width: 15%"></div>
+            <div class="usage-fill" style="width: {Math.min(100, (status?.artifact_bytes || 0) / 1024 / 1024 / 10)}%"></div>
           </div>
           <span class="d-val">{formatBytes(status?.artifact_bytes || 0)} across {status?.artifact_count || 0} local assets</span>
         </div>
@@ -81,39 +152,52 @@
 
     <section class="settings-section glass-panel">
       <div class="s-header">
-        <ShieldCheck size={18} class="accent" />
-        <h3>Security & Integrity</h3>
+        <ShieldCheck size={18} class="accent-icon" />
+        <h3>Automation & Pipeline</h3>
       </div>
       <div class="s-body">
         <div class="toggle-item">
           <div class="t-info">
-            <strong>Automatic Redaction Scan</strong>
-            <span>Run redaction scoring on every newly ingested document.</span>
+            <strong>Auto-Retrieval Pipeline</strong>
+            <span>Automatically download official sources when synced.</span>
           </div>
-          <div class="toggle active"></div>
+          <button 
+            class="toggle" aria-label="Toggle" 
+            class:active={agentSettings.auto_sync} 
+            onclick={() => { agentSettings.auto_sync = !agentSettings.auto_sync; saveAgentSettings(); }}
+          ></button>
         </div>
         <div class="toggle-item">
           <div class="t-info">
-            <strong>Hardware Isolation</strong>
-            <span>Prioritize local neural execution over external APIs.</span>
+            <strong>Neural Post-Processing</strong>
+            <span>Automatically initiate Gemma 4 extraction after download.</span>
           </div>
-          <div class="toggle active"></div>
+          <button 
+            class="toggle" aria-label="Toggle" 
+            class:active={agentSettings.auto_analyze} 
+            onclick={() => { agentSettings.auto_analyze = !agentSettings.auto_analyze; saveAgentSettings(); }}
+          ></button>
         </div>
       </div>
     </section>
 
     <section class="settings-section glass-panel">
       <div class="s-header">
-        <Cpu size={18} class="accent" />
+        <Cpu size={18} class="accent-icon" />
         <h3>Hardware Optimization</h3>
       </div>
       <div class="s-body">
-        <p class="section-desc">The Intelligence Engine automatically optimizes for your hardware tier. Currently running in <strong>Metal Accelerated</strong> mode.</p>
+        <p class="section-desc">The Intelligence Engine automatically optimizes for your hardware tier. Currently running in <strong>Accelerated</strong> mode.</p>
         <div class="data-item">
           <span class="d-label">Neural Model Cache</span>
-          <span class="d-val">4.6 GB (Gemma 4B + BGE)</span>
+          <span class="d-val">{(status?.artifact_bytes || 0) > 0 ? 'Active' : 'Standby'}</span>
         </div>
       </div>
+      <footer class="s-footer">
+          <button class="s-btn danger-outline" onclick={purgeSystem} disabled={busy === 'purge'}>
+              <Trash2 size={14} /> Absolute System Purge
+          </button>
+      </footer>
     </section>
   </div>
 </div>
@@ -156,6 +240,10 @@
     flex-direction: column;
   }
 
+  .settings-section.full-width {
+      grid-column: 1 / -1;
+  }
+
   .s-header {
     padding: 24px;
     display: flex;
@@ -167,8 +255,8 @@
   .s-header h3 {
     font-size: 16px;
     font-weight: 600;
+    margin: 0;
   }
-
 
   .s-body {
     padding: 24px;
@@ -182,6 +270,26 @@
     font-size: 13px;
     color: var(--text-secondary);
     line-height: 1.6;
+    margin: 0;
+  }
+
+  .persona-input {
+      width: 100%;
+      min-height: 120px;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 16px;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+  }
+
+  .persona-input:focus {
+      border-color: var(--accent-primary);
   }
 
   .data-item {
@@ -253,6 +361,9 @@
     border-radius: 10px;
     position: relative;
     cursor: pointer;
+    border: none;
+    padding: 0;
+    transition: background 0.2s;
   }
 
   .toggle.active {
@@ -288,8 +399,15 @@
     padding: 8px 16px;
     border-radius: var(--radius-sm);
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .s-btn.primary {
+      background: var(--accent-primary);
+      color: #000;
   }
 
   .s-btn.danger {
@@ -298,7 +416,15 @@
     border: 1px solid rgba(243, 77, 77, 0.2);
   }
 
+  .s-btn.danger-outline {
+      background: transparent;
+      color: var(--accent-danger);
+      border: 1px solid rgba(243, 77, 77, 0.4);
+  }
+
   .s-btn:hover {
     filter: brightness(1.1);
+    transform: translateY(-1px);
   }
+
 </style>

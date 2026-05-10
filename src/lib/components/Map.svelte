@@ -152,7 +152,19 @@
   });
 
   $effect(() => {
-    updateMarkers(records);
+    if (map) {
+        // High-fidelity invalidation when records or component state changes
+        map.invalidateSize();
+        updateMarkers(records);
+    }
+  });
+
+  $effect(() => {
+    // Aggressive re-render when the container visibility might have shifted
+    const interval = setInterval(() => {
+        if (map) map.invalidateSize();
+    }, 1000);
+    return () => clearInterval(interval);
   });
 
   onDestroy(() => {

@@ -18,34 +18,40 @@
     Standard: [
       { id: "bge-small", name: "BGE Small v1.5", filename: "bge-small-en-v1.5.onnx", url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx" },
       { id: "tokenizer", name: "BGE Tokenizer", filename: "tokenizer.json", url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json" },
-      { id: "gemma-2b", name: "Gemma 4 2B IT", filename: "gemma-4-2b-it.gguf", url: "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf" }
+      { id: "gemma-4-e2b", name: "Gemma 4 E2B IT", filename: "gemma-4-e2b-it.gguf", url: "https://huggingface.co/google/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-e2b-it.Q4_K_M.gguf" }
     ],
     Elite: [
       { id: "bge-small", name: "BGE Small v1.5", filename: "bge-small-en-v1.5.onnx", url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx" },
       { id: "tokenizer", name: "BGE Tokenizer", filename: "tokenizer.json", url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json" },
-      { id: "gemma-4b", name: "Gemma 4 4B IT", filename: "gemma-4-4b-it.gguf", url: "https://huggingface.co/google/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it.Q4_K_M.gguf" }
+      { id: "gemma-4-e4b", name: "Gemma 4 E4B IT", filename: "gemma-4-e4b-it.gguf", url: "https://huggingface.co/google/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-e4b-it.Q4_K_M.gguf" }
     ]
   };
 
   onMount(() => {
-    // 1. Check Diagnostics
+    // 1. Check Diagnostics and Provisioning status
     (async () => {
-      specs = await invoke("get_hardware_diagnostics");
-      missingModels = await invoke("check_model_status");
-      
-      selectedTier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
+      try {
+        specs = await invoke("get_hardware_diagnostics");
+        missingModels = await invoke("check_model_status");
+        
+        selectedTier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
 
-      // Check if anything is actually missing
-      const anyMissing = Object.values(missingModels).some(v => !v);
-      if (!anyMissing) {
-        onComplete();
-        return;
-      }
+        // Check if anything is actually missing
+        const anyMissing = Object.values(missingModels).some(v => !v);
+        if (!anyMissing) {
+            // Nothing to provision, go straight to complete
+            onComplete();
+            return;
+        }
 
-      setTimeout(() => {
+        // We have work to do, move to selection
         step = "selection";
-        statusText = "Hardware Analysis Complete.";
-      }, 1500);
+        statusText = "Environment scan complete.";
+      } catch (e) {
+        console.error("Initialization probe failed", e);
+        statusText = "Hardware probe failed. Using standard profile.";
+        step = "selection";
+      }
     })();
 
     // Listen for progress
@@ -119,8 +125,8 @@
               <Cpu size={24} />
               <div class="t-title">Standard Intel</div>
             </div>
-            <p>Gemma 2B + BGE Small. Balanced performance for mobile workstations.</p>
-            <div class="tier-meta">1.8 GB Total</div>
+            <p>Gemma 4 E2B + BGE Small. Optimized effective parameter architecture for workstation performance.</p>
+            <div class="tier-meta">3.2 GB Total</div>
           </button>
 
           <button 
@@ -133,8 +139,8 @@
               <Brain size={24} />
               <div class="t-title">Elite Intel</div>
             </div>
-            <p>Gemma 4B + BGE Small. Full forensic capabilities with deeper reasoning.</p>
-            <div class="tier-meta">3.0 GB Total</div>
+            <p>Gemma 4 E4B + BGE Small. Advanced reasoning with native multimodal capabilities.</p>
+            <div class="tier-meta">5.0 GB Total</div>
           </button>
         </div>
 
@@ -151,7 +157,7 @@
       </div>
       
       <div class="sys-reqs">
-        <span>Gemma {selectedTier === 'Elite' ? '4B' : '2B'} IT</span>
+        <span>Gemma {selectedTier === 'Elite' ? 'E4B' : 'E2B'} IT</span>
         <span>{progress}%</span>
       </div>
     {/if}
