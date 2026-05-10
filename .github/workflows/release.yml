@@ -114,11 +114,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
-          args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
           releaseName: "PURSUE Data Analyzer ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: false
+          args: ${{ matrix.args }}
 
   publish-updater:
     name: publish-updater

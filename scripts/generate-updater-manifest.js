@@ -15,9 +15,34 @@ const pubDate = new Date().toISOString();
 async function generate() {
   console.log(`Generating manifest for version ${version}...`);
 
-  // Use GH CLI to list assets
-  const assetsJson = execSync(`gh release view ${tagName} --json assets`).toString();
-  const { assets } = JSON.parse(assetsJson);
+  let assets = [];
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    console.log(`Attempt ${attempts}: Fetching release assets for ${tagName}...`);
+    const assetsJson = execSync(`gh release view ${tagName} --json assets`).toString();
+    const data = JSON.parse(assetsJson);
+    assets = data.assets || [];
+    
+    console.log(`Debug: Found ${assets.length} total assets.`);
+    assets.forEach(a => console.log(`  - ${a.name}`));
+
+    // Check if we have both installers and signatures
+    const hasSigs = assets.some(a => a.name.endsWith('.sig'));
+    const hasInstallers = assets.some(a => a.name.endsWith('.tar.gz') || a.name.endsWith('.msi') || a.name.endsWith('.AppImage'));
+
+    if (hasSigs && hasInstallers) {
+      console.log('Found both installers and signatures.');
+      break;
+    }
+
+    if (attempts < maxAttempts) {
+      console.log('Missing signatures or installers. Waiting 30 seconds...');
+      await new Promise(resolve => setTimeout(resolve, 30000));
+    }
+  }
 
   const manifest = {
     version,
