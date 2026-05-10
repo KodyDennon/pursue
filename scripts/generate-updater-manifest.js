@@ -49,22 +49,35 @@ async function generate() {
         // PURSUE_0.2.2_x64_en-US.msi.zip.sig -> windows-x86_64
         // PURSUE_0.2.2_amd64.deb.sig -> linux-x86_64
         
-        let platform = null;
-        if (name.includes('aarch64.app.tar.gz')) platform = 'darwin-aarch64';
-        else if (name.includes('x64.app.tar.gz')) platform = 'darwin-x86_64';
-        else if (name.includes('x64') && name.includes('.msi')) platform = 'windows-x86_64';
-        else if (name.includes('amd64.deb') || name.includes('x86_64.AppImage')) platform = 'linux-x86_64';
-        else if (name.includes('aarch64.deb')) platform = 'linux-aarch64';
+        let platforms = [];
+        if (name.includes('aarch64.app.tar.gz')) {
+          platforms = ['darwin-aarch64', 'darwin-aarch64-app'];
+        } else if (name.includes('x64.app.tar.gz')) {
+          platforms = ['darwin-x86_64', 'darwin-x86_64-app'];
+        } else if (name.includes('x64') && (name.includes('.msi') || name.includes('.nsis'))) {
+          platforms = ['windows-x86_64'];
+        } else if (name.includes('amd64.deb') || name.includes('x86_64.AppImage')) {
+          platforms = ['linux-x86_64'];
+        } else if (name.includes('aarch64.deb') || name.includes('aarch64.AppImage')) {
+          platforms = ['linux-aarch64'];
+        }
 
-        if (platform) {
+        for (const platform of platforms) {
           console.log(`Found signature for ${platform}: ${name}`);
           manifest.platforms[platform] = {
             signature,
             url: targetAsset.url
           };
         }
+      } else {
+        console.warn(`Could not find target asset for signature: ${name}`);
       }
     }
+  }
+
+  if (Object.keys(manifest.platforms).length === 0) {
+    console.error('No platforms found in release assets!');
+    process.exit(1);
   }
 
   fs.writeFileSync('latest.json', JSON.stringify(manifest, null, 2));
