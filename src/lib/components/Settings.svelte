@@ -1,7 +1,9 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { getVersion } from "@tauri-apps/api/app";
   import { onMount } from "svelte";
-  import { Folder, Trash2, ShieldCheck, Cpu, HardDrive, Brain, Save } from "lucide-svelte";
+  import { Folder, Trash2, ShieldCheck, Cpu, HardDrive, Brain, Save, RefreshCcw } from "lucide-svelte";
+  import { checkForUpdates } from "$lib/updater";
   import { addToast } from "$lib/toastStore";
   import type { DatabaseStatus } from "$lib/types";
 
@@ -10,6 +12,7 @@
 
   let agentSettings = $state({ auto_sync: true, auto_analyze: true });
   let personaModifier = $state("");
+  let appVersion = $state("...");
 
   async function loadStatus() {
     try {
@@ -78,9 +81,10 @@
     }
   }
 
-  onMount(() => {
+  onMount(async () => {
       loadStatus();
       loadAppSettings();
+      appVersion = await getVersion();
   });
 
   function formatBytes(bytes: number) {
@@ -179,6 +183,26 @@
           ></button>
         </div>
       </div>
+    </section>
+
+    <section class="settings-section glass-panel">
+      <div class="s-header">
+        <RefreshCcw size={18} class="accent-icon" />
+        <h3>System Intelligence</h3>
+      </div>
+      <div class="s-body">
+        <div class="data-item">
+          <span class="d-label">Core Engine Version</span>
+          <span class="d-val">v{appVersion}</span>
+        </div>
+        <p class="section-desc">Maintain forensic parity. Updates synchronize neural weights, extraction patterns, and secure communication protocols.</p>
+      </div>
+      <footer class="s-footer">
+        <button class="s-btn primary" onclick={() => checkForUpdates(false)}>
+          <RefreshCcw size={14} />
+          Synchronize System Core
+        </button>
+      </footer>
     </section>
 
     <section class="settings-section glass-panel">

@@ -9,6 +9,8 @@
     "opener:allow-open-path",
     "dialog:default",
     "fs:default",
-    "fs:allow-appdata-read"
+    "fs:allow-appdata-read",
+    "updater:default",
+    "process:allow-relaunch"
   ]
 }

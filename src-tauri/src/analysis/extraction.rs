@@ -16,6 +16,8 @@ static LLAMA_BACKEND: Lazy<Result<LlamaBackend, String>> = Lazy::new(|| {
     LlamaBackend::init().map_err(|e| e.to_string())
 });
 
+use crate::commands::AppState;
+
 pub struct IntelligenceExtractor {
     backend: &'static LlamaBackend,
 }
@@ -65,7 +67,7 @@ impl IntelligenceExtractor {
         let text = text.to_string();
         let handle = app.clone();
         let rid = record_id.to_string();
-        let db = app.state::<SqlitePool>().inner().clone();
+        let db = app.state::<AppState>().db.clone();
 
         // LLM inference is heavy, run on blocking thread
         tokio::task::spawn_blocking(move || {

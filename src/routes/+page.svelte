@@ -128,7 +128,7 @@ onMount(() => {
             const specs = await invoke<any>("get_hardware_diagnostics");
 
             const tier = specs.recommended_tier === "Elite" ? "Elite" : "Standard";
-            const requiredIds = MODELS[tier].map(m => m.id);
+            const requiredIds = MODELS[tier];
 
             const allPresent = requiredIds.every(id => modelStatus[id]);
             if (allPresent) {

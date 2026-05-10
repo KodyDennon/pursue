@@ -1,6 +1,6 @@
 [package]
 name = "pursue-data-analyzer"
-version = "0.2.2"
+version = "0.2.3"
 description = "Local-first PURSUE/WAR.gov OSINT evidence analyzer"
 authors = ["PURSUE Data Analyzer contributors"]
 edition = "2021"
@@ -59,6 +59,8 @@ scraper = "0.26.0"
 log = "0.4.29"
 once_cell = "1.21.4"
 futures = "0.3.32"
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-process = "2.3.1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tokenizers = "0.23"

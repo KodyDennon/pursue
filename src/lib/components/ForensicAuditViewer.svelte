@@ -14,7 +14,7 @@
   let hoveredId = $state<string | null>(null);
 
   const currentImage = $derived(images[selectedImageIdx]);
-  const activeForensics = $derived(forensics.filter(f => f.layer_type !== 'metadata_leak'));
+  const activeForensics = $derived(forensics.filter((f: RecordForensics) => f.layer_type !== 'metadata_leak'));
 
   function getBoundingBox(item: RecordForensics) {
     if (!item.bounding_box_json) return null;
@@ -54,6 +54,8 @@
                   {#if box}
                     <g 
                       class="discovery-node" 
+                      role="graphics-symbol"
+                      aria-label="Forensic Discovery"
                       class:hovered={hoveredId === item.id}
                       onmouseenter={() => hoveredId = item.id}
                       onmouseleave={() => hoveredId = null}
@@ -93,9 +95,12 @@
         {#each activeForensics as item}
           <div 
             class="discovery-card" 
+            role="button"
+            tabindex="0"
             class:active={hoveredId === item.id}
             onmouseenter={() => hoveredId = item.id}
             onmouseleave={() => hoveredId = null}
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (hoveredId = item.id)}
           >
             <div class="d-type-tag">{item.layer_type.replace('_', ' ').toUpperCase()}</div>
             <p class="d-snippet">{item.content}</p>

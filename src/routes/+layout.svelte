@@ -5,6 +5,7 @@
   import AppDock from "$lib/components/AppDock.svelte";
   import GlobalSearch from "$lib/components/GlobalSearch.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
+  import { checkForUpdates } from "$lib/updater";
   
   let { children } = $props();
 
@@ -13,6 +14,11 @@
     activeTheme.subscribe($activeTheme => {
         // Handled by the store itself, but subscribe ensures it binds
     });
+
+    // Check for system updates silently on startup
+    setTimeout(() => {
+      checkForUpdates(true);
+    }, 3000); // Wait 3s to let system settle
   });
 </script>
 
