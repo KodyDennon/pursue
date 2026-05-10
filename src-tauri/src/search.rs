@@ -26,6 +26,7 @@ pub fn init_search_engine(models_path: PathBuf) {
     let _ = MODELS_DIR.set(models_path);
 }
 
+#[cfg(not(target_os = "windows"))]
 fn get_models_dir() -> PathBuf {
     MODELS_DIR
         .get()
