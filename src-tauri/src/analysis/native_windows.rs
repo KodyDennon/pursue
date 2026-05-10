@@ -115,8 +115,7 @@ $result = Await-WinRt ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrR
 $text = $result.Text
 $stream.Dispose()
 $text
-"#;
-
+"#
     };
 
     let output = Command::new("powershell.exe")

@@ -149,10 +149,10 @@ mod macos_impl {
     }
 }
 
-pub async fn extract_text_macos<P: AsRef<Path>>(path: P) -> Result<String> {
+pub async fn extract_text_macos<P: AsRef<Path>>(_path: P) -> Result<String> {
     #[cfg(target_os = "macos")]
     {
-        let path = path.as_ref().to_path_buf();
+        let path = _path.as_ref().to_path_buf();
         tokio::task::spawn_blocking(move || macos_impl::extract_text(&path)).await?
     }
     #[cfg(not(target_os = "macos"))]

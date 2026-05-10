@@ -44,9 +44,11 @@ impl ThumbnailManager {
         }).await?
     }
 
-    async fn generate_pdf_thumbnail(&self, input: &Path, output: &Path) -> Result<()> {
+    async fn generate_pdf_thumbnail(&self, _input: &Path, _output: &Path) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
+            let input = _input;
+            let output = _output;
             // Use qlmanage for high-quality native thumbnails on Mac
             let output_dir = output.parent().ok_or_else(|| anyhow!("no parent dir"))?;
             let status = Command::new("qlmanage")
