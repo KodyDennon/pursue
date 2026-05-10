@@ -57,9 +57,13 @@
     error = null;
     try {
       analysis = await invoke<AnalysisReport>("analyze_record", { id: record.id });
-      await onChanged();
+      // Crucial: Parent needs to reload to update record.intelligence_json
+      if (onChanged) await onChanged();
+      // Re-trigger derivation or local state update
+      addToast({ type: "success", message: "Intelligence Extraction Complete", duration: 3000 });
     } catch (e) {
       error = String(e);
+      addToast({ type: "error", message: `Gemma 4 Error: ${e}`, duration: 5000 });
     } finally {
       busy = null;
     }
@@ -67,7 +71,11 @@
 
   async function openSource() {
     if (!record.document_url) return;
-    await openUrl(record.document_url);
+    try {
+        await openUrl(record.document_url);
+    } catch (e) {
+        addToast({ type: "error", message: `Failed to open source: ${e}` });
+    }
   }
 
   async function revealLocal() {
@@ -78,6 +86,7 @@
       await openPath(path);
     } catch (e) {
       error = String(e);
+      addToast({ type: "error", message: `System Denied Access: ${e}` });
     } finally {
       busy = null;
     }

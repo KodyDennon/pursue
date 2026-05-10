@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { convertFileSrc } from "@tauri-apps/api/core";
   import type { RecordSummary } from "$lib/types";
   import { FileText, MapPin, Calendar, CheckCircle2, Clock } from "lucide-svelte";
 
@@ -30,11 +31,21 @@
         onclick={() => onSelect(record)}
       >
         <div class="card-glow"></div>
-        <header class="card-header">
-          <div class="type-icon">
-            <FileText size={16} />
+        
+        {#if record.thumbnail_path}
+          <div class="card-preview">
+            <img src={convertFileSrc(record.thumbnail_path)} alt="Preview" />
+            <div class="preview-overlay"></div>
           </div>
-          <span class="agency-tag">{record.agency || "Unknown"}</span>
+        {/if}
+
+        <header class="card-header">
+          {#if !record.thumbnail_path}
+            <div class="type-icon">
+              <FileText size={16} />
+            </div>
+          {/if}
+          <span class="agency-tag">{record.agency || "AARO_OFFICIAL"}</span>
           <div class="status-indicator" class:completed={record.analysis_status === 'completed'}>
             {#if record.analysis_status === 'completed'}
               <CheckCircle2 size={12} />
@@ -88,10 +99,8 @@
     background: rgba(255,255,255,0.02);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
-    padding: 20px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
     text-align: left;
     position: relative;
     overflow: hidden;
@@ -119,20 +128,50 @@
     background: radial-gradient(circle at 50% 0%, rgba(231, 196, 107, 0.05), transparent 70%);
     opacity: 0;
     transition: opacity 0.3s ease;
+    pointer-events: none;
   }
 
   .evidence-card:hover .card-glow { opacity: 1; }
+
+  .card-preview {
+    width: 100%;
+    height: 120px;
+    background: #000;
+    overflow: hidden;
+    position: relative;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .card-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.8;
+    transition: transform 0.4s ease;
+  }
+
+  .evidence-card:hover .card-preview img {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+
+  .preview-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.6));
+  }
 
   .card-header {
     display: flex;
     align-items: center;
     gap: 12px;
+    padding: 16px 20px 0;
   }
 
   .type-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
     background: rgba(255,255,255,0.05);
     display: flex;
     align-items: center;
@@ -141,7 +180,7 @@
   }
 
   .agency-tag {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--text-tertiary);
     text-transform: uppercase;
@@ -153,10 +192,10 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: 10px;
+    font-size: 9px;
     text-transform: uppercase;
     font-weight: 700;
-    padding: 2px 8px;
+    padding: 2px 6px;
     border-radius: 4px;
     background: rgba(255,255,255,0.05);
     color: var(--text-tertiary);
@@ -167,8 +206,12 @@
     color: var(--accent-success);
   }
 
+  .card-body {
+    padding: 12px 20px 20px;
+  }
+
   .card-body h3 {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
     margin: 0;
     color: var(--text-primary);
@@ -191,7 +234,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-secondary);
   }
 
@@ -200,17 +243,18 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-top: 16px;
+    padding: 12px 20px;
+    background: rgba(255,255,255,0.01);
     border-top: 1px solid rgba(255,255,255,0.03);
   }
 
   .file-info {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-tertiary);
   }
 
   .intel-tag {
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 800;
     letter-spacing: 0.1em;
     padding: 2px 6px;
@@ -226,4 +270,3 @@
     box-shadow: 0 0 10px rgba(231, 196, 107, 0.3);
   }
 </style>
-

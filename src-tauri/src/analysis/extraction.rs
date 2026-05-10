@@ -69,9 +69,23 @@ impl IntelligenceExtractor {
                 .map_err(|e| anyhow!("new_context failed: {:?}", e))?;
 
             let prompt = format!(
-                "<start_of_turn>user\nExtract structured intelligence from this text as JSON. \
-                Include: incident_date, location, agencies, object_description, pilot_observations, redaction_summary. \
-                Text: {}\n<end_of_turn>\n<start_of_turn>model\n",
+                "<start_of_turn>user\n\
+                Role: Senior OSINT Intelligence Analyst.\n\
+                Task: Perform Forensic Intelligence Extraction from the provided document text.\n\
+                Requirement: Output ONLY valid JSON matching this exact schema:\n\
+                {{\n\
+                  \"incident_date\": \"YYYY-MM-DD or best estimate\",\n\
+                  \"location\": \"Specific city, state, or region\",\n\
+                  \"agencies\": [\"List of government or military bodies mentioned\"],\n\
+                  \"object_description\": \"Detailed physical description of the craft or phenomenon\",\n\
+                  \"pilot_observations\": \"Direct testimony or sensor data notes\",\n\
+                  \"redaction_summary\": \"Note any significant blacked-out or withheld sections\",\n\
+                  \"intelligence_score\": 0.0 to 1.0\n\
+                }}\n\n\
+                Text Context:\n\
+                {}\n\
+                <end_of_turn>\n\
+                <start_of_turn>model\n",
                 text
             );
 
@@ -88,7 +102,7 @@ impl IntelligenceExtractor {
             let mut n_cur = tokens.len() as i32;
             let mut decoder = encoding_rs::UTF_8.new_decoder();
 
-            for _ in 0..512 {
+            for _ in 0..1024 { // Increased token limit for depth
                 let token = sampler.sample(&ctx, n_cur - 1);
                 sampler.accept(token);
 

@@ -13,6 +13,7 @@
   import EvidenceVault from "$lib/components/EvidenceVault.svelte";
   import DownloadAgent from "$lib/components/DownloadAgent.svelte";
   import Settings from "$lib/components/Settings.svelte";
+  import AnalysisModal from "$lib/components/AnalysisModal.svelte";
   import type { CaseSummary, DatabaseStatus, RecordSummary } from "$lib/types";
   import { Loader2 } from "lucide-svelte";
   import { addToast, updateToast } from "$lib/toastStore";
@@ -30,6 +31,7 @@
   let busy = $state<string | null>(null);
   let initializing = $state(true);
   let viewMode = $state<"grid" | "cards" | "list">("grid");
+  let analysisModalOpen = $state(false);
   let sidebarWidth = $state(540);
   let isResizing = $state(false);
 
@@ -88,6 +90,10 @@
     const toastId = addToast({ type: "loading", message: "Syncing WAR.gov Database...", duration: 0 });
     try {
       await invoke("sync_official_source");
+      const removed = await invoke<number>("cleanup_duplicates");
+      if (removed > 0) {
+        addToast({ type: "info", message: `Data integrity: Merged ${removed} duplicate records.`, duration: 3000 });
+      }
       await loadInitialData();
       updateToast(toastId, { type: "info", message: "Sync complete! Downloading missing records...", duration: 3000 });
       
@@ -197,6 +203,7 @@
           onLoad={loadInitialData}
           onSelect={(r: RecordSummary) => (selectedRecord = r)}
           onSync={sync}
+          onAnalyze={() => (analysisModalOpen = true)}
           bind:busy={busy}
         />
       </div>
@@ -204,9 +211,9 @@
 
     {#if databaseStatus}
       <div class="stats-bar">
-        <span class="stat">Total Records: <strong>{databaseStatus.total_records}</strong></span>
-        <span class="stat">Vector DB Size: <strong>{formatBytes(databaseStatus.artifact_bytes)}</strong></span>
-        <span class="stat">Local DB: <strong>Online</strong></span>
+        <span class="stat">Total Records: <strong>{databaseStatus.total_count}</strong></span>
+        <span class="stat">Vault Storage: <strong>{formatBytes(databaseStatus.total_size)}</strong></span>
+        <span class="stat">Database: <strong>Online</strong></span>
       </div>
     {/if}
 
@@ -303,6 +310,8 @@
       </div>
     </footer>
   </div>
+
+  <AnalysisModal bind:isOpen={analysisModalOpen} onComplete={loadInitialData} />
 {/if}
 
 <style>

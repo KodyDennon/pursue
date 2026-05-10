@@ -118,6 +118,8 @@ export interface DatabaseStatus {
   latest_snapshot_url: string | null;
   latest_snapshot_records: number | null;
   active_download_jobs: number;
+  total_count?: number;
+  total_size?: number;
 }
 
 export interface ManualImportRequest {

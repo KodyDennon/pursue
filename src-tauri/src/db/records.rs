@@ -30,13 +30,13 @@ pub async fn list(
             r.content_hash,
             r.removed_from_source_at,
             a.sha256 AS artifact_sha256,
-            a.byte_size AS artifact_size,
+            COALESCE(a.byte_size, 0) AS artifact_size,
             COALESCE(ar.status, r.analysis_status) AS analysis_status,
             r.intelligence_json,
             r.redaction_score,
             r.analysis_error,
             COUNT(re.entity_id) AS entity_count,
-            (SELECT local_path FROM record_assets WHERE record_id = r.id AND asset_type = 'image' LIMIT 1) AS thumbnail_path
+            COALESCE(r.thumbnail_path, (SELECT local_path FROM record_assets WHERE record_id = r.id AND asset_type = 'image' LIMIT 1)) AS thumbnail_path
         FROM records r
         LEFT JOIN artifacts a ON a.record_id = r.id
         LEFT JOIN analysis_results ar ON ar.record_id = r.id

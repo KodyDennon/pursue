@@ -76,7 +76,8 @@ pub fn run() {
             verify_vault_integrity,
             get_latest_download_job,
             get_app_settings,
-            set_app_settings
+            set_app_settings,
+            cleanup_duplicates
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

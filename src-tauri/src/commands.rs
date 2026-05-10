@@ -273,8 +273,26 @@ pub async fn analyze_record(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AnalysisReport, String> {
+    use tauri::Emitter;
     let manager = AnalysisManager::new(state.db.clone(), state.library.clone());
-    manager.analyze_record(&app_handle, &id).await.map_err(to_error)
+    
+    let _ = app_handle.emit("analysis-progress", serde_json::json!({
+        "current": 0,
+        "total": 1,
+        "status": "starting",
+        "record_id": id
+    }));
+
+    let result = manager.analyze_record(&app_handle, &id).await.map_err(to_error)?;
+    
+    let _ = app_handle.emit("analysis-progress", serde_json::json!({
+        "current": 1,
+        "total": 1,
+        "status": "completed",
+        "record_id": id
+    }));
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -903,6 +921,60 @@ pub async fn set_app_settings(key: String, value: serde_json::Value, state: Stat
     .await
     .map_err(to_error)?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn cleanup_duplicates(state: State<'_, AppState>) -> Result<usize, String> {
+    let pool = state.db.clone();
+    
+    // Find records that have the same document_url but different stable_keys
+    // and keep the one that is 'completed' or has the longest summary.
+    let duplicates = sqlx::query(
+        r#"
+        SELECT document_url, COUNT(*) as c
+        FROM records
+        WHERE document_url IS NOT NULL AND source_type = 'official'
+        GROUP BY document_url
+        HAVING c > 1
+        "#
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(to_error)?;
+
+    let mut removed = 0;
+    for dup in duplicates {
+        use sqlx::Row;
+        let url: String = dup.get("document_url");
+        
+        let mut group = sqlx::query("SELECT id, analysis_status, stable_key FROM records WHERE document_url = ?")
+            .bind(&url)
+            .fetch_all(&pool)
+            .await
+            .map_err(to_error)?;
+            
+        // Sort: completed first, then those with complex stable keys
+        group.sort_by(|a, b| {
+            let a_status: Option<String> = a.get("analysis_status");
+            let b_status: Option<String> = b.get("analysis_status");
+            let a_key: String = a.get("stable_key");
+            let b_key: String = b.get("stable_key");
+            
+            let a_score = if a_status.as_deref() == Some("completed") { 10 } else { 0 } + if a_key.contains("|title:") { 1 } else { 0 };
+            let b_score = if b_status.as_deref() == Some("completed") { 10 } else { 0 } + if b_key.contains("|title:") { 1 } else { 0 };
+            
+            b_score.cmp(&a_score)
+        });
+        
+        let _keep_id: String = group[0].get("id");
+        for record in group.iter().skip(1) {
+            let id: String = record.get("id");
+            sqlx::query("DELETE FROM records WHERE id = ?").bind(&id).execute(&pool).await.map_err(to_error)?;
+            removed += 1;
+        }
+    }
+    
+    Ok(removed)
 }
 
 fn to_error(error: impl std::fmt::Display) -> String {

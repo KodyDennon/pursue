@@ -3,14 +3,15 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { addToast, updateToast } from "$lib/toastStore";
   import type { RecordSummary } from "$lib/types";
-  import { Loader2, Grid, LayoutList, LayoutGrid, X, Globe, RefreshCcw, FilePlus, Zap } from "lucide-svelte";
+  import { Loader2, Grid, LayoutList, LayoutGrid, X, Globe, RefreshCcw, FilePlus, Zap, Brain } from "lucide-svelte";
   import { activeView } from "$lib/store";
 
-  let { query = $bindable(""), onLoad, onSelect, onSync, busy = $bindable(null), viewMode = $bindable("grid") } = $props<{
+  let { query = $bindable(""), onLoad, onSelect, onSync, onAnalyze, busy = $bindable(null), viewMode = $bindable("grid") } = $props<{
     query: string;
     onLoad: () => Promise<void>;
     onSelect: (record: RecordSummary) => void;
     onSync: () => Promise<void>;
+    onAnalyze: () => void;
     busy?: string | null;
     viewMode: "grid" | "cards" | "list";
   }>();
@@ -123,6 +124,11 @@
         <RefreshCcw size={16} />
       {/if}
       <span>Sync</span>
+    </button>
+    
+    <button class="action-btn" onclick={onAnalyze} title="Neural Deep Scan">
+      <Brain size={16} />
+      <span>Analyze</span>
     </button>
     
     <button class="action-btn primary" onclick={importFile} disabled={busy === 'import'} title="Ingest Local File">

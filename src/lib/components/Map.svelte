@@ -90,31 +90,64 @@
   }
 
   onMount(() => {
-    map = L.map(mapElement, {
-      center: [20, 0],
-      zoom: 2,
-      zoomControl: false,
-      attributionControl: false
+    // Explicitly set dimensions and wait for DOM settling
+    if (mapElement) {
+        mapElement.style.height = "100%";
+        mapElement.style.width = "100%";
+    }
+
+    const initMap = () => {
+        if (!mapElement || map) return;
+
+        map = L.map(mapElement, {
+          center: [20, 0],
+          zoom: 2,
+          zoomControl: false,
+          attributionControl: false
+        });
+
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+          maxZoom: 12,
+          attribution: '&copy; <a href="https://carto.com/">CARTO</a>'
+        }).addTo(map);
+
+        markerLayer = L.layerGroup().addTo(map);
+        updateMarkers(records);
+        
+        // Force immediate recalculation
+        map.invalidateSize();
+    };
+
+    // Delay initialization slightly to ensure parent transitions have finished
+    const timeout = setTimeout(initMap, 200);
+
+    // High-frequency invalidation during transition window
+    const inv = setInterval(() => {
+        if (map) map.invalidateSize();
+    }, 500);
+
+    // Clear polling after 5 seconds
+    setTimeout(() => clearInterval(inv), 5000);
+
+    const resizeObserver = new ResizeObserver(() => {
+        if (map) {
+            map.invalidateSize();
+        }
     });
+    resizeObserver.observe(mapElement);
 
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      maxZoom: 12
-    }).addTo(map);
-
-    markerLayer = L.layerGroup().addTo(map);
-    
     // Select record event listener
     const handleSelect = (e: any) => {
       const record = records.find((r: RecordSummary) => r.id === e.detail);
       if (record && onSelect) onSelect(record);
     };
-    
     window.addEventListener('select-record', handleSelect);
 
-    updateMarkers(records);
-
     return () => {
+        clearTimeout(timeout);
+        clearInterval(inv);
         window.removeEventListener('select-record', handleSelect);
+        resizeObserver.disconnect();
     };
   });
 
@@ -139,15 +172,18 @@
   .map-surface {
     width: 100%;
     height: 100%;
-    background: #0a0b0d;
+    min-height: 400px;
+    background: #050608;
     position: relative;
+    z-index: 10;
+    border: 1px solid rgba(231, 196, 107, 0.1);
   }
 
   .map-overlay {
       position: absolute;
       inset: 0;
       z-index: 1000;
-      background: rgba(0,0,0,0.4);
+      background: rgba(0,0,0,0.6);
       backdrop-filter: blur(4px);
       display: flex;
       align-items: center;
@@ -156,14 +192,15 @@
   }
 
   .map-overlay .msg {
-      padding: 12px 24px;
+      padding: 16px 32px;
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
       color: var(--text-secondary);
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
       letter-spacing: 0.05em;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
   }
 
   :global(.tactical-pip) {
@@ -200,23 +237,23 @@
   }
 
   :global(.leaflet-popup-content-wrapper) {
-    background: rgba(16, 17, 20, 0.9) !important;
+    background: rgba(16, 17, 20, 0.95) !important;
     backdrop-filter: blur(10px);
     border: 1px solid rgba(231, 196, 107, 0.3);
     color: white !important;
     border-radius: 12px !important;
     padding: 0 !important;
-    box-shadow: 0 12px 24px rgba(0,0,0,0.5) !important;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.7) !important;
   }
 
   :global(.leaflet-popup-tip) {
-    background: rgba(16, 17, 20, 0.9) !important;
+    background: rgba(16, 17, 20, 0.95) !important;
     border: 1px solid rgba(231, 196, 107, 0.3);
   }
 
   :global(.tactical-popup) {
-    padding: 16px;
-    min-width: 240px;
+    padding: 20px;
+    min-width: 280px;
     font-family: 'Outfit', sans-serif;
   }
 
@@ -225,31 +262,38 @@
     justify-content: space-between;
     align-items: flex-start;
     gap: 12px;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
   }
 
   :global(.tactical-popup strong) {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
+    color: #fff;
   }
 
   :global(.tactical-popup .status) {
-    font-size: 9px;
+    font-size: 10px;
     text-transform: uppercase;
-    padding: 2px 6px;
+    font-weight: 800;
+    padding: 2px 8px;
     border-radius: 4px;
     background: rgba(255,255,255,0.1);
   }
 
+  :global(.tactical-popup .status.completed) {
+    color: #4df3a9;
+    background: rgba(77, 243, 169, 0.1);
+  }
+
   :global(.tactical-popup p) {
     margin: 0;
-    font-size: 12px;
-    color: #9da3ad;
+    font-size: 13px;
+    color: #8a8f98;
   }
 
   :global(.tactical-popup .p-footer) {
-    margin-top: 12px;
-    padding-top: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
     border-top: 1px solid rgba(255,255,255,0.1);
     display: flex;
     justify-content: space-between;
@@ -257,13 +301,18 @@
   }
 
   :global(.mini-btn) {
-    background: var(--accent-primary);
+    background: #e7c46b;
     color: #000;
     border: none;
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-size: 10px;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 11px;
     font-weight: 800;
     cursor: pointer;
+    transition: transform 0.2s;
+  }
+
+  :global(.mini-btn:hover) {
+    transform: scale(1.05);
   }
 </style>
