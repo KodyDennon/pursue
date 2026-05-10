@@ -28,14 +28,15 @@ pub async fn check_model_status(state: State<'_, AppState>) -> Result<std::colle
     let manager = ModelManager::new(&state.library);
     let mut status = std::collections::HashMap::new();
 
-    let model_files = vec![
+    let models = vec![
         ("bge-small", "bge-small-en-v1.5.onnx"),
         ("tokenizer", "tokenizer.json"),
-        ("gemma-4-e2b", "gemma-4-e2b-it.gguf"),
-        ("gemma-4-e4b", "gemma-4-e4b-it.gguf"),
+        ("gemma-4-e4b", "google_gemma-4-E4B-it-Q4_K_M.gguf"),
+        ("gemma-4-e2b", "google_gemma-4-E2B-it-Q4_K_M.gguf"),
     ];
 
-    for (id, filename) in model_files {
+
+    for (id, filename) in models {
         let path = manager.models_dir().join(filename);
         status.insert(id.to_string(), path.exists());
     }
@@ -51,7 +52,8 @@ pub async fn provision_model(
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
-    let manager = ModelManager::new(&state.library);
+    let manager = ModelManager::new(&state.library)
+        .with_db(state.db.clone());
     manager
         .ensure_model(&app_handle, &id, &name, &url)
         .await

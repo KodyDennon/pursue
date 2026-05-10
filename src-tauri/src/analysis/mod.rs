@@ -88,13 +88,13 @@ impl AnalysisManager {
         let (model_id, preferred_model, preferred_url) = match specs.recommended_tier {
             IntelligenceTier::Elite => (
                 "gemma-4-e4b", 
-                "gemma-4-e4b-it.gguf", 
-                "https://huggingface.co/google/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-e4b-it.Q4_K_M.gguf"
+                "google_gemma-4-E4B-it-Q4_K_M.gguf", 
+                "https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/google_gemma-4-E4B-it-Q4_K_M.gguf"
             ),
             _ => (
                 "gemma-4-e2b", 
-                "gemma-4-e2b-it.gguf", 
-                "https://huggingface.co/google/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-e2b-it.Q4_K_M.gguf"
+                "google_gemma-4-E2B-it-Q4_K_M.gguf", 
+                "https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/google_gemma-4-E2B-it-Q4_K_M.gguf"
             ),
         };
         

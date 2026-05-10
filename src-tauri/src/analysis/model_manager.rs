@@ -11,6 +11,7 @@ use tauri_plugin_log::log::{info, warn};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
+use sqlx::Row;
 
 #[derive(Clone, Serialize)]
 pub struct ModelProgress {
@@ -22,6 +23,7 @@ pub struct ModelProgress {
 
 pub struct ModelManager {
     client: Client,
+    db: Option<sqlx::SqlitePool>,
     models_dir: PathBuf,
     active_locks: Arc<Mutex<HashSet<String>>>,
 }
@@ -37,9 +39,15 @@ impl ModelManager {
             
         Self {
             client,
+            db: None,
             models_dir,
             active_locks: Arc::new(Mutex::new(HashSet::new())),
         }
+    }
+
+    pub fn with_db(mut self, db: sqlx::SqlitePool) -> Self {
+        self.db = Some(db);
+        self
     }
 
     pub fn models_dir(&self) -> &PathBuf {
@@ -67,7 +75,23 @@ impl ModelManager {
             break;
         }
 
-        let result = self.ensure_model_inner(app, model_id, model_name, url, &target_path).await;
+        // Fetch HF token if available
+        let mut hf_token = None;
+        if let Some(pool) = &self.db {
+            if let Ok(Some(row)) = sqlx::query("SELECT value_json FROM app_settings WHERE key = 'huggingface_token'")
+                .fetch_optional(pool)
+                .await 
+            {
+                let val: String = row.get("value_json");
+                if let Ok(token) = serde_json::from_str::<String>(&val) {
+                    if !token.trim().is_empty() {
+                        hf_token = Some(token);
+                    }
+                }
+            }
+        }
+
+        let result = self.ensure_model_inner(app, model_id, model_name, url, &target_path, hf_token).await;
         
         // Release lock
         let mut locks = self.active_locks.lock().await;
@@ -83,6 +107,7 @@ impl ModelManager {
         model_name: &str,
         url: &str,
         target_path: &PathBuf,
+        hf_token: Option<String>,
     ) -> Result<PathBuf> {
         if target_path.exists() {
             let is_gguf = model_name.ends_with(".gguf");
@@ -135,6 +160,10 @@ impl ModelManager {
         let mut request = self.client.get(url);
         if downloaded > 0 {
             request = request.header("Range", format!("bytes={}-", downloaded));
+        }
+
+        if let Some(token) = hf_token {
+            request = request.header("Authorization", format!("Bearer {}", token));
         }
 
         let response = request.send().await?

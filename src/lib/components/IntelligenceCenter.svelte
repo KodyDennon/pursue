@@ -14,8 +14,8 @@
   let models = $state([
     { id: 'bge-small', name: 'BGE Small v1.5', filename: 'bge-small-en-v1.5.onnx', type: 'Embedding', size: '134 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx' },
     { id: 'tokenizer', name: 'BGE Tokenizer', filename: 'tokenizer.json', type: 'System', size: '1 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json' },
-    { id: 'gemma-4-e2b', name: 'Gemma 4 E2B IT', filename: 'gemma-4-e2b-it.gguf', type: 'Intelligence', size: '1.8 GB', status: 'pending', progress: 0, url: 'https://huggingface.co/google/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-e2b-it.Q4_K_M.gguf' },
-    { id: 'gemma-4-e4b', name: 'Gemma 4 E4B IT', filename: 'gemma-4-e4b-it.gguf', type: 'Intelligence (Elite)', size: '2.8 GB', status: 'pending', progress: 0, url: 'https://huggingface.co/google/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-e4b-it.Q4_K_M.gguf' }
+    { id: 'gemma-4-e2b', name: 'Gemma 4 E2B IT', filename: 'google_gemma-4-E2B-it-Q4_K_M.gguf', type: 'Intelligence', size: '1.8 GB', status: 'pending', progress: 0, url: 'https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/google_gemma-4-E2B-it-Q4_K_M.gguf' },
+    { id: 'gemma-4-e4b', name: 'Gemma 4 E4B IT', filename: 'google_gemma-4-E4B-it-Q4_K_M.gguf', type: 'Intelligence (Elite)', size: '2.8 GB', status: 'pending', progress: 0, url: 'https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/google_gemma-4-E4B-it-Q4_K_M.gguf' }
   ]);
 
   let busyModelId = $state<string | null>(null);

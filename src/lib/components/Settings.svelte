@@ -11,6 +11,7 @@
   let busy = $state<string | null>(null);
 
   let agentSettings = $state({ auto_sync: true, auto_analyze: true });
+  let hfToken = $state("");
   let personaModifier = $state("");
   let appVersion = $state("...");
 
@@ -29,6 +30,9 @@
       
       const p = await invoke<any>("get_app_settings", { key: "intelligence_persona" });
       if (typeof p === 'string') personaModifier = p;
+
+      const t = await invoke<any>("get_app_settings", { key: "huggingface_token" });
+      if (typeof t === 'string') hfToken = t;
     } catch (e) {
       console.error(e);
     }
@@ -40,6 +44,18 @@
       addToast({ type: "success", message: "Agent Configuration Saved", duration: 2000 });
     } catch (e) {
       addToast({ type: "error", message: `Failed to save settings: ${e}` });
+    }
+  }
+
+  async function saveHfToken() {
+    busy = "token";
+    try {
+        await invoke("set_app_settings", { key: "huggingface_token", value: hfToken });
+        addToast({ type: "success", message: "Hugging Face Token Updated", duration: 2000 });
+    } catch (e) {
+        addToast({ type: "error", message: `Failed to save token: ${e}` });
+    } finally {
+        busy = null;
     }
   }
 
@@ -120,6 +136,31 @@
       <footer class="s-footer">
         <button class="s-btn primary" onclick={savePersona} disabled={busy === 'persona'}>
           <Save size={14} /> Update Core Directive
+        </button>
+      </footer>
+    </section>
+
+    <!-- Hugging Face Authentication -->
+    <section class="settings-section glass-panel">
+      <div class="s-header">
+        <ShieldCheck size={18} class="accent-icon" />
+        <h3>Hugging Face Authentication</h3>
+      </div>
+      <div class="s-body">
+        <p class="section-desc">Provide a User Access Token to download gated models (e.g., official Google Gemma series). Create one at <a href="https://huggingface.co/settings/tokens" target="_blank" class="accent-link">huggingface.co/settings/tokens</a>.</p>
+        <div class="data-item">
+          <span class="d-label">Access Token</span>
+          <input 
+            type="password" 
+            bind:value={hfToken} 
+            placeholder="hf_..."
+            class="persona-input token-input"
+          />
+        </div>
+      </div>
+      <footer class="s-footer">
+        <button class="s-btn primary" onclick={saveHfToken} disabled={busy === 'token'}>
+          <Save size={14} /> Update Token
         </button>
       </footer>
     </section>
@@ -311,6 +352,17 @@
       outline: none;
       transition: border-color 0.2s;
   }
+
+  .persona-input.token-input {
+    min-height: unset;
+    resize: none;
+  }
+
+  .accent-link {
+    color: var(--accent-primary);
+    text-decoration: none;
+  }
+  .accent-link:hover { text-decoration: underline; }
 
   .persona-input:focus {
       border-color: var(--accent-primary);
