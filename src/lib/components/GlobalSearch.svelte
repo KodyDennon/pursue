@@ -58,7 +58,7 @@
         <input 
           bind:this={searchInput}
           bind:value={query} 
-          placeholder="Search full semantic index or metadata..." 
+          placeholder="Query intelligence index..." 
           oninput={() => {
             // Debounce simple
             setTimeout(() => {

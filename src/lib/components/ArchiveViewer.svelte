@@ -282,7 +282,7 @@
       <section class="viewer-section">
         <h3>Case Work</h3>
         <p>{selectedCase ? `Selected case: ${selectedCase.title}` : "Create or select a case from the Cases view."}</p>
-        <textarea bind:value={noteBody} rows="5" placeholder="Record note for the selected case"></textarea>
+        <textarea bind:value={noteBody} rows="5" placeholder="Enter case analysis observations..."></textarea>
         <div class="button-row">
           <button onclick={addToCase} disabled={!selectedCaseId || busy === "case-add"}>Add Record</button>
           <button onclick={addNote} disabled={!selectedCaseId || !noteBody.trim() || busy === "case-note"}>Add Note</button>

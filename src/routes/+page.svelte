@@ -254,11 +254,11 @@ onMount(() => {
               onAnalyze={() => (analysisModalOpen = true)} 
             />
           {:else if $activeView === 'map'}
-             <div class="view-placeholder">
+             <div class="view-empty">
                <Map records={records} onSelect={(r) => (selectedRecord = r)} />
              </div>
           {:else if $activeView === 'link-analysis'}
-             <div class="view-placeholder">
+             <div class="view-empty">
                <LinkAnalysis records={records} />
              </div>
           {:else if $activeView === 'settings'}
@@ -496,7 +496,7 @@ onMount(() => {
     100% { opacity: 1; transform: scale(1); }
   }
 
-  .view-placeholder {
+  .view-empty {
     height: 100%;
     width: 100%;
     box-sizing: border-box;

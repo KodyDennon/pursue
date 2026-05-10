@@ -88,7 +88,7 @@
     <input 
       type="text" 
       bind:value={query} 
-      placeholder="Semantic Search..." 
+      placeholder="Query..." 
       onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onLoad(); } }}
     />
     {#if query}
@@ -101,7 +101,7 @@
   <div class="action-group">
     {#if showWebIngest}
       <div class="web-ingest-expand">
-        <input type="text" bind:value={webUrl} placeholder="https://..." onkeydown={(e) => { if (e.key === 'Enter') ingestWeb(); }} />
+        <input type="text" bind:value={webUrl} placeholder="Enter artifact URL to ingest..." onkeydown={(e) => { if (e.key === 'Enter') ingestWeb(); }} />
         <button class="icon-action-btn success" onclick={ingestWeb} disabled={busy === 'web'}>
           {#if busy === 'web'}
             <Loader2 size={16} class="spin" />

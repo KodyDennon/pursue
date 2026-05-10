@@ -169,7 +169,7 @@
               </div>
             {/each}
             {#if logs.length === 0}
-               <div class="log-placeholder">Neural engine standby. Waiting for task initiation...</div>
+               <div class="log-status">Neural engine standby. Waiting for task initiation...</div>
             {/if}
           </div>
         </section>
@@ -391,7 +391,7 @@
   .log-entry.success { background: rgba(77, 243, 169, 0.05); color: var(--accent-success); }
   .log-entry.error { background: rgba(243, 77, 77, 0.05); color: var(--accent-danger); }
 
-  .log-placeholder {
+  .log-status {
     height: 100%;
     display: flex;
     align-items: center;

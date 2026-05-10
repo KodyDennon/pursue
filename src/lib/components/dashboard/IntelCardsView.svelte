@@ -39,7 +39,7 @@
               <div class="thumb-overlay"></div>
             </div>
           {:else}
-            <div class="card-thumb-placeholder">
+            <div class="card-thumb-empty">
               <FileText size={40} strokeWidth={1} />
             </div>
           {/if}
@@ -121,7 +121,7 @@
     box-shadow: 0 0 0 2px rgba(231, 196, 107, 0.2);
   }
 
-  .card-thumb, .card-thumb-placeholder {
+  .card-thumb, .card-thumb-empty {
     width: 100%;
     aspect-ratio: 16/9;
     background: #000;
@@ -142,7 +142,7 @@
     opacity: 1;
   }
 
-  .card-thumb-placeholder {
+  .card-thumb-empty {
     display: flex;
     align-items: center;
     justify-content: center;

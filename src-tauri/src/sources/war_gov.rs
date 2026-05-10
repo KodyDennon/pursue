@@ -432,7 +432,7 @@ fn stable_key(record: &CsvRecord) -> String {
             title,
             date,
             agency,
-            url // Include the "PDF" or other placeholder too
+            url // Include the PDF or alternative stream too
         );
         format!("meta:{}", hash_bytes(raw.as_bytes()))
     }

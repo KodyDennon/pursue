@@ -208,7 +208,7 @@ impl AnalysisManager {
         // Smarter location handling: overwrite N/A, Unknown, or Global with more specific results
         let current_location = record.incident_location.as_deref().unwrap_or("N/A");
         let extracted_loc = extraction_location(&Some(intelligence_json_str.clone()));
-        let final_location = if is_placeholder_location(current_location) {
+        let final_location = if is_unspecified_location(current_location) {
             extracted_loc.or(Some(current_location.to_string()))
         } else {
             Some(current_location.to_string())
@@ -423,7 +423,7 @@ fn extraction_location(j: &Option<String>) -> Option<String> {
     v.get("location").and_then(|d| d.as_str()).map(|d| d.to_string())
 }
 
-fn is_placeholder_location(loc: &str) -> bool {
+fn is_unspecified_location(loc: &str) -> bool {
     let l = loc.to_lowercase();
     l == "n/a" || l == "unknown" || l == "global" || l == "none" || l.is_empty()
 }
