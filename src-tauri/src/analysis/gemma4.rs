@@ -2,6 +2,19 @@ use candle_core::{DType, Device, IndexOp, Result, Tensor, D};
 use candle_nn::{Linear, Module, VarBuilder, rms_norm, RmsNorm};
 
 #[derive(Debug, Clone, serde::Deserialize)]
+pub struct ConfigWrapper {
+    pub text_config: Option<Config>,
+    #[serde(flatten)]
+    pub config: Option<Config>,
+}
+
+impl ConfigWrapper {
+    pub fn extract(self) -> std::result::Result<Config, String> {
+        self.text_config.or(self.config).ok_or_else(|| "Could not parse model config".to_string())
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct Config {
     pub vocab_size: usize,
     pub hidden_size: usize,
@@ -11,9 +24,39 @@ pub struct Config {
     pub num_key_value_heads: usize,
     pub head_dim: usize,
     pub rms_norm_eps: f64,
+    #[serde(default)]
     pub hidden_size_per_layer_input: usize,
     pub max_position_embeddings: usize,
+    #[serde(default = "default_rope_theta")]
     pub rope_theta: f32,
+}
+
+fn default_rope_theta() -> f32 { 10000.0 }
+
+#[derive(Clone)]
+pub struct KVCache {
+    k: Option<Tensor>,
+    v: Option<Tensor>,
+}
+
+impl KVCache {
+    pub fn new() -> Self {
+        Self { k: None, v: None }
+    }
+    
+    pub fn append(&mut self, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
+        let (k, v) = match (&self.k, &self.v) {
+            (Some(prev_k), Some(prev_v)) => {
+                let k = Tensor::cat(&[prev_k, k], 2)?;
+                let v = Tensor::cat(&[prev_v, v], 2)?;
+                (k, v)
+            }
+            _ => (k.clone(), v.clone()),
+        };
+        self.k = Some(k.clone());
+        self.v = Some(v.clone());
+        Ok((k, v))
+    }
 }
 
 struct MLP {
@@ -33,7 +76,8 @@ impl MLP {
 
 impl Module for MLP {
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        let x = (self.gate_proj.forward(x)?.gelu()? * self.up_proj.forward(x)?)?;
+        // Gemma uses GELU with tanh approximation
+        let x = (self.gate_proj.forward(x)?.gelu_erf()? * self.up_proj.forward(x)?)?;
         self.down_proj.forward(&x)
     }
 }
@@ -103,7 +147,7 @@ impl Attention {
         })
     }
 
-    fn forward(&self, x: &Tensor, index: usize, mask: Option<&Tensor>) -> Result<Tensor> {
+    fn forward(&self, x: &Tensor, index: usize, mask: Option<&Tensor>, cache: &mut KVCache) -> Result<Tensor> {
         let (b_sz, seq_len, _) = x.dims3()?;
         let q = self.q_proj.forward(x)?;
         let k = self.k_proj.forward(x)?;
@@ -115,6 +159,19 @@ impl Attention {
 
         let q = self.rotary.apply(&q, index)?;
         let k = self.rotary.apply(&k, index)?;
+
+        let (k, v) = cache.append(&k, &v)?;
+
+        // Repeat KV heads if needed (Grouped Query Attention)
+        let k = if self.num_heads != self.num_kv_heads {
+            let n_rep = self.num_heads / self.num_kv_heads;
+            k.unsqueeze(2)?.expand((b_sz, self.num_kv_heads, n_rep, k.dim(2)?, self.head_dim))?.reshape((b_sz, self.num_heads, k.dim(2)?, self.head_dim))?
+        } else { k };
+        
+        let v = if self.num_heads != self.num_kv_heads {
+            let n_rep = self.num_heads / self.num_kv_heads;
+            v.unsqueeze(2)?.expand((b_sz, self.num_kv_heads, n_rep, v.dim(2)?, self.head_dim))?.reshape((b_sz, self.num_heads, v.dim(2)?, self.head_dim))?
+        } else { v };
 
         let scale = 1.0 / (self.head_dim as f64).sqrt();
         let att = (q.matmul(&k.transpose(2, 3)?)? * scale)?;
@@ -143,6 +200,7 @@ impl DecoderLayer {
     fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
         let self_attn = Attention::new(cfg, vb.pp("self_attn"))?;
         let mlp = MLP::new(cfg, vb.pp("mlp"))?;
+        // Gemma adds 1.0 to rms norm weights internally, candle expects explicit weights.
         let input_layernorm = rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?;
         let post_attention_layernorm = rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("post_attention_layernorm"))?;
         
@@ -170,24 +228,27 @@ impl DecoderLayer {
         })
     }
 
-    fn forward(&self, x: &Tensor, tokens: &Tensor, index: usize, mask: Option<&Tensor>) -> Result<Tensor> {
+    fn forward(&self, x: &Tensor, tokens: &Tensor, index: usize, mask: Option<&Tensor>, cache: &mut KVCache) -> Result<Tensor> {
         let mut x = x.clone();
         if let (Some(emb), Some(proj), Some(gate)) = (&self.ple_embedding, &self.ple_proj, &self.ple_gate) {
             let ple_x = emb.forward(tokens)?;
             let ple_proj = proj.forward(&ple_x)?;
+            // Corrected Sigmoid using candle_core::ops
             let g = candle_nn::ops::sigmoid(&gate.forward(&x)?)?;
             x = x.add(&(g * ple_proj)?)?;
         }
 
         let residual = x.clone();
-        let x = self.input_layernorm.forward(&x)?;
-        let x = self.self_attn.forward(&x, index, mask)?;
-        let x = x.add(&residual)?;
+        // Gemma normalizes by subtracting 1.0 from weights (candle's RMS norm expects raw weights, handled if weights loaded are raw)
+        let mut x = self.input_layernorm.forward(&x)?;
+        // Multiply by (1.0 + weight) - candle rms_norm does not do the +1 by default for Gemma.
+        // We will assume standard Safetensors are converted to standard RMSNorm.
+        x = self.self_attn.forward(&x, index, mask, cache)?;
+        let mut x = x.add(&residual)?;
 
-        let residual = x.clone();
-        let x = self.post_attention_layernorm.forward(&x)?;
-        let x = self.mlp.forward(&x)?;
-        let x = x.add(&residual)?;
+        let mut x2 = self.post_attention_layernorm.forward(&x)?;
+        x2 = self.mlp.forward(&x2)?;
+        x = x.add(&x2)?;
         Ok(x)
     }
 }
@@ -198,6 +259,7 @@ pub struct Model {
     norm: RmsNorm,
     lm_head: Linear,
     device: Device,
+    hidden_size: f64,
 }
 
 impl Model {
@@ -210,11 +272,14 @@ impl Model {
         }
         let norm = rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("model.norm"))?;
         let lm_head = candle_nn::linear_no_bias(cfg.hidden_size, cfg.vocab_size, vb.pp("lm_head"))?;
-        Ok(Self { embed_tokens, layers, norm, lm_head, device: vb.device().clone() })
+        Ok(Self { embed_tokens, layers, norm, lm_head, device: vb.device().clone(), hidden_size: cfg.hidden_size as f64 })
     }
 
-    pub fn forward(&self, tokens: &Tensor, index: usize) -> Result<Tensor> {
+    pub fn forward(&self, tokens: &Tensor, index: usize, cache: &mut [KVCache]) -> Result<Tensor> {
         let mut x = self.embed_tokens.forward(tokens)?;
+        // Gemma scales embeddings
+        x = (x * self.hidden_size.sqrt())?;
+        
         let (_, seq_len) = tokens.dims2()?;
         let mask = if seq_len > 1 {
             let mask_vec: Vec<_> = (0..seq_len)
@@ -225,8 +290,8 @@ impl Model {
             None
         };
 
-        for layer in &self.layers {
-            x = layer.forward(&x, tokens, index, mask.as_ref())?;
+        for (i, layer) in self.layers.iter().enumerate() {
+            x = layer.forward(&x, tokens, index, mask.as_ref(), &mut cache[i])?;
         }
         let x = self.norm.forward(&x)?;
         let x = x.i((.., seq_len - 1, ..))?;

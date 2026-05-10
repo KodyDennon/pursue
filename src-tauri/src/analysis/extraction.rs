@@ -67,7 +67,8 @@ impl IntelligenceExtractor {
             // 1. Load Config
             let config_path = repo_path.join("config.json");
             let config_data = std::fs::read_to_string(&config_path)?;
-            let config: gemma4::Config = serde_json::from_str(&config_data)?;
+            let config_wrapper: gemma4::ConfigWrapper = serde_json::from_str(&config_data)?;
+            let config = config_wrapper.extract().map_err(|e| anyhow!("{}", e))?;
 
             // 2. Load Weights (Safetensors)
             let weights_path = repo_path.join("model.safetensors");
@@ -120,13 +121,16 @@ impl IntelligenceExtractor {
             let mut generated_text = String::new();
             let mut pos = 0;
             
+            // Initialize KV cache for autoregressive generation
+            let mut kv_cache = vec![gemma4::KVCache::new(); config.num_hidden_layers];
+            
             // Limit generation to 2048 tokens
             for i in 0..2048 {
                 let context_size = if pos > 0 { 1 } else { tokens.len() };
                 let input_tokens = &tokens[tokens.len() - context_size..];
                 let input = Tensor::new(input_tokens, &device)?.unsqueeze(0)?;
                 
-                let logits = model.forward(&input, pos)?;
+                let logits = model.forward(&input, pos, &mut kv_cache)?;
                 let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
                 
                 let next_token = logits_processor.sample(&logits)?;
