@@ -97,14 +97,26 @@ $file = Await-WinRt ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imageP
 $stream = Await-WinRt ($file.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
 $decoder = Await-WinRt ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
 $bitmap = Await-WinRt ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+
 $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
 if ($null -eq $engine) {
-  throw 'Windows OCR engine is not available for the current user languages'
+  # Fallback: Use the first available language
+  $availableLanguages = [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages
+  if ($availableLanguages.Count -gt 0) {
+    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($availableLanguages[0])
+  }
+}
+
+if ($null -eq $engine) {
+  throw 'No Windows OCR engine is available on this system'
 }
 
 $result = Await-WinRt ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-$result.Text
-"#
+$text = $result.Text
+$stream.Dispose()
+$text
+"#;
+
     };
 
     let output = Command::new("powershell.exe")
