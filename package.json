@@ -1,6 +1,6 @@
 {
   "name": "pursue-data-analyzer",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Local-first desktop OSINT evidence analyzer for syncing, preserving, analyzing, searching, and exporting WAR.gov UFO/PURSUE records.",
   "private": true,
   "type": "module",

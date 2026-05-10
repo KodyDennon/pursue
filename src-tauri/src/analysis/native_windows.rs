@@ -144,9 +144,3 @@ $text
 
     Ok(text)
 }
-
-#[cfg(not(target_os = "windows"))]
-#[allow(dead_code)]
-pub async fn extract_text_windows<P: AsRef<Path>>(_path: P) -> Result<String> {
-    Err(anyhow!("Windows Media OCR is only available on Windows"))
-}

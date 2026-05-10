@@ -154,8 +154,3 @@ pub async fn extract_text_macos<P: AsRef<Path>>(_path: P) -> Result<String> {
     let path = _path.as_ref().to_path_buf();
     tokio::task::spawn_blocking(move || macos_impl::extract_text(&path)).await?
 }
-
-#[cfg(not(target_os = "macos"))]
-pub async fn extract_text_macos<P: AsRef<Path>>(_path: P) -> Result<String> {
-    Err(anyhow!("macOS Vision OCR is only available on macOS"))
-}

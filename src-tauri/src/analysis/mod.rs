@@ -1,7 +1,9 @@
 pub mod diagnostics;
 pub mod extraction;
 pub mod model_manager;
+#[cfg(target_os = "macos")]
 pub mod native_macos;
+#[cfg(target_os = "windows")]
 pub mod native_windows;
 pub mod ocr;
 pub mod pdf;
