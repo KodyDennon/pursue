@@ -19,6 +19,8 @@ pub struct ModelProgress {
     pub bytes_downloaded: u64,
     pub total_bytes: Option<u64>,
     pub status: String,
+    pub speed_mbps: Option<f64>,
+    pub eta_seconds: Option<u64>,
 }
 
 pub struct ModelManager {
@@ -142,7 +144,9 @@ impl ModelManager {
                 "model_id": model_id,
                 "status": format!("Syncing {} ({} of {})", file_path, i+1, files_to_download.len()),
                 "bytes_downloaded": 0,
-                "total_bytes": files_to_download.len() as u64
+                "total_bytes": files_to_download.len() as u64,
+                "speed_mbps": null,
+                "eta_seconds": null
             }));
 
             self.ensure_model_inner(app, model_id, file_path, &download_url, &target_file_path, hf_token.clone()).await?;
@@ -244,22 +248,62 @@ impl ModelManager {
         };
 
         let mut stream = response.bytes_stream();
+        let session_start = std::time::Instant::now();
+        let mut session_downloaded = 0u64;
+
+        let _ = app.emit("model-progress", ModelProgress {
+            model_id: model_id.to_string(),
+            bytes_downloaded: downloaded,
+            total_bytes,
+            status: "starting".to_string(),
+            speed_mbps: None,
+            eta_seconds: None,
+        });
+
         while let Some(item) = stream.next().await {
             let chunk = item?;
-            downloaded += chunk.len() as u64;
+            let chunk_len = chunk.len() as u64;
+            downloaded += chunk_len;
+            session_downloaded += chunk_len;
             file.write_all(&chunk).await?;
+
+            let elapsed = session_start.elapsed().as_secs_f64();
+            let mut speed_mbps = None;
+            let mut eta_seconds = None;
+
+            if elapsed > 1.0 {
+                let speed_bps = session_downloaded as f64 / elapsed;
+                speed_mbps = Some(speed_bps / 1024.0 / 1024.0);
+
+                if let Some(total) = total_bytes {
+                    if total > downloaded && speed_bps > 0.0 {
+                        eta_seconds = Some(((total - downloaded) as f64 / speed_bps) as u64);
+                    }
+                }
+            }
 
             let _ = app.emit("model-progress", ModelProgress {
                 model_id: model_id.to_string(),
                 bytes_downloaded: downloaded,
                 total_bytes,
                 status: "downloading".to_string(),
+                speed_mbps,
+                eta_seconds,
             });
         }
 
         file.flush().await?;
         drop(file);
         fs::rename(&part_path, &target_path).await?;
+        let _ = app.emit("model-progress", ModelProgress {
+            model_id: model_id.to_string(),
+            bytes_downloaded: downloaded,
+            total_bytes,
+            status: "completed".to_string(),
+            speed_mbps: None,
+            eta_seconds: None,
+        });
         Ok(target_path.clone())
+
     }
 }

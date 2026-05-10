@@ -12,10 +12,10 @@
   let status = $state<DatabaseStatus | null>(null);
   let diagnostics = $state<any>(null);
   let models = $state([
-    { id: 'bge-small', name: 'BGE Small v1.5', filename: 'bge-small-en-v1.5.onnx', type: 'Embedding', size: '134 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx' },
-    { id: 'tokenizer', name: 'BGE Tokenizer', filename: 'tokenizer.json', type: 'System', size: '1 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json' },
-    { id: 'gemma-4-e2b', name: 'Gemma 4 E2B IT', filename: 'google/gemma-4-E2B-it', type: 'Intelligence', size: '10.2 GB', status: 'pending', progress: 0, url: 'google/gemma-4-E2B-it' },
-    { id: 'gemma-4-e4b', name: 'Gemma 4 E4B IT', filename: 'google/gemma-4-E4B-it', type: 'Intelligence (Elite)', size: '16.0 GB', status: 'pending', progress: 0, url: 'google/gemma-4-E4B-it' }
+    { id: 'bge-small', name: 'BGE Small v1.5', filename: 'bge-small-en-v1.5.onnx', type: 'Embedding', size: '134 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx', speedMbps: null as number | null, etaSeconds: null as number | null },
+    { id: 'tokenizer', name: 'BGE Tokenizer', filename: 'tokenizer.json', type: 'System', size: '1 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json', speedMbps: null as number | null, etaSeconds: null as number | null },
+    { id: 'gemma-4-e2b', name: 'Gemma 4 E2B IT', filename: 'google/gemma-4-E2B-it', type: 'Intelligence', size: '10.2 GB', status: 'pending', progress: 0, url: 'google/gemma-4-E2B-it', speedMbps: null as number | null, etaSeconds: null as number | null },
+    { id: 'gemma-4-e4b', name: 'Gemma 4 E4B IT', filename: 'google/gemma-4-E4B-it', type: 'Intelligence (Elite)', size: '16.0 GB', status: 'pending', progress: 0, url: 'google/gemma-4-E4B-it', speedMbps: null as number | null, etaSeconds: null as number | null }
   ]);
 
   let busyModelId = $state<string | null>(null);
@@ -93,6 +93,8 @@
         if (payload.total_bytes) {
           model.progress = (payload.bytes_downloaded / payload.total_bytes) * 100;
         }
+        model.speedMbps = payload.speed_mbps !== undefined ? payload.speed_mbps : null;
+        model.etaSeconds = payload.eta_seconds !== undefined ? payload.eta_seconds : null;
       }
     });
 
@@ -187,7 +189,19 @@
               {#if model.status === 'downloading'}
                 <div class="progress-container">
                   <div class="progress-bar" style="width: {model.progress}%"></div>
-                  <span class="m-size">{model.progress.toFixed(1)}% of {model.size}</span>
+                  <div class="m-stats">
+                    <span class="m-size">{model.progress.toFixed(1)}% of {model.size}</span>
+                    <span class="m-eta">
+                      {#if model.speedMbps !== null && model.speedMbps > 0}
+                        {model.speedMbps.toFixed(2)} MB/s
+                      {:else}
+                        ...
+                      {/if}
+                      {#if model.etaSeconds !== null}
+                        • ETA: {model.etaSeconds}s
+                      {/if}
+                    </span>
+                  </div>
                 </div>
               {:else}
                 <span class="m-size">{model.size} • {model.status}</span>
@@ -436,6 +450,18 @@
   .m-type { font-size: 10px; text-transform: uppercase; color: var(--text-tertiary); }
   .m-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
   .m-size { font-size: 12px; color: var(--text-secondary); }
+
+  .m-stats {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-size: 11px;
+  }
+
+  .m-eta {
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+  }
 
   .icon-btn {
     width: 32px;

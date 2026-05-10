@@ -63,6 +63,8 @@
       if (payload.total_bytes) {
         progress = Math.round((payload.bytes_downloaded / payload.total_bytes) * 100);
       }
+      speedMbps = payload.speed_mbps !== undefined ? payload.speed_mbps : null;
+      etaSeconds = payload.eta_seconds !== undefined ? payload.eta_seconds : null;
     }).then(u => unlisten = u);
 
     return () => {
@@ -173,6 +175,17 @@
         <span>{currentModelName}</span>
         <span>{progress}%</span>
       </div>
+      
+      <div class="dl-stats">
+        {#if speedMbps !== null && speedMbps > 0}
+          <span>{speedMbps.toFixed(2)} MB/s</span>
+        {:else}
+          <span>...</span>
+        {/if}
+        {#if etaSeconds !== null}
+          <span>ETA: {etaSeconds}s</span>
+        {/if}
+      </div>
     {:else if step === 'ready'}
       <h2>Systems Ready</h2>
       <p class="status-mono mono">{statusText}</p>
@@ -271,6 +284,16 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
     font-weight: 700;
+  }
+
+  .dl-stats {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 10px;
+    color: var(--text-tertiary);
+    margin-top: 6px;
+    font-family: var(--font-mono);
   }
 
   .tier-options {
