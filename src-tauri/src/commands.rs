@@ -277,8 +277,38 @@ pub async fn analyze_record(
 }
 
 #[tauri::command]
+pub async fn analyze_all_records(state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<usize, String> {
+    let pool = state.db.clone();
+    let records = sqlx::query("SELECT id FROM records WHERE analysis_status IS NULL OR analysis_status != 'completed'")
+        .fetch_all(&pool)
+        .await
+        .map_err(to_error)?;
+
+    let count = records.len();
+    let library = state.library.clone();
+    let handle = app_handle.clone();
+    
+    // Spawn task to avoid blocking
+    tauri::async_runtime::spawn(async move {
+        let manager = AnalysisManager::new(pool, library);
+        for row in records {
+            use sqlx::Row;
+            let id: String = row.get("id");
+            let _ = manager.analyze_record(&handle, &id).await;
+        }
+    });
+
+    Ok(count)
+}
+
+#[tauri::command]
 pub async fn get_hardware_diagnostics() -> Result<HardwareSpecs, String> {
     Ok(diagnostics::get_hardware_specs())
+}
+
+#[tauri::command]
+pub async fn get_system_stats() -> Result<diagnostics::SystemStats, String> {
+    Ok(diagnostics::get_system_stats())
 }
 
 #[tauri::command]
@@ -615,6 +645,42 @@ async fn run_download_job(
 }
 
 #[tauri::command]
+pub async fn get_evidence_stats(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let pool = state.db.clone();
+    let row = sqlx::query(
+        r#"
+        SELECT 
+            COUNT(*) as total_count,
+            SUM(CASE WHEN local_path IS NOT NULL THEN 1 ELSE 0 END) as local_count,
+            SUM(artifact_size) as total_size
+        FROM records
+        "#
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(to_error)?;
+
+    use sqlx::Row;
+    let total_count: i64 = row.get("total_count");
+    let local_count: i64 = row.get("local_count");
+    let total_size: i64 = row.get("total_size");
+
+    let unanalyzed: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM records WHERE analysis_status IS NULL OR analysis_status != 'completed'"
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(to_error)?;
+
+    Ok(serde_json::json!({
+        "total_count": total_count,
+        "local_count": local_count,
+        "total_size": total_size,
+        "unanalyzed_count": unanalyzed
+    }))
+}
+
+#[tauri::command]
 pub async fn check_model_status(state: State<'_, AppState>) -> Result<std::collections::HashMap<String, bool>, String> {
     let manager = ModelManager::new(&state.library);
     let mut status = std::collections::HashMap::new();
@@ -622,8 +688,8 @@ pub async fn check_model_status(state: State<'_, AppState>) -> Result<std::colle
     let model_files = vec![
         ("bge-small", "bge-small-en-v1.5.onnx"),
         ("tokenizer", "tokenizer.json"),
-        ("gemma-2b", "gemma-4-e2b.gguf"),
-        ("gemma-4b", "gemma-4-e4b.gguf"),
+        ("gemma-2b", "gemma-4-2b-it.gguf"),
+        ("gemma-4b", "gemma-4-4b-it.gguf"),
     ];
 
     for (id, filename) in model_files {

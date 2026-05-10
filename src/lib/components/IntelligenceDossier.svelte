@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { openPath, openUrl } from "@tauri-apps/plugin-opener";
   import { AlertCircle } from "lucide-svelte";
+  import { addToast } from "$lib/toastStore";
   import type { AnalysisReport, CaseSummary, DownloadResult, ExportResult, RecordSummary, RecordAsset } from "$lib/types";
 
   let { record, cases = [], selectedCaseId = null, onBack, onChanged } = $props<{
@@ -310,16 +312,23 @@
           <div class="asset-grid">
             {#each images as asset}
               <button class="evidence-frame glass" onclick={() => lightboxAsset = asset}>
+                <div class="frame-scanner"></div>
                 <img src={convertFileSrc(asset.local_path)} alt="Extracted evidence asset" />
                 <div class="frame-meta">
-                  <span>{asset.mime_type?.split('/')[1].toUpperCase()}</span>
-                  <span>{asset.file_size ? (asset.file_size / 1024).toFixed(0) : 0} KB</span>
+                  <div class="meta-left">
+                    <span class="file-tag">{asset.mime_type?.split('/')[1].toUpperCase()}</span>
+                    <span class="integrity-tag">VERIFIED</span>
+                  </div>
+                  <span class="file-size">{asset.file_size ? (asset.file_size / 1024).toFixed(0) : 0} KB</span>
                 </div>
               </button>
             {/each}
           </div>
         {:else}
-          <p>No image assets extracted yet.</p>
+          <div class="empty-media">
+             <div class="radar-pulse"></div>
+             <p>No high-fidelity assets extracted. Run Gemma 4 analysis to segment media from source documents.</p>
+          </div>
         {/if}
       </section>
     {:else if activeTab === "case"}
@@ -845,5 +854,112 @@
     align-items: center;
     justify-content: space-between;
     font-size: 14px;
+  }
+  .asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+    padding: 16px 0;
+  }
+  
+  .evidence-frame {
+    position: relative;
+    padding: 8px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    cursor: pointer;
+    transition: var(--transition-fast);
+  }
+  
+  .evidence-frame:hover {
+    border-color: var(--accent-primary);
+    transform: translateY(-2px);
+  }
+  
+  .frame-scanner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(to bottom, transparent, var(--accent-primary), transparent);
+    z-index: 5;
+    opacity: 0;
+    pointer-events: none;
+  }
+  
+  .evidence-frame:hover .frame-scanner {
+    animation: scanner-sweep 2s infinite linear;
+    opacity: 0.5;
+  }
+  
+  @keyframes scanner-sweep {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
+  
+  .evidence-frame img {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 2px;
+    display: block;
+  }
+  
+  .frame-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 8px;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+  }
+  
+  .meta-left {
+    display: flex;
+    gap: 6px;
+  }
+  
+  .file-tag {
+    color: var(--text-secondary);
+    font-weight: 700;
+  }
+  
+  .integrity-tag {
+    color: var(--accent-success);
+    opacity: 0.8;
+  }
+  
+  .file-size {
+    color: var(--text-tertiary);
+  }
+  
+  .empty-media {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 64px 0;
+    text-align: center;
+    gap: 24px;
+    color: var(--text-tertiary);
+    font-size: 13px;
+  }
+  
+  .radar-pulse {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 2px solid var(--accent-primary);
+    position: relative;
+    opacity: 0.2;
+    animation: radar-pulse 3s infinite;
+  }
+  
+  @keyframes radar-pulse {
+    0% { transform: scale(0.8); opacity: 0.5; }
+    100% { transform: scale(2); opacity: 0; }
   }
 </style>

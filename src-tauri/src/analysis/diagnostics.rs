@@ -60,3 +60,37 @@ pub fn get_hardware_specs() -> HardwareSpecs {
         recommended_tier,
     }
 }
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SystemStats {
+    pub cpu_usage: f32,
+    pub memory_usage_mb: u64,
+    pub process_memory_mb: u64,
+    pub timestamp: String,
+}
+
+pub fn get_system_stats() -> SystemStats {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    
+    let cpu_usage = sys.global_cpu_usage();
+    let memory_usage_mb = (sys.total_memory() - sys.available_memory()) / 1024 / 1024;
+    
+    // Get process memory
+    let pid = sysinfo::get_current_pid().ok();
+    let process_memory_mb = if let Some(p) = pid {
+        if let Some(process) = sys.process(p) {
+            process.memory() / 1024 / 1024
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    SystemStats {
+        cpu_usage,
+        memory_usage_mb,
+        process_memory_mb,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    }
+}

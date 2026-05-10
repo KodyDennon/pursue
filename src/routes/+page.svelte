@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { activeView } from "$lib/store";
   import IntelligenceDossier from "$lib/components/IntelligenceDossier.svelte";
   import Map from "$lib/components/Map.svelte";
   import LinkAnalysis from "$lib/components/LinkAnalysis.svelte";
@@ -9,11 +8,11 @@
   import GlobalActions from "$lib/components/dashboard/GlobalActions.svelte";
   import GridView from "$lib/components/dashboard/GridView.svelte";
   import IntelCardsView from "$lib/components/dashboard/IntelCardsView.svelte";
-  import DownloadAgent from "$lib/components/DownloadAgent.svelte";
   import IntelligenceCenter from "$lib/components/IntelligenceCenter.svelte";
-  import EmptyState from "$lib/components/dashboard/EmptyState.svelte";
-  import Settings from "$lib/components/Settings.svelte";
+  import EvidenceVault from "$lib/components/EvidenceVault.svelte";
+  import DownloadAgent from "$lib/components/DownloadAgent.svelte";
   import type { CaseSummary, DatabaseStatus, RecordSummary } from "$lib/types";
+  import { Loader2, LayoutDashboard, Brain, Database, Download } from "lucide-svelte";
   import { addToast, updateToast } from "$lib/toastStore";
 
   let isProvisioned = $state(false);
@@ -27,6 +26,7 @@
   let query = $state("");
   let busy = $state<string | null>(null);
   let initializing = $state(true);
+  let activeView = $state<"dashboard" | "intel" | "vault" | "agent">("dashboard");
   let sidebarWidth = $state(540);
   let isResizing = $state(false);
 
@@ -97,12 +97,52 @@
     return `${next.toFixed(next >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
   }
 
+  let systemStats = $state<any>(null);
+
   onMount(() => {
-    if (isProvisioned) void loadInitialData();
+    // Poller for system stats
+    const statsInterval = setInterval(async () => {
+      try {
+        systemStats = await invoke("get_system_stats");
+      } catch (e) {
+        console.warn("Failed to poll system stats", e);
+      }
+    }, 2000);
+
+    // Auto-detect provisioning
+    (async () => {
+      try {
+        const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
+        const specs = await invoke<any>("get_hardware_diagnostics");
+        
+        const required = ["bge-small", "tokenizer"];
+        if (specs.recommended_tier === "Elite") {
+          required.push("gemma-4b");
+        } else {
+          required.push("gemma-2b");
+        }
+
+        const allPresent = required.every(id => modelStatus[id]);
+        if (allPresent) {
+          isProvisioned = true;
+        }
+      } catch (e) {
+        console.error("Provisioning check failed", e);
+      }
+
+      if (isProvisioned) void loadInitialData();
+    })();
+
+    return () => {
+      clearInterval(statsInterval);
+    };
   });
 
   $effect(() => {
-    if (isProvisioned) void loadInitialData();
+    // Only reload if we transition to provisioned
+    if (isProvisioned && !initializing && records.length === 0) {
+      void loadInitialData();
+    }
   });
 </script>
 
@@ -126,13 +166,30 @@
 
   <div class="os-container" class:blur={initializing}>
     <header class="os-header glass-header">
-      <div class="view-toggles">
-        <button class:active={$activeView === 'grid'} onclick={() => $activeView = 'grid'}>Grid</button>
-        <button class:active={$activeView === 'cards'} onclick={() => $activeView = 'cards'}>Intel Cards</button>
-        <button class:active={$activeView === 'map'} onclick={() => $activeView = 'map'}>Tactical Map</button>
-      </div>
+      <nav class="os-nav">
+        <button class:active={activeView === 'dashboard'} onclick={() => activeView = 'dashboard'}>
+          <LayoutDashboard size={18} /> <span>Dashboard</span>
+        </button>
+        <button class:active={activeView === 'intel'} onclick={() => activeView = 'intel'}>
+          <Brain size={18} /> <span>Intelligence</span>
+        </button>
+        <button class:active={activeView === 'vault'} onclick={() => activeView = 'vault'}>
+          <Database size={18} /> <span>Vault</span>
+        </button>
+        <button class:active={activeView === 'agent'} onclick={() => activeView = 'agent'}>
+          <Download size={18} /> <span>Agent</span>
+        </button>
+      </nav>
 
-      <GlobalActions bind:query bind:busy onLoad={loadInitialData} onSelect={(r) => (selectedRecord = r)} onSync={sync} />
+      <div class="header-actions">
+        <GlobalActions 
+          bind:query={query} 
+          onLoad={loadInitialData}
+          onSelect={(r) => (selectedRecord = r)}
+          onSync={sync}
+          bind:busy={busy}
+        />
+      </div>
     </header>
 
     {#if databaseStatus}
@@ -145,38 +202,31 @@
 
     <div class="os-body">
       <main class="os-main">
-        {#if records.length === 0 && !query}
-          <EmptyState onSync={sync} />
-        {:else}
-          {#if $activeView === 'grid'}
-            <GridView {records} selectedRecordId={selectedRecord?.id} onSelect={(r) => (selectedRecord = r)} />
-          {:else if $activeView === 'cards'}
-            <IntelCardsView {records} selectedRecordId={selectedRecord?.id} onSelect={(r) => (selectedRecord = r)} />
-          {:else if $activeView === 'map'}
-            <div class="map-view">
-              <Map {records} onSelect={(r) => (selectedRecord = r)} />
+        <div class="view-container">
+          {#if activeView === 'dashboard'}
+            <div class="dashboard-grid">
+              <GridView 
+                records={records} 
+                selectedRecordId={selectedRecord?.id}
+                onSelect={(r) => (selectedRecord = r)}
+              />
             </div>
-          {:else if $activeView === 'link-analysis'}
-            <div class="link-view">
-              <LinkAnalysis {records} />
-            </div>
-          {:else if $activeView === 'agent'}
-            <div class="agent-view">
-              <DownloadAgent onComplete={loadInitialData} />
-            </div>
-          {:else if $activeView === 'intelligence'}
+          {:else if activeView === 'intel'}
             <IntelligenceCenter />
-          {:else if $activeView === 'settings'}
-            <div class="settings-view">
-              <Settings />
-            </div>
+          {:else if activeView === 'vault'}
+            <EvidenceVault />
+          {:else if activeView === 'agent'}
+            <DownloadAgent onComplete={loadInitialData} />
           {/if}
-        {/if}
+        </div>
       </main>
 
       {#if selectedRecord}
         <div 
           class="sidebar-resizer" 
+          role="separator"
+          aria-label="Resize sidebar"
+          aria-valuenow={sidebarWidth}
           onmousedown={startResizing}
           class:active={isResizing}
         ></div>
@@ -201,6 +251,22 @@
         <span class="f-label">Intelligence Yield:</span>
         <span class="f-val">{databaseStatus?.analyzed_records || 0} Neural Reports</span>
       </div>
+      <div class="f-section resource-monitor">
+        {#if systemStats}
+          <div class="res-item">
+            <span class="f-label">CPU</span>
+            <div class="res-bar-wrap">
+              <div class="res-bar-fill" style="width: {systemStats.cpu_usage}%"></div>
+            </div>
+            <span class="f-val">{systemStats.cpu_usage.toFixed(1)}%</span>
+          </div>
+          <div class="res-item">
+            <span class="f-label">MEM</span>
+            <span class="f-val">{formatBytes(systemStats.process_memory_mb * 1024 * 1024)}</span>
+          </div>
+        {/if}
+      </div>
+
       <div class="f-section engine-status">
         <div class="status-orb" class:busy={busy}></div>
         <span class="f-val">{busy ? `AGENT ${busy.toUpperCase()} ACTIVE` : 'INTELLIGENCE OS STANDBY'}</span>
@@ -224,29 +290,40 @@
     justify-content: space-between;
     padding: 0 24px;
     z-index: 10;
+    border-bottom: 1px solid var(--border-subtle);
   }
 
-  .view-toggles {
+  .os-nav {
     display: flex;
     gap: 8px;
-    background: rgba(0,0,0,0.4);
-    padding: 4px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-subtle);
   }
 
-  .view-toggles button {
-    padding: 6px 16px;
-    border-radius: var(--radius-sm);
-    font-size: 13px;
+  .os-nav button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
     transition: var(--transition-fast);
   }
 
-  .view-toggles button.active {
-    background: var(--bg-surface-elevated);
+  .os-nav button:hover {
+    background: rgba(255,255,255,0.05);
     color: var(--text-primary);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  .os-nav button.active {
+    background: rgba(231, 196, 107, 0.1);
+    color: var(--accent-primary);
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 16px;
+    align-items: center;
   }
 
   .stats-bar {
@@ -317,6 +394,33 @@
     display: flex;
     gap: 8px;
     align-items: center;
+  }
+
+  .resource-monitor {
+    margin-left: auto;
+    gap: 24px;
+    padding-right: 24px;
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .res-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .res-bar-wrap {
+    width: 40px;
+    height: 3px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 1px;
+    overflow: hidden;
+  }
+
+  .res-bar-fill {
+    height: 100%;
+    background: var(--accent-primary);
+    transition: width 0.3s ease;
   }
 
   .f-label {

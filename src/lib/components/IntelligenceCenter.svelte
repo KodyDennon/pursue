@@ -12,8 +12,8 @@
   let models = $state([
     { id: 'bge-small', name: 'BGE Small v1.5', filename: 'bge-small-en-v1.5.onnx', type: 'Embedding', size: '134 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx' },
     { id: 'tokenizer', name: 'BGE Tokenizer', filename: 'tokenizer.json', type: 'System', size: '1 MB', status: 'pending', progress: 0, url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json' },
-    { id: 'gemma-2b', name: 'Gemma 2B IT', filename: 'gemma-4-e2b.gguf', type: 'Intelligence', size: '1.6 GB', status: 'pending', progress: 0, url: 'https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf' },
-    { id: 'gemma-4b', name: 'Gemma 4B IT', filename: 'gemma-4-e4b.gguf', type: 'Intelligence (Elite)', size: '2.8 GB', status: 'pending', progress: 0, url: 'https://huggingface.co/google/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it.Q4_K_M.gguf' }
+    { id: 'gemma-2b', name: 'Gemma 4 2B IT', filename: 'gemma-4-2b-it.gguf', type: 'Intelligence', size: '1.6 GB', status: 'pending', progress: 0, url: 'https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf' },
+    { id: 'gemma-4b', name: 'Gemma 4 4B IT', filename: 'gemma-4-4b-it.gguf', type: 'Intelligence (Elite)', size: '2.8 GB', status: 'pending', progress: 0, url: 'https://huggingface.co/google/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it.Q4_K_M.gguf' }
   ]);
 
   let busyModelId = $state<string | null>(null);
@@ -47,6 +47,22 @@
       addToast({ type: "error", message: `Provisioning failed: ${e}` });
     } finally {
       busyModelId = null;
+    }
+  }
+
+  async function provisionAll() {
+    const missing = models.filter(m => m.status === 'missing');
+    for (const model of missing) {
+      await downloadModel(model.id);
+    }
+  }
+
+  async function reindexAll() {
+    try {
+      const count = await invoke<number>("analyze_all_records");
+      addToast({ type: "info", message: `Neural Indexing initiated for ${count} records.`, duration: 5000 });
+    } catch (e) {
+      addToast({ type: "error", message: `Indexing failed: ${e}`, duration: 5000 });
     }
   }
 
@@ -122,7 +138,14 @@
     <section class="center-card models">
       <header>
         <Database size={18} />
-        <h3>Neural Model Library</h3>
+        <div class="header-content">
+          <h3>Neural Model Library</h3>
+          {#if models.some(m => m.status === 'missing')}
+            <button class="text-btn" onclick={provisionAll} disabled={!!busyModelId}>
+              <Download size={14} /> Provision All Missing
+            </button>
+          {/if}
+        </div>
       </header>
       <div class="model-list">
         {#each models as model}
@@ -159,7 +182,12 @@
     <section class="center-card vector">
       <header>
         <HardDrive size={18} />
-        <h3>Vector Index Analytics</h3>
+        <div class="header-content">
+          <h3>Vector Index Analytics</h3>
+          <button class="text-btn" onclick={reindexAll}>
+            <Brain size={14} /> Batch Neural Re-indexing
+          </button>
+        </div>
       </header>
       {#if status}
         <div class="diag-metrics">
@@ -251,6 +279,39 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
     font-weight: 700;
+    flex: 1;
+  }
+
+  .header-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .text-btn {
+    background: none;
+    border: none;
+    color: var(--accent-primary);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.2s;
+  }
+
+  .text-btn:hover {
+    background: rgba(231, 196, 107, 0.1);
+  }
+
+  .text-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .diag-metrics {

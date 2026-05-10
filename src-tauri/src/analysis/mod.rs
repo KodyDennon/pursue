@@ -108,8 +108,8 @@ impl AnalysisManager {
 
         // Gemma selection based on tier
         let (model_id, preferred_model, preferred_url) = match specs.recommended_tier {
-            IntelligenceTier::Elite => ("gemma-4b", "gemma-4-e4b.gguf", "https://huggingface.co/google/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it.Q4_K_M.gguf"),
-            _ => ("gemma-2b", "gemma-4-e2b.gguf", "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf"),
+            IntelligenceTier::Elite => ("gemma-4b", "gemma-4-4b-it.gguf", "https://huggingface.co/google/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it.Q4_K_M.gguf"),
+            _ => ("gemma-2b", "gemma-4-2b-it.gguf", "https://huggingface.co/google/gemma-4-2b-it-GGUF/resolve/main/gemma-4-2b-it.Q4_K_M.gguf"),
         };
 
         self.models
@@ -144,7 +144,7 @@ impl AnalysisManager {
             .load_and_extract(
                 ExtractionConfig {
                     preferred_model_path: Some(self.models.models_dir().join(preferred_model)),
-                    fallback_model_path: Some(self.models.models_dir().join("gemma-4-e2b.gguf")),
+                    fallback_model_path: Some(self.models.models_dir().join("gemma-4-2b-it.gguf")),
                     force_cpu: !specs.gpu_acceleration_available,
                 },
                 &text,
