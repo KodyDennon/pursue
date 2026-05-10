@@ -25,8 +25,14 @@ pub struct ModelManager {
 impl ModelManager {
     pub fn new(library: &LibraryManager) -> Self {
         let models_dir = library.app_data_dir().join("models");
+        let client = Client::builder()
+            .user_agent("PURSUE-Intelligence-OS/0.2.0")
+            .redirect(rquest::redirect::Policy::limited(20))
+            .build()
+            .unwrap_or_else(|_| Client::new());
+            
         Self {
-            client: Client::new(),
+            client,
             models_dir,
         }
     }
@@ -45,17 +51,30 @@ impl ModelManager {
         let target_path = self.models_dir.join(model_name);
         
         if target_path.exists() {
-            // Verify GGUF magic header to ensure it's not a corrupted/HTML error file
+            let is_gguf = model_name.ends_with(".gguf");
+            
             if let Ok(mut file) = tokio::fs::File::open(&target_path).await {
                 use tokio::io::AsyncReadExt;
                 let mut magic = [0u8; 4];
                 if file.read_exact(&mut magic).await.is_ok() {
-                    if &magic == b"GGUF" {
+                    let mut is_corrupted = false;
+                    
+                    if is_gguf {
+                        if &magic != b"GGUF" {
+                            warn!("Model file {} is corrupted (invalid GGUF magic).", model_name);
+                            is_corrupted = true;
+                        }
+                    } else if &magic == b"<!DO" || &magic == b"<htm" {
+                        warn!("Model file {} appears to be an HTML error page.", model_name);
+                        is_corrupted = true;
+                    }
+
+                    if !is_corrupted {
                         return Ok(target_path);
                     }
-                    warn!("Model file {} is corrupted (invalid GGUF magic). Purging for re-download.", model_name);
                 }
             }
+            warn!("Purging {} for re-download.", model_name);
             let _ = fs::remove_file(&target_path).await;
         }
 

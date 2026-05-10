@@ -120,7 +120,27 @@
 
   let systemStats = $state<any>(null);
 
-  onMount(() => {
+// Auto-detect provisioning
+onMount(() => {
+    (async () => {
+        try {
+            const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
+            const specs = await invoke<any>("get_hardware_diagnostics");
+
+            const tier = specs.recommended_tier === "Elite" ? "Elite" : "Standard";
+            const requiredIds = MODELS[tier].map(m => m.id);
+
+            const allPresent = requiredIds.every(id => modelStatus[id]);
+            if (allPresent) {
+                isProvisioned = true;
+                // If already provisioned, trigger load immediately
+                loadInitialData();
+            }
+        } catch (e) {
+            console.error("Provisioning check failed", e);
+        }
+    })();
+
     const statsInterval = setInterval(async () => {
       try {
         systemStats = await invoke("get_system_stats");
@@ -128,61 +148,45 @@
         console.warn("Failed to poll system stats", e);
       }
     }, 2000);
-// Auto-detect provisioning
-(async () => {
-  try {
-    const modelStatus = await invoke<Record<string, boolean>>("check_model_status");
-    const specs = await invoke<any>("get_hardware_diagnostics");
 
-    const required = ["bge-small", "tokenizer"];
-    if (specs.recommended_tier === "Elite") {
-      required.push("gemma-4b");
-    } else {
-      required.push("gemma-2b");
-    }
-
-    const allPresent = required.every(id => modelStatus[id]);
-    if (allPresent) {
-      isProvisioned = true;
-    }
-  } catch (e) {
-    console.error("Provisioning check failed", e);
-  }
-})();
-
-return () => {
-  clearInterval(statsInterval);
-};
+    return () => {
+      clearInterval(statsInterval);
+    };
 });
 
-  let hasLoaded = false;
+  let hasLoaded = $state(false);
+  // This effect is now just a backup in case activeView changes or after first-launch completion
   $effect(() => {
-    if (isProvisioned && !hasLoaded) {
+    if (isProvisioned && !hasLoaded && !initializing) {
         if ($activeView === 'dashboard') {
             hasLoaded = true;
-            void loadInitialData();
+            loadInitialData();
         }
     }
   });
+
+  const MODELS = {
+    Standard: ["bge-small", "tokenizer", "gemma-4-e2b"],
+    Elite: ["bge-small", "tokenizer", "gemma-4-e4b"]
+  };
 </script>
 
 {#if !isProvisioned}
-  <FirstLaunch onComplete={() => (isProvisioned = true)} />
-{:else}
-  {#if initializing}
-    <div class="system-splash">
-      <div class="splash-content">
-        <Loader2 class="spin" size={48} />
-        <h2>Intelligence OS Initializing</h2>
-        <p>Syncing local evidence vault and intelligence models...</p>
-        <div class="boot-log">
-          <span>[SYSTEM] Mounting secure database...</span>
-          <span>[SYSTEM] Initializing vector search engine...</span>
-          <span>[SYSTEM] Loading AARO official source records...</span>
-        </div>
+  <FirstLaunch onComplete={() => { isProvisioned = true; loadInitialData(); }} />
+{:else if initializing}
+  <div class="system-splash">
+    <div class="splash-content">
+      <Loader2 class="spin" size={48} />
+      <h2>Intelligence OS Initializing</h2>
+      <p>Syncing local evidence vault and intelligence models...</p>
+      <div class="boot-log">
+        <span>[SYSTEM] Mounting secure database...</span>
+        <span>[SYSTEM] Initializing vector search engine...</span>
+        <span>[SYSTEM] Loading AARO official source records...</span>
       </div>
     </div>
-  {/if}
+  </div>
+{:else}
 
   <div class="os-container" class:blur={initializing}>
     <header class="os-header glass-header">
