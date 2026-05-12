@@ -3,7 +3,7 @@ name: build-installers
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -12,8 +12,8 @@ permissions:
   contents: write
 
 env:
-  BUN_VERSION: "1.3.9"
-  NODE_VERSION: "24"
+  BUN_VERSION: '1.3.9'
+  NODE_VERSION: '24'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -38,7 +38,7 @@ jobs:
             ${{ runner.os }}-bun-
 
       - uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -67,10 +67,10 @@ jobs:
           - platform: macos-14
             args: --target aarch64-apple-darwin
           - platform: windows-latest
-            args: ""
+            args: ''
     runs-on: ${{ matrix.platform }}
     env:
-      MACOSX_DEPLOYMENT_TARGET: "14.0"
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

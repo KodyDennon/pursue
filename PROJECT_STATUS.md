@@ -10,7 +10,9 @@ Last updated: May 10, 2026
 - SQLite migrations for source snapshots, diffs, artifacts, download jobs/items, analysis chunks, entities, case notes, intelligence fragments, and forensic reports.
 - Local-first Decoupled Intelligence Pipeline (Indexing vs. Synthesis) with Gemma 4 neural engine support.
 - Phase 1 (Indexing): Foundation layer with digital text extraction, multi-engine OCR (macOS Vision / Windows Media / Tesseract), and entity graph population.
+
 ## Current Status (May 10, 2026)
+
 - **Structural Hardening Complete**: Pipeline decoupled into Indexer/Synthesizer/Persistence services.
 - **Async Purity**: All `block_on` anti-patterns eliminated; inference isolated in `spawn_blocking`.
 - **Model Manifest**: Centralized `ModelRegistry` (v1.0) synced across Rust and Svelte.
@@ -18,6 +20,7 @@ Last updated: May 10, 2026
 - **Neural Auditability**: Real-time "Thought Stream" diagnostic UI deployed in Analysis Modal.
 
 ## Core Implementation
+
 - Phase 2 (Synthesis): High-fidelity forensic audit and intelligence synthesis via local Gemma 4 inference with stateful KV-caching.
 - Deterministic and neural-augmented entity extraction for agencies, dates, locations, and suspicious patterns.
 - Local high-performance vector search via sqlite-vec and ONNX (bge-small); no hosted embeddings or API inference.

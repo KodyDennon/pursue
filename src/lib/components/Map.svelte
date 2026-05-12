@@ -1,73 +1,77 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
-  import type { RecordSummary } from "$lib/types";
-  import L from "leaflet";
-  import "leaflet/dist/leaflet.css";
+	import { onDestroy, onMount } from 'svelte';
+	import type { RecordSummary } from '$lib/types';
+	import L from 'leaflet';
+	import 'leaflet/dist/leaflet.css';
 
-  let { records = [], onSelect = null } = $props<{ records: RecordSummary[]; onSelect?: (record: RecordSummary) => void }>();
-  let mapElement: HTMLDivElement;
-  let map: L.Map | null = null;
-  let markerLayer = $state<L.LayerGroup | null>(null);
+	let { records = [], onSelect = null } = $props<{
+		records: RecordSummary[];
+		onSelect?: (record: RecordSummary) => void;
+	}>();
+	let mapElement: HTMLDivElement;
+	let map: L.Map | null = null;
+	let markerLayer = $state<L.LayerGroup | null>(null);
 
-  const knownLocations: Array<[RegExp, [number, number]]> = [
-    [/kazakhstan/i, [48.0196, 66.9237]],
-    [/papua new guinea/i, [-6.315, 143.9555]],
-    [/\bgeorgia\b/i, [32.1656, -82.9001]],
-    [/mexico/i, [23.6345, -102.5528]],
-    [/middle east/i, [29.2985, 42.551]],
-    [/united states|usa|u\.s\./i, [37.0902, -95.7129]],
-    [/nevada/i, [38.8026, -116.4194]],
-    [/new mexico/i, [34.5199, -105.8701]],
-    [/arizona/i, [34.0489, -111.0937]],
-    [/california/i, [36.7783, -119.4179]],
-    [/florida/i, [27.6648, -81.5158]],
-    [/atlantic/i, [31.0, -45.0]],
-    [/pacific/i, [8.7832, -124.5085]],
-    [/russia|moscow/i, [55.7558, 37.6173]],
-    [/china|beijing/i, [39.9042, 116.4074]],
-    [/ukraine|kyiv/i, [50.4501, 30.5234]],
-    [/united kingdom|london|uk/i, [51.5074, -0.1278]],
-    [/germany|berlin/i, [52.5200, 13.4050]],
-    [/france|paris/i, [48.8566, 2.3522]],
-    [/iran|tehran/i, [35.6892, 51.3890]],
-    [/north korea/i, [39.0392, 125.7625]],
-    [/south korea/i, [37.5665, 126.9780]],
-    [/japan|tokyo/i, [35.6762, 139.6503]],
-    [/australia|sydney/i, [-33.8688, 151.2093]],
-    [/brazil/i, [-14.235, -51.9253]]
-  ];
+	const knownLocations: Array<[RegExp, [number, number]]> = [
+		[/kazakhstan/i, [48.0196, 66.9237]],
+		[/papua new guinea/i, [-6.315, 143.9555]],
+		[/\bgeorgia\b/i, [32.1656, -82.9001]],
+		[/mexico/i, [23.6345, -102.5528]],
+		[/middle east/i, [29.2985, 42.551]],
+		[/united states|usa|u\.s\./i, [37.0902, -95.7129]],
+		[/nevada/i, [38.8026, -116.4194]],
+		[/new mexico/i, [34.5199, -105.8701]],
+		[/arizona/i, [34.0489, -111.0937]],
+		[/california/i, [36.7783, -119.4179]],
+		[/florida/i, [27.6648, -81.5158]],
+		[/atlantic/i, [31.0, -45.0]],
+		[/pacific/i, [8.7832, -124.5085]],
+		[/russia|moscow/i, [55.7558, 37.6173]],
+		[/china|beijing/i, [39.9042, 116.4074]],
+		[/ukraine|kyiv/i, [50.4501, 30.5234]],
+		[/united kingdom|london|uk/i, [51.5074, -0.1278]],
+		[/germany|berlin/i, [52.52, 13.405]],
+		[/france|paris/i, [48.8566, 2.3522]],
+		[/iran|tehran/i, [35.6892, 51.389]],
+		[/north korea/i, [39.0392, 125.7625]],
+		[/south korea/i, [37.5665, 126.978]],
+		[/japan|tokyo/i, [35.6762, 139.6503]],
+		[/australia|sydney/i, [-33.8688, 151.2093]],
+		[/brazil/i, [-14.235, -51.9253]]
+	];
 
-  function coordinatesFor(location: string | null): [number, number] | null {
-    if (!location) return null;
-    const clean = location.toLowerCase();
-    for (const [pattern, coords] of knownLocations) {
-      if (pattern.test(clean)) return coords;
-    }
-    return null;
-  }
+	function coordinatesFor(location: string | null): [number, number] | null {
+		if (!location) return null;
+		const clean = location.toLowerCase();
+		for (const [pattern, coords] of knownLocations) {
+			if (pattern.test(clean)) return coords;
+		}
+		return null;
+	}
 
-  function updateMarkers(nextRecords: RecordSummary[]) {
-    if (!map || !markerLayer) return;
-    markerLayer.clearLayers();
+	function updateMarkers(nextRecords: RecordSummary[]) {
+		if (!map || !markerLayer) return;
+		markerLayer.clearLayers();
 
-    const bounds: L.LatLngExpression[] = [];
+		const bounds: L.LatLngExpression[] = [];
 
-    for (const record of nextRecords) {
-      const coords = coordinatesFor(record.incident_location);
-      if (!coords) continue;
+		for (const record of nextRecords) {
+			const coords = coordinatesFor(record.incident_location);
+			if (!coords) continue;
 
-      bounds.push(coords as [number, number]);
+			bounds.push(coords as [number, number]);
 
-      const markerIcon = L.divIcon({
-        className: "tactical-pip",
-        html: "<div class='pulse-dot'></div>",
-        iconSize: [20, 20],
-        iconAnchor: [10, 10]
-      });
+			const markerIcon = L.divIcon({
+				className: 'tactical-pip',
+				html: "<div class='pulse-dot'></div>",
+				iconSize: [20, 20],
+				iconAnchor: [10, 10]
+			});
 
-      L.marker(coords as [number, number], { icon: markerIcon })
-        .addTo(markerLayer)
-        .bindPopup(`
+			L.marker(coords as [number, number], { icon: markerIcon })
+				.addTo(markerLayer)
+				.bindPopup(
+					`
           <div class="tactical-popup">
             <header>
               <strong>${record.title}</strong>
@@ -79,257 +83,265 @@
               <button class="mini-btn" onclick="window.dispatchEvent(new CustomEvent('select-record', { detail: '${record.id}' }))">Open Dossier</button>
             </div>
           </div>
-        `, {
-          className: 'tactical-popup-container'
-        });
-    }
+        `,
+					{
+						className: 'tactical-popup-container'
+					}
+				);
+		}
 
-    if (bounds.length > 0) {
-        map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50], maxZoom: 5 });
-    }
-  }
+		if (bounds.length > 0) {
+			map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50], maxZoom: 5 });
+		}
+	}
 
-  onMount(() => {
-    // Explicitly set dimensions and wait for DOM settling
-    if (mapElement) {
-        mapElement.style.height = "100%";
-        mapElement.style.width = "100%";
-    }
+	onMount(() => {
+		// Explicitly set dimensions and wait for DOM settling
+		if (mapElement) {
+			mapElement.style.height = '100%';
+			mapElement.style.width = '100%';
+		}
 
-    const initMap = () => {
-        if (!mapElement || map) return;
+		const initMap = () => {
+			if (!mapElement || map) return;
 
-        map = L.map(mapElement, {
-          center: [20, 0],
-          zoom: 2,
-          zoomControl: false,
-          attributionControl: false
-        });
+			map = L.map(mapElement, {
+				center: [20, 0],
+				zoom: 2,
+				zoomControl: false,
+				attributionControl: false
+			});
 
-        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-          maxZoom: 12,
-          attribution: '&copy; <a href="https://carto.com/">CARTO</a>'
-        }).addTo(map);
+			L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+				maxZoom: 12,
+				attribution: '&copy; <a href="https://carto.com/">CARTO</a>'
+			}).addTo(map);
 
-        markerLayer = L.layerGroup().addTo(map);
-        updateMarkers(records);
-        
-        // Force immediate recalculation
-        map.invalidateSize();
-    };
+			markerLayer = L.layerGroup().addTo(map);
+			updateMarkers(records);
 
-    // Delay initialization slightly to ensure parent transitions have finished
-    const timeout = setTimeout(initMap, 200);
+			// Force immediate recalculation
+			map.invalidateSize();
+		};
 
-    // High-frequency invalidation during transition window
-    const inv = setInterval(() => {
-        if (map) map.invalidateSize();
-    }, 500);
+		// Delay initialization slightly to ensure parent transitions have finished
+		const timeout = setTimeout(initMap, 200);
 
-    // Clear polling after 5 seconds
-    setTimeout(() => clearInterval(inv), 5000);
+		// High-frequency invalidation during transition window
+		const inv = setInterval(() => {
+			if (map) map.invalidateSize();
+		}, 500);
 
-    const resizeObserver = new ResizeObserver(() => {
-        if (map) {
-            map.invalidateSize();
-        }
-    });
-    resizeObserver.observe(mapElement);
+		// Clear polling after 5 seconds
+		setTimeout(() => clearInterval(inv), 5000);
 
-    // Select record event listener
-    const handleSelect = (e: any) => {
-      const record = records.find((r: RecordSummary) => r.id === e.detail);
-      if (record && onSelect) onSelect(record);
-    };
-    window.addEventListener('select-record', handleSelect);
+		const resizeObserver = new ResizeObserver(() => {
+			if (map) {
+				map.invalidateSize();
+			}
+		});
+		resizeObserver.observe(mapElement);
 
-    return () => {
-        clearTimeout(timeout);
-        clearInterval(inv);
-        window.removeEventListener('select-record', handleSelect);
-        resizeObserver.disconnect();
-    };
-  });
+		// Select record event listener
+		const handleSelect = ((e) => {
+			const record = records.find((r: RecordSummary) => r.id === (e as CustomEvent).detail);
+			if (record && onSelect) onSelect(record);
+		}) as globalThis.EventListener;
+		window.addEventListener('select-record', handleSelect);
 
-  $effect(() => {
-    if (map) {
-        // High-fidelity invalidation when records or component state changes
-        map.invalidateSize();
-        updateMarkers(records);
-    }
-  });
+		return () => {
+			clearTimeout(timeout);
+			clearInterval(inv);
+			window.removeEventListener('select-record', handleSelect);
+			resizeObserver.disconnect();
+		};
+	});
 
-  $effect(() => {
-    // Aggressive re-render when the container visibility might have shifted
-    const interval = setInterval(() => {
-        if (map) map.invalidateSize();
-    }, 1000);
-    return () => clearInterval(interval);
-  });
+	$effect(() => {
+		if (map) {
+			// High-fidelity invalidation when records or component state changes
+			map.invalidateSize();
+			updateMarkers(records);
+		}
+	});
 
-  onDestroy(() => {
-    if (map) map.remove();
-  });
+	$effect(() => {
+		// Aggressive re-render when the container visibility might have shifted
+		const interval = setInterval(() => {
+			if (map) map.invalidateSize();
+		}, 1000);
+		return () => clearInterval(interval);
+	});
+
+	onDestroy(() => {
+		if (map) map.remove();
+	});
 </script>
 
 <div bind:this={mapElement} class="map-surface">
-    {#if records.length > 0 && markerLayer && markerLayer.getLayers().length === 0}
-        <div class="map-overlay">
-            <div class="msg">No geospatial coordinates resolved for current collection.</div>
-        </div>
-    {/if}
+	{#if records.length > 0 && markerLayer && markerLayer.getLayers().length === 0}
+		<div class="map-overlay">
+			<div class="msg">No geospatial coordinates resolved for current collection.</div>
+		</div>
+	{/if}
 </div>
 
 <style>
-  .map-surface {
-    width: 100%;
-    height: 100%;
-    min-height: 400px;
-    background: #050608;
-    position: relative;
-    z-index: 10;
-    border: 1px solid rgba(231, 196, 107, 0.1);
-  }
+	.map-surface {
+		width: 100%;
+		height: 100%;
+		min-height: 400px;
+		background: #050608;
+		position: relative;
+		z-index: 10;
+		border: 1px solid rgba(231, 196, 107, 0.1);
+	}
 
-  .map-overlay {
-      position: absolute;
-      inset: 0;
-      z-index: 1000;
-      background: rgba(0,0,0,0.6);
-      backdrop-filter: blur(4px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
-  }
+	.map-overlay {
+		position: absolute;
+		inset: 0;
+		z-index: 1000;
+		background: rgba(0, 0, 0, 0.6);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+	}
 
-  .map-overlay .msg {
-      padding: 16px 32px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      color: var(--text-secondary);
-      font-size: 14px;
-      font-weight: 600;
-      letter-spacing: 0.05em;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  }
+	.map-overlay .msg {
+		padding: 16px 32px;
+		background: var(--bg-surface);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		color: var(--text-secondary);
+		font-size: 14px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+	}
 
-  :global(.tactical-pip) {
-    background: transparent;
-    border: none;
-  }
+	:global(.tactical-pip) {
+		background: transparent;
+		border: none;
+	}
 
-  :global(.pulse-dot) {
-    width: 12px;
-    height: 12px;
-    background: #e7c46b;
-    border-radius: 50%;
-    box-shadow: 0 0 15px #e7c46b;
-    border: 2px solid #0a0b0d;
-    position: relative;
-  }
+	:global(.pulse-dot) {
+		width: 12px;
+		height: 12px;
+		background: #e7c46b;
+		border-radius: 50%;
+		box-shadow: 0 0 15px #e7c46b;
+		border: 2px solid #0a0b0d;
+		position: relative;
+	}
 
-  :global(.pulse-dot::after) {
-    content: '';
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    top: 0;
-    left: 0;
-    background: #e7c46b;
-    border-radius: 50%;
-    animation: pip-pulse 2s infinite;
-    z-index: -1;
-  }
+	:global(.pulse-dot::after) {
+		content: '';
+		position: absolute;
+		width: 100%;
+		height: 100%;
+		top: 0;
+		left: 0;
+		background: #e7c46b;
+		border-radius: 50%;
+		animation: pip-pulse 2s infinite;
+		z-index: -1;
+	}
 
-  @keyframes pip-pulse {
-    0% { transform: scale(1); opacity: 0.8; }
-    100% { transform: scale(3); opacity: 0; }
-  }
+	@keyframes pip-pulse {
+		0% {
+			transform: scale(1);
+			opacity: 0.8;
+		}
+		100% {
+			transform: scale(3);
+			opacity: 0;
+		}
+	}
 
-  :global(.leaflet-popup-content-wrapper) {
-    background: rgba(16, 17, 20, 0.95) !important;
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(231, 196, 107, 0.3);
-    color: white !important;
-    border-radius: 12px !important;
-    padding: 0 !important;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.7) !important;
-  }
+	:global(.leaflet-popup-content-wrapper) {
+		background: rgba(16, 17, 20, 0.95) !important;
+		backdrop-filter: blur(10px);
+		border: 1px solid rgba(231, 196, 107, 0.3);
+		color: white !important;
+		border-radius: 12px !important;
+		padding: 0 !important;
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7) !important;
+	}
 
-  :global(.leaflet-popup-tip) {
-    background: rgba(16, 17, 20, 0.95) !important;
-    border: 1px solid rgba(231, 196, 107, 0.3);
-  }
+	:global(.leaflet-popup-tip) {
+		background: rgba(16, 17, 20, 0.95) !important;
+		border: 1px solid rgba(231, 196, 107, 0.3);
+	}
 
-  :global(.tactical-popup) {
-    padding: 20px;
-    min-width: 280px;
-    font-family: 'Outfit', sans-serif;
-  }
+	:global(.tactical-popup) {
+		padding: 20px;
+		min-width: 280px;
+		font-family: 'Outfit', sans-serif;
+	}
 
-  :global(.tactical-popup header) {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
+	:global(.tactical-popup header) {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		gap: 12px;
+		margin-bottom: 12px;
+	}
 
-  :global(.tactical-popup strong) {
-    font-size: 15px;
-    font-weight: 700;
-    color: #fff;
-  }
+	:global(.tactical-popup strong) {
+		font-size: 15px;
+		font-weight: 700;
+		color: #fff;
+	}
 
-  :global(.tactical-popup .status) {
-    font-size: 10px;
-    text-transform: uppercase;
-    font-weight: 800;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: rgba(255,255,255,0.1);
-  }
+	:global(.tactical-popup .status) {
+		font-size: 10px;
+		text-transform: uppercase;
+		font-weight: 800;
+		padding: 2px 8px;
+		border-radius: 4px;
+		background: rgba(255, 255, 255, 0.1);
+	}
 
-  :global(.tactical-popup .status.completed) {
-    color: #4df3a9;
-    background: rgba(77, 243, 169, 0.1);
-  }
+	:global(.tactical-popup .status.completed) {
+		color: #4df3a9;
+		background: rgba(77, 243, 169, 0.1);
+	}
 
-  :global(.tactical-popup .status.indexed) {
-    color: #3296ff;
-    background: rgba(50, 150, 255, 0.1);
-  }
+	:global(.tactical-popup .status.indexed) {
+		color: #3296ff;
+		background: rgba(50, 150, 255, 0.1);
+	}
 
-  :global(.tactical-popup p) {
-    margin: 0;
-    font-size: 13px;
-    color: #8a8f98;
-  }
+	:global(.tactical-popup p) {
+		margin: 0;
+		font-size: 13px;
+		color: #8a8f98;
+	}
 
-  :global(.tactical-popup .p-footer) {
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 1px solid rgba(255,255,255,0.1);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
+	:global(.tactical-popup .p-footer) {
+		margin-top: 16px;
+		padding-top: 12px;
+		border-top: 1px solid rgba(255, 255, 255, 0.1);
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
 
-  :global(.mini-btn) {
-    background: #e7c46b;
-    color: #000;
-    border: none;
-    border-radius: 6px;
-    padding: 6px 12px;
-    font-size: 11px;
-    font-weight: 800;
-    cursor: pointer;
-    transition: transform 0.2s;
-  }
+	:global(.mini-btn) {
+		background: #e7c46b;
+		color: #000;
+		border: none;
+		border-radius: 6px;
+		padding: 6px 12px;
+		font-size: 11px;
+		font-weight: 800;
+		cursor: pointer;
+		transition: transform 0.2s;
+	}
 
-  :global(.mini-btn:hover) {
-    transform: scale(1.05);
-  }
+	:global(.mini-btn:hover) {
+		transform: scale(1.05);
+	}
 </style>

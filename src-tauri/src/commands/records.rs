@@ -357,14 +357,14 @@ pub async fn run_download_job(
             let db = db.clone();
             let library = library.clone();
             let job_id = job_id.to_string();
-            
+
             async move {
                 let cancel_req =
                     sqlx::query_scalar::<_, i64>("SELECT cancel_requested FROM download_jobs WHERE id = ?")
                         .bind(&job_id)
                         .fetch_one(&db)
                         .await.unwrap_or(0);
-                
+
                 if cancel_req != 0 {
                     return None;
                 }

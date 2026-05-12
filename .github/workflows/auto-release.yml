@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 env:
-  BUN_VERSION: "1.3.9"
-  NODE_VERSION: "24"
+  BUN_VERSION: '1.3.9'
+  NODE_VERSION: '24'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     name: Bump Version and Tag
     runs-on: ubuntu-latest
     if: startsWith(github.event.head_commit.message, 'release:')
-    
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
             ${{ runner.os }}-bun-
 
       - uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -97,21 +97,21 @@ jobs:
         run: cargo check
         working-directory: src-tauri
         env:
-          MACOSX_DEPLOYMENT_TARGET: "14.0"
+          MACOSX_DEPLOYMENT_TARGET: '14.0'
 
       - name: Commit and Push Tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch --tags
-          
+
           # Only commit if there are changes
           if [[ -n $(git status -s) ]]; then
             git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
             git commit -m "chore: release v${{ steps.version.outputs.version }}"
             git push origin main
           fi
-          
+
           # Create and push the tag which triggers the build-installers workflow
           if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
             echo "Tag v${{ steps.version.outputs.version }} already exists"

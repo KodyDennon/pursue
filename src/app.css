@@ -1,110 +1,115 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  /* Fallback values. These are dynamically overwritten by theme.ts */
-  --bg-base: #0a0b0d;
-  --bg-surface: #101114;
-  --bg-surface-elevated: rgba(20, 22, 26, 0.6);
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --text-primary: #f5f6f8;
-  --text-secondary: #8a8f98;
-  --accent-primary: #e7c46b;
-  --accent-success: #4df3a9;
-  --accent-danger: #f34d4d;
+	/* Fallback values. These are dynamically overwritten by theme.ts */
+	--bg-base: #0a0b0d;
+	--bg-surface: #101114;
+	--bg-surface-elevated: rgba(20, 22, 26, 0.6);
+	--border-subtle: rgba(255, 255, 255, 0.08);
+	--text-primary: #f5f6f8;
+	--text-secondary: #8a8f98;
+	--accent-primary: #e7c46b;
+	--accent-success: #4df3a9;
+	--accent-danger: #f34d4d;
 
-  --font-sans: 'Inter', -apple-system, sans-serif;
-  --font-display: 'Outfit', -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', SFMono-Regular, monospace;
+	--font-sans: 'Inter', -apple-system, sans-serif;
+	--font-display: 'Outfit', -apple-system, sans-serif;
+	--font-mono: 'JetBrains Mono', SFMono-Regular, monospace;
 
-  --transition-fast: 150ms ease;
-  --transition-smooth: 250ms cubic-bezier(0.16, 1, 0.3, 1);
-  
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+	--transition-fast: 150ms ease;
+	--transition-smooth: 250ms cubic-bezier(0.16, 1, 0.3, 1);
+
+	--radius-sm: 4px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
 }
 
 * {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
 }
 
 body {
-  font-family: var(--font-sans);
-  background-color: var(--bg-base);
-  color: var(--text-primary);
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow: hidden; /* App OS feel, no global scrollbar */
+	font-family: var(--font-sans);
+	background-color: var(--bg-base);
+	color: var(--text-primary);
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	overflow: hidden; /* App OS feel, no global scrollbar */
 }
 
 /* Glassmorphism Utilities */
 .glass-panel {
-  background: var(--bg-surface-elevated);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+	background: var(--bg-surface-elevated);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-lg);
 }
 
 .glass-header {
-  background: rgba(10, 11, 13, 0.8);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--border-subtle);
+	background: rgba(10, 11, 13, 0.8);
+	backdrop-filter: blur(16px);
+	-webkit-backdrop-filter: blur(16px);
+	border-bottom: 1px solid var(--border-subtle);
 }
 
 /* Typography Utilities */
-h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: -0.02em;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family: var(--font-display);
+	font-weight: 600;
+	letter-spacing: -0.02em;
 }
 
 .mono {
-  font-family: var(--font-mono);
+	font-family: var(--font-mono);
 }
 
 .text-accent {
-  color: var(--accent-primary);
+	color: var(--accent-primary);
 }
 
 /* Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+	width: 6px;
+	height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+	background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+	background: rgba(255, 255, 255, 0.2);
 }
 
 /* Common Layout Utilities */
 .flex-center {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .flex-between {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
 }
 
 button {
-  background: none;
-  border: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  outline: none;
+	background: none;
+	border: none;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+	outline: none;
 }
