@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Result};
-use std::path::Path;
-use tokio::fs;
-use tauri_plugin_log::log::info;
 use crate::analysis::ocr::OcrEngine;
 use crate::analysis::pdf::PdfAnalyzer;
+use anyhow::{anyhow, Result};
+use std::path::Path;
+use tauri_plugin_log::log::info;
+use tokio::fs;
 
 pub struct TextExtractor {
     pub ocr: OcrEngine,
@@ -16,11 +16,19 @@ impl TextExtractor {
     }
 
     pub async fn extract(&self, path: &Path) -> Result<(String, String)> {
-        let extension = path.extension().and_then(|v| v.to_str()).unwrap_or("").to_lowercase();
+        let extension = path
+            .extension()
+            .and_then(|v| v.to_str())
+            .unwrap_or("")
+            .to_lowercase();
         match extension.as_str() {
             "pdf" => self.extract_pdf(path).await,
-            "txt" | "md" | "csv" | "json" => Ok((fs::read_to_string(path).await?, "text-file".to_string())),
-            "png" | "jpg" | "jpeg" | "tif" | "tiff" | "bmp" | "webp" => self.extract_image(path).await,
+            "txt" | "md" | "csv" | "json" => {
+                Ok((fs::read_to_string(path).await?, "text-file".to_string()))
+            }
+            "png" | "jpg" | "jpeg" | "tif" | "tiff" | "bmp" | "webp" => {
+                self.extract_image(path).await
+            }
             _ => Err(anyhow!("unsupported type `{}`", extension)),
         }
     }

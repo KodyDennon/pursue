@@ -12,9 +12,11 @@ extern "C" {
 pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
     // Register sqlite-vec extension globally before any connections are opened
     unsafe {
-        sqlite3_auto_extension(Some(std::mem::transmute(
-            sqlite_vec::sqlite3_vec_init as *const (),
-        )));
+        sqlite3_auto_extension(Some(
+            std::mem::transmute::<*const (), unsafe extern "C" fn()>(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            ),
+        ));
     }
 
     let app_dir = app_handle.path().app_data_dir()?;
@@ -33,20 +35,24 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
     let pool = SqlitePool::connect_with(options).await?;
 
     // --- MIGRATION RECONCILIATION LAYER ---
-    // When squashing migrations into a baseline (v1.0), SQLx panics if previously applied 
-    // migrations are missing from the folder. We reconcile this by removing archived 
+    // When squashing migrations into a baseline (v1.0), SQLx panics if previously applied
+    // migrations are missing from the folder. We reconcile this by removing archived
     // references if the baseline migration is present.
     let m_path = "./migrations";
-    let has_baseline = fs::read_dir(m_path).map(|d| {
-        d.filter_map(|e| e.ok()).any(|e| e.file_name().to_str().unwrap_or("").contains("v1_baseline"))
-    }).unwrap_or(false);
+    let has_baseline = fs::read_dir(m_path)
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .any(|e| e.file_name().to_str().unwrap_or("").contains("v1_baseline"))
+        })
+        .unwrap_or(false);
 
     if has_baseline {
         let _ = sqlx::query("CREATE TABLE IF NOT EXISTS _sqlx_migrations (version BIGINT PRIMARY KEY, success BOOLEAN NOT NULL)")
             .execute(&pool).await;
-        // Remove versions that are NOT the baseline and are before it
-        let _ = sqlx::query("DELETE FROM _sqlx_migrations WHERE version < 20260511000000")
-            .execute(&pool).await;
+        // Remove versions before and INCLUDING the baseline to force alignment/checksum reset
+        let _ = sqlx::query("DELETE FROM _sqlx_migrations WHERE version <= 20260511000000")
+            .execute(&pool)
+            .await;
     }
     // --------------------------------------
 
@@ -55,7 +61,7 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
         .await?;
 
     sqlx::migrate!("./migrations").run(&pool).await?;
-    
+
     // Cleanup stalled jobs from previous sessions
     let _ = sqlx::query("UPDATE download_jobs SET status = 'failed', summary_json = '{\"error\": \"Application interrupted\"}' WHERE status IN ('running', 'queued')")
         .execute(&pool)

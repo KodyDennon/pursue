@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
-use std::path::Path;
 use ocrs::OcrEngine as NativeOcr;
+use std::path::Path;
 use std::sync::OnceLock;
 
 static OCR_INSTANCE: OnceLock<NativeOcr> = OnceLock::new();
@@ -15,23 +15,25 @@ impl OcrEngine {
     /// Pure Rust cross-platform OCR fallback using 'ocrs' crate
     pub async fn extract_text_fallback<P: AsRef<Path>>(&self, image_path: P) -> Result<String> {
         let engine = self.get_or_init_engine()?;
-        
+
         // Load image using 'image' crate
         let img = image::open(image_path)?;
         let img = img.to_rgb8();
         let (width, height) = img.dimensions();
-        
+
         // Convert to ocrs input format
-        let layout_input = ocrs::ImageSource::from_bytes(&img.as_raw(), (width, height))
-            .map_err(|e| anyhow!("failed to prepare OCR input: {:?}", e))?;
-            
-        // Prepare OcrInput
-        let input = engine.prepare_input(layout_input)
+        let layout_input = ocrs::ImageSource::from_bytes(img.as_raw(), (width, height))
             .map_err(|e| anyhow!("failed to prepare OCR input: {:?}", e))?;
 
-        let res = engine.get_text(&input)
+        // Prepare OcrInput
+        let input = engine
+            .prepare_input(layout_input)
+            .map_err(|e| anyhow!("failed to prepare OCR input: {:?}", e))?;
+
+        let res = engine
+            .get_text(&input)
             .map_err(|e| anyhow!("OCR extraction failed: {:?}", e))?;
-            
+
         Ok(res)
     }
 
@@ -42,17 +44,19 @@ impl OcrEngine {
 
         // Note: ocrs requires models (detection and recognition)
         // We'll bail for now as this is a fallback.
-        Err(anyhow!("Bundled OCR engine models missing. Reverting to OS-native OCR."))
+        Err(anyhow!(
+            "Bundled OCR engine models missing. Reverting to OS-native OCR."
+        ))
     }
 
     pub fn analyze_redactions(&self, image_path: &Path) -> Result<f32> {
         let img = image::open(image_path)?;
         let luma = img.to_luma8();
         let (width, height) = luma.dimensions();
-        
+
         let mut redaction_pixels = 0u64;
         let mut row_black_counts = vec![0u32; height as usize];
-        
+
         // Pass 1: Count horizontal black pixels
         for y in 0..height {
             let mut current_streak = 0;
@@ -60,7 +64,8 @@ impl OcrEngine {
                 if luma.get_pixel(x, y).0[0] < 15 {
                     current_streak += 1;
                 } else {
-                    if current_streak > (width / 8) { // If streak is larger than 1/8th of width, it's a solid block
+                    if current_streak > (width / 8) {
+                        // If streak is larger than 1/8th of width, it's a solid block
                         row_black_counts[y as usize] += current_streak;
                     }
                     current_streak = 0;
@@ -70,7 +75,7 @@ impl OcrEngine {
                 row_black_counts[y as usize] += current_streak;
             }
         }
-        
+
         // Pass 2: Filter isolated lines (must be blocky)
         for y in 1..(height - 1) {
             let y_u = y as usize;

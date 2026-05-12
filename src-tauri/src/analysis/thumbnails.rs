@@ -9,11 +9,7 @@ impl ThumbnailManager {
         Self
     }
 
-    pub async fn generate_thumbnail(
-        &self,
-        input_path: &Path,
-        output_path: &Path,
-    ) -> Result<()> {
+    pub async fn generate_thumbnail(&self, input_path: &Path, output_path: &Path) -> Result<()> {
         let extension = input_path
             .extension()
             .and_then(|e| e.to_str())
@@ -35,13 +31,16 @@ impl ThumbnailManager {
     async fn generate_image_thumbnail(&self, input: &Path, output: &Path) -> Result<()> {
         let input = input.to_path_buf();
         let output = output.to_path_buf();
-        
+
         tokio::task::spawn_blocking(move || {
             let img = image::open(&input).map_err(|e| anyhow!("failed to open image: {}", e))?;
             let thumbnail = img.thumbnail(512, 512);
-            thumbnail.save(&output).map_err(|e| anyhow!("failed to save thumbnail: {}", e))?;
+            thumbnail
+                .save(&output)
+                .map_err(|e| anyhow!("failed to save thumbnail: {}", e))?;
             Ok(())
-        }).await?
+        })
+        .await?
     }
 
     async fn generate_pdf_thumbnail(&self, _input: &Path, _output: &Path) -> Result<()> {
@@ -63,16 +62,21 @@ impl ThumbnailManager {
 
             if status.status.success() {
                 // qlmanage names the file input_path.png
-                let generated = output_dir.join(format!("{}.png", input.file_name().unwrap().to_str().unwrap()));
+                let generated = output_dir.join(format!(
+                    "{}.png",
+                    input.file_name().unwrap().to_str().unwrap()
+                ));
                 if generated.exists() {
                     tokio::fs::rename(generated, output).await?;
                     return Ok(());
                 }
             }
         }
-        
+
         // Fallback or non-mac: use image crate if it's already an image-based PDF or failed
-        Err(anyhow!("high-fidelity PDF thumbnailing requires native platform support"))
+        Err(anyhow!(
+            "high-fidelity PDF thumbnailing requires native platform support"
+        ))
     }
 
     async fn generate_video_thumbnail(&self, input: &Path, output: &Path) -> Result<()> {
@@ -94,7 +98,9 @@ impl ThumbnailManager {
 
         match status {
             Ok(out) if out.status.success() => Ok(()),
-            _ => Err(anyhow!("ffmpeg thumbnailing failed; ensure ffmpeg is installed")),
+            _ => Err(anyhow!(
+                "ffmpeg thumbnailing failed; ensure ffmpeg is installed"
+            )),
         }
     }
 }

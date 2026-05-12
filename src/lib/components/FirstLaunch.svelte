@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import Logo from "$lib/components/Logo.svelte";
+  import { MODELS } from "$lib/models";
   import { Cpu, Brain, HardDrive, ShieldAlert, CheckCircle, ChevronRight, Loader2, Download } from "lucide-svelte";
 
   let { onComplete } = $props<{ onComplete: () => void }>();
@@ -23,19 +24,6 @@
   let selectedTier = $state<"Standard" | "Elite">("Standard");
   let currentModelName = $state("");
   let modelsToDownload = $state<any[]>([]);
-
-  const MODELS = {
-    Standard: [
-      { id: "bge-small", name: "BGE Small v1.5", filename: "bge-small-en-v1.5.onnx", url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx" },
-      { id: "tokenizer", name: "BGE Tokenizer", filename: "tokenizer.json", url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json" },
-      { id: "gemma-4-e2b", name: "Gemma 4 E2B IT", filename: "google/gemma-4-E2B-it", url: "google/gemma-4-E2B-it" }
-    ],
-    Elite: [
-      { id: "bge-small", name: "BGE Small v1.5", filename: "bge-small-en-v1.5.onnx", url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx" },
-      { id: "tokenizer", name: "BGE Tokenizer", filename: "tokenizer.json", url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json" },
-      { id: "gemma-4-e4b", name: "Gemma 4 E4B IT", filename: "google/gemma-4-E4B-it", url: "google/gemma-4-E4B-it" }
-    ]
-  };
 
   onMount(() => {
     // 1. Check Diagnostics and Provisioning status

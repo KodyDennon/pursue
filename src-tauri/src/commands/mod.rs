@@ -1,16 +1,16 @@
-use anyhow::Result;
-use sqlx::{SqlitePool, Row};
 use crate::library::LibraryManager;
 use crate::models::DatabaseStatus;
+use anyhow::Result;
+use sqlx::{Row, SqlitePool};
 
-pub mod records;
 pub mod analysis;
 pub mod cases;
+pub mod records;
 pub mod system;
 
-pub use records::*;
 pub use analysis::*;
 pub use cases::*;
+pub use records::*;
 pub use system::*;
 
 pub use crate::AppState;
@@ -59,7 +59,11 @@ pub async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Resul
 
     Ok(DatabaseStatus {
         app_data_dir: library.app_data_dir().to_string_lossy().into_owned(),
-        database_path: library.app_data_dir().join("pursue.db").to_string_lossy().into_owned(),
+        database_path: library
+            .app_data_dir()
+            .join("pursue.db")
+            .to_string_lossy()
+            .into_owned(),
         library_path: library.library_dir().to_string_lossy().into_owned(),
         snapshots_path: library.snapshots_dir().to_string_lossy().into_owned(),
         exports_path: library.exports_dir().to_string_lossy().into_owned(),
@@ -77,10 +81,20 @@ pub async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Resul
         entity_count: counts.get("entity_count"),
         case_count: counts.get("case_count"),
         source_snapshots: counts.get("source_snapshots"),
-        latest_snapshot_at: latest_snapshot.as_ref().map(|row| row.get::<String, _>("fetched_at")),
-        latest_snapshot_url: latest_snapshot.as_ref().map(|row| row.get::<String, _>("upstream_url")),
-        latest_snapshot_records: latest_snapshot.as_ref().map(|row| row.get::<i64, _>("record_count")),
-        active_download_jobs: count_scalar(db, "SELECT COUNT(*) FROM download_jobs WHERE status IN ('queued', 'running')").await?,
+        latest_snapshot_at: latest_snapshot
+            .as_ref()
+            .map(|row| row.get::<String, _>("fetched_at")),
+        latest_snapshot_url: latest_snapshot
+            .as_ref()
+            .map(|row| row.get::<String, _>("upstream_url")),
+        latest_snapshot_records: latest_snapshot
+            .as_ref()
+            .map(|row| row.get::<i64, _>("record_count")),
+        active_download_jobs: count_scalar(
+            db,
+            "SELECT COUNT(*) FROM download_jobs WHERE status IN ('queued', 'running')",
+        )
+        .await?,
         total_count: counts.get("total_records"),
         total_size: counts.get("artifact_bytes"),
         unanalyzed_count: counts.get("unanalyzed_count"),

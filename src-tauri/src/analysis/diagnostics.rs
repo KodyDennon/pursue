@@ -66,10 +66,10 @@ pub fn get_system_stats() -> SystemStats {
     let mut sys = System::new();
     sys.refresh_cpu_all();
     sys.refresh_memory();
-    
+
     let cpu_usage = sys.global_cpu_usage();
     let memory_usage_mb = (sys.total_memory() - sys.available_memory()) / 1024 / 1024;
-    
+
     let pid = sysinfo::get_current_pid().ok();
     let process_memory_mb = if let Some(p) = pid {
         use sysinfo::ProcessesToUpdate;

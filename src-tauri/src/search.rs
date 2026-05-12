@@ -1,32 +1,23 @@
 use crate::models::{SearchFilters, SearchRequest, SearchResultItem, SearchResults};
 use anyhow::Result;
-#[cfg(not(target_os = "windows"))]
 use ort::session::Session;
-#[cfg(not(target_os = "windows"))]
 use ort::value::Value;
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
-#[cfg(target_os = "windows")]
-use std::sync::OnceLock;
-#[cfg(not(target_os = "windows"))]
 use std::sync::{Mutex, OnceLock};
-#[cfg(not(target_os = "windows"))]
 use tokenizers::Tokenizer;
 
 const VECTOR_DIMS: usize = 384;
 
 static MODELS_DIR: OnceLock<PathBuf> = OnceLock::new();
-#[cfg(not(target_os = "windows"))]
 static TOKENIZER: OnceLock<Tokenizer> = OnceLock::new();
-#[cfg(not(target_os = "windows"))]
 static EMBEDDING_SESSION: OnceLock<Mutex<Session>> = OnceLock::new();
 
 pub fn init_search_engine(models_path: PathBuf) {
     let _ = MODELS_DIR.set(models_path);
 }
 
-#[cfg(not(target_os = "windows"))]
 fn get_models_dir() -> PathBuf {
     MODELS_DIR
         .get()
@@ -34,7 +25,6 @@ fn get_models_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("models"))
 }
 
-#[cfg(not(target_os = "windows"))]
 fn get_tokenizer() -> Result<&'static Tokenizer> {
     if let Some(tokenizer) = TOKENIZER.get() {
         return Ok(tokenizer);
@@ -50,7 +40,6 @@ fn get_tokenizer() -> Result<&'static Tokenizer> {
     Ok(TOKENIZER.get().unwrap())
 }
 
-#[cfg(not(target_os = "windows"))]
 fn get_embedding_session() -> Result<&'static Mutex<Session>> {
     if let Some(session) = EMBEDDING_SESSION.get() {
         return Ok(session);
@@ -139,7 +128,6 @@ pub async fn vector_search(pool: &SqlitePool, request: SearchRequest) -> Result<
 }
 
 pub async fn vectorize_text(text: &str) -> Result<Vec<f32>> {
-    #[cfg(not(target_os = "windows"))]
     if let Ok(vector) = vectorize_text_with_model(text).await {
         return Ok(vector);
     }
@@ -147,7 +135,6 @@ pub async fn vectorize_text(text: &str) -> Result<Vec<f32>> {
     Ok(deterministic_embedding(text))
 }
 
-#[cfg(not(target_os = "windows"))]
 async fn vectorize_text_with_model(text: &str) -> Result<Vec<f32>> {
     let tokenizer = get_tokenizer()?;
     let encoding = tokenizer
@@ -280,7 +267,12 @@ fn deterministic_embedding(text: &str) -> Vec<f32> {
     vector
 }
 
-pub async fn query_related_fragments_for_record(pool: &sqlx::SqlitePool, record_id: &str, text: &str, limit: usize) -> anyhow::Result<Vec<String>> {
+pub async fn query_related_fragments_for_record(
+    pool: &sqlx::SqlitePool,
+    record_id: &str,
+    text: &str,
+    limit: usize,
+) -> anyhow::Result<Vec<String>> {
     let vector = vectorize_text(text).await?;
     let vector_blob: &[u8] = unsafe {
         std::slice::from_raw_parts(
@@ -299,11 +291,18 @@ pub async fn query_related_fragments_for_record(pool: &sqlx::SqlitePool, record_
     .await?;
 
     use sqlx::Row;
-    Ok(rows.into_iter().map(|r| r.get::<String, _>("text")).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| r.get::<String, _>("text"))
+        .collect())
 }
 
 #[allow(dead_code)]
-pub async fn query_related_fragments(pool: &sqlx::SqlitePool, text: &str, limit: usize) -> anyhow::Result<Vec<String>> {
+pub async fn query_related_fragments(
+    pool: &sqlx::SqlitePool,
+    text: &str,
+    limit: usize,
+) -> anyhow::Result<Vec<String>> {
     let vector = vectorize_text(text).await?;
     let vector_blob: &[u8] = unsafe {
         std::slice::from_raw_parts(
@@ -321,7 +320,10 @@ pub async fn query_related_fragments(pool: &sqlx::SqlitePool, text: &str, limit:
     .await?;
 
     use sqlx::Row;
-    Ok(rows.into_iter().map(|r| r.get::<String, _>("text")).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| r.get::<String, _>("text"))
+        .collect())
 }
 
 pub fn chunk_text(text: &str, target_chars: usize) -> Vec<String> {

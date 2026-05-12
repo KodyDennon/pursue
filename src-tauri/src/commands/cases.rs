@@ -1,5 +1,5 @@
 use crate::cases;
-use crate::commands::{AppState, to_error};
+use crate::commands::{to_error, AppState};
 use crate::exports;
 use crate::models::{
     AddRecordToCaseRequest, CaseNotesRequest, CaseSummary, CreateCaseRequest, ExportCaseRequest,

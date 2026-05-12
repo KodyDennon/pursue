@@ -59,12 +59,17 @@ pub async fn sync_official_source(
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_else(|_| "Could not read body".to_string());
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Could not read body".to_string());
         tauri_plugin_log::log::error!("WAR.gov sync failed with status {}: {}", status, body);
-        
+
         // Fallback to local file if it exists in Downloads
         if let Ok(home) = std::env::var("HOME") {
-            let local_path = std::path::PathBuf::from(home).join("Downloads").join("uap-csv.csv");
+            let local_path = std::path::PathBuf::from(home)
+                .join("Downloads")
+                .join("uap-csv.csv");
             if local_path.exists() {
                 tauri_plugin_log::log::info!("Attempting fallback to local CSV: {:?}", local_path);
                 if let Ok(local_bytes) = fs::read(&local_path).await {
@@ -72,8 +77,12 @@ pub async fn sync_official_source(
                 }
             }
         }
-        
-        return Err(anyhow!("WAR.gov source returned error status {}: {}", status, body));
+
+        return Err(anyhow!(
+            "WAR.gov source returned error status {}: {}",
+            status,
+            body
+        ));
     }
 
     let bytes = response
@@ -268,13 +277,15 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
         }
         let stable_key = stable_key(&csv);
         let content_hash = hash_json(&csv)?;
-        
+
         // Keep the first record encountered for each stable_key
-        records_map.entry(stable_key.clone()).or_insert(ParsedOfficialRecord {
-            csv,
-            stable_key,
-            content_hash,
-        });
+        records_map
+            .entry(stable_key.clone())
+            .or_insert(ParsedOfficialRecord {
+                csv,
+                stable_key,
+                content_hash,
+            });
     }
 
     let records: Vec<ParsedOfficialRecord> = records_map.into_values().collect();
@@ -373,6 +384,7 @@ async fn previous_snapshot_records(pool: &SqlitePool) -> Result<HashMap<String, 
         .collect())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn insert_diff(
     pool: &SqlitePool,
     snapshot_id: &str,
@@ -419,7 +431,7 @@ fn stable_key(record: &CsvRecord) -> String {
     let title = record.title.trim();
     let date = record.release_date.as_deref().unwrap_or("").trim();
     let agency = record.agency.as_deref().unwrap_or("").trim();
-    
+
     let url = record.document_url.as_deref().unwrap_or("").trim();
     let has_real_url = url.starts_with("http://") || url.starts_with("https://");
 

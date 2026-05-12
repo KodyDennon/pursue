@@ -70,7 +70,7 @@
 </script>
 
 <div class="global-actions">
-  {#if $activeView === 'dashboard'}
+  {#if activeView.current === 'dashboard'}
     <div class="view-toggles">
       <button class="toggle-btn" class:active={viewMode === 'grid'} onclick={() => viewMode = 'grid'} title="Grid View">
         <LayoutGrid size={16} />

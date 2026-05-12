@@ -30,14 +30,18 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_log::Builder::default()
-            .targets([
-                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("pursue".into()) }),
-                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
-            ])
-            .level(log::LevelFilter::Debug)
-            .build())
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("pursue".into()),
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                ])
+                .level(log::LevelFilter::Debug)
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
@@ -46,13 +50,11 @@ pub fn run() {
                 let pool = db::init_db(&handle)
                     .await
                     .expect("failed to initialize database");
-                
+
                 let library = Arc::new(
                     LibraryManager::new(&handle).expect("failed to initialize library manager"),
                 );
-                let analysis = Arc::new(
-                    AnalysisManager::new(pool.clone(), library.clone())
-                );
+                let analysis = Arc::new(AnalysisManager::new(pool.clone(), library.clone()));
 
                 library
                     .init()
@@ -69,7 +71,11 @@ pub fn run() {
                     let _ = analysis_clone.provision_models(&handle_clone).await;
                 });
 
-                handle.manage(AppState { db: pool, library, analysis });
+                handle.manage(AppState {
+                    db: pool,
+                    library,
+                    analysis,
+                });
             });
             Ok(())
         })

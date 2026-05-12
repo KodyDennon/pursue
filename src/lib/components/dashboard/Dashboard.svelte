@@ -1,7 +1,7 @@
 <script lang="ts">
-  import GridView from "./dashboard/GridView.svelte";
-  import IntelCardsView from "./dashboard/IntelCardsView.svelte";
-  import ListView from "./dashboard/ListView.svelte";
+  import GridView from "./GridView.svelte";
+  import IntelCardsView from "./IntelCardsView.svelte";
+  import ListView from "./ListView.svelte";
   import IntelligenceDossier from "../IntelligenceDossier.svelte";
   import type { CaseSummary, RecordSummary } from "$lib/types";
 

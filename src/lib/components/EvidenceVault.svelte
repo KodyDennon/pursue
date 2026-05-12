@@ -10,6 +10,9 @@
     local_count: number;
     total_size: number;
     unanalyzed_count: number;
+    pending_count: number;
+    indexed_count: number;
+    completed_count: number;
   } | null>(null);
 
   let busy = $state(false);

@@ -3,7 +3,7 @@
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { openPath, openUrl } from "@tauri-apps/plugin-opener";
   import { listen } from "@tauri-apps/api/event";
-  import { AlertCircle, Brain, Loader2, FileText, ImageIcon, Settings as CaseIcon, ChevronLeft, Download, ExternalLink, HardDrive, ShieldCheck, Activity, Terminal } from "lucide-svelte";
+  import { AlertCircle, Brain, Loader2, FileText, ImageIcon, Settings as CaseIcon, ChevronLeft, Download, ExternalLink, HardDrive, ShieldCheck, Activity, Terminal, Maximize2, Minimize2 } from "lucide-svelte";
   import MediaViewer from "./MediaViewer.svelte";
   import ForensicAuditViewer from "./ForensicAuditViewer.svelte";
   import { addToast } from "$lib/toastStore";

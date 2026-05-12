@@ -90,15 +90,37 @@ pub async fn find_summary_by_id(
     pool: &SqlitePool,
     id: &str,
 ) -> sqlx::Result<Option<RecordSummary>> {
-    let records = list(
-        pool,
-        Some(RecordFilter {
-            source_type: None,
-            agency: None,
-            local_only: None,
-            query: None,
-        }),
+    sqlx::query_as::<_, RecordSummary>(
+        r#"
+        SELECT
+            r.id,
+            r.title,
+            r.agency,
+            r.release_date,
+            r.incident_date,
+            r.incident_location,
+            r.document_url,
+            r.local_path,
+            r.file_type,
+            r.source_type,
+            r.summary,
+            r.stable_key,
+            r.content_hash,
+            r.removed_from_source_at,
+            a.sha256 AS artifact_sha256,
+            COALESCE(a.byte_size, 0) AS artifact_size,
+            r.analysis_status,
+            r.intelligence_json,
+            r.redaction_score,
+            r.analysis_error,
+            (SELECT COUNT(*) FROM record_entities WHERE record_id = r.id) AS entity_count,
+            COALESCE(r.thumbnail_path, (SELECT local_path FROM record_assets WHERE record_id = r.id AND asset_type = 'image' LIMIT 1)) AS thumbnail_path
+        FROM records r
+        LEFT JOIN artifacts a ON a.record_id = r.id
+        WHERE r.id = ?
+        "#,
     )
-    .await?;
-    Ok(records.into_iter().find(|record| record.id == id))
+    .bind(id)
+    .fetch_optional(pool)
+    .await
 }

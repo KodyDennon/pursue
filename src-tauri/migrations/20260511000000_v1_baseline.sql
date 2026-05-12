@@ -3,6 +3,9 @@ PRAGMA foreign_keys = ON;
 -- 1. Core Tactical Infrastructure
 CREATE TABLE IF NOT EXISTS records (
     id TEXT PRIMARY KEY,
+    stable_key TEXT,
+    source_snapshot_id TEXT,
+    content_hash TEXT,
     title TEXT NOT NULL,
     agency TEXT,
     release_date TEXT,
@@ -18,9 +21,14 @@ CREATE TABLE IF NOT EXISTS records (
     analysis_status TEXT DEFAULT 'pending',
     analysis_error TEXT,
     thumbnail_path TEXT,
+    removed_from_source_at TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_records_stable_key_source ON records(stable_key, source_type);
+CREATE INDEX IF NOT EXISTS idx_records_document_url ON records(document_url);
+CREATE INDEX IF NOT EXISTS idx_records_local_path ON records(local_path);
 
 CREATE TABLE IF NOT EXISTS cases (
     id TEXT PRIMARY KEY,
@@ -49,7 +57,98 @@ CREATE TABLE IF NOT EXISTS case_notes (
     FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE SET NULL
 );
 
--- 2. Neural Extraction & Semantic Layers
+-- 2. Source Ingestion & Snapshotting
+CREATE TABLE IF NOT EXISTS source_snapshots (
+    id TEXT PRIMARY KEY,
+    source_name TEXT NOT NULL,
+    upstream_url TEXT NOT NULL,
+    release_label TEXT,
+    fetched_at TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    snapshot_path TEXT NOT NULL,
+    record_count INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS source_snapshot_records (
+    snapshot_id TEXT NOT NULL,
+    stable_key TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    title TEXT NOT NULL,
+    document_url TEXT,
+    record_json TEXT NOT NULL,
+    PRIMARY KEY (snapshot_id, stable_key),
+    FOREIGN KEY (snapshot_id) REFERENCES source_snapshots(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS source_diffs (
+    id TEXT PRIMARY KEY,
+    snapshot_id TEXT NOT NULL,
+    stable_key TEXT NOT NULL,
+    change_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    document_url TEXT,
+    previous_hash TEXT,
+    current_hash TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES source_snapshots(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_diffs_snapshot ON source_diffs(snapshot_id, change_type);
+
+-- 3. Artifact Lifecycle & Forensics
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    record_id TEXT,
+    sha256 TEXT NOT NULL,
+    original_filename TEXT,
+    media_type TEXT,
+    byte_size INTEGER NOT NULL,
+    source_url TEXT,
+    relative_path TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(sha256),
+    FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_artifacts_record ON artifacts(record_id);
+
+CREATE TABLE IF NOT EXISTS download_jobs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    total INTEGER NOT NULL DEFAULT 0,
+    queued INTEGER NOT NULL DEFAULT 0,
+    skipped INTEGER NOT NULL DEFAULT 0,
+    completed INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS download_job_items (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT,
+    status TEXT NOT NULL,
+    bytes_downloaded INTEGER NOT NULL DEFAULT 0,
+    byte_size INTEGER,
+    error TEXT,
+    artifact_id TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (job_id) REFERENCES download_jobs(id) ON DELETE CASCADE,
+    FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE,
+    FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_download_items_job ON download_job_items(job_id);
+
+-- 4. Neural Extraction & Semantic Layers
 CREATE TABLE IF NOT EXISTS analysis_results (
     record_id TEXT PRIMARY KEY,
     ocr_text TEXT,
@@ -82,7 +181,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_analysis_chunks USING vec0(
   embedding FLOAT[384]
 );
 
--- 3. Forensic Intelligence Graph
+-- 5. Forensic Intelligence Graph
 CREATE TABLE IF NOT EXISTS entities (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -115,19 +214,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_intelligence_fragments USING vec0(
     embedding FLOAT[384]
 );
 
--- 4. Artifact Lifecycle & Forensics
-CREATE TABLE IF NOT EXISTS record_assets (
-    id TEXT PRIMARY KEY,
-    record_id TEXT NOT NULL,
-    asset_type TEXT NOT NULL,
-    local_path TEXT NOT NULL,
-    mime_type TEXT,
-    file_size INTEGER,
-    metadata_json TEXT,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS record_forensics (
     id TEXT PRIMARY KEY,
     record_id TEXT NOT NULL,
@@ -140,7 +226,7 @@ CREATE TABLE IF NOT EXISTS record_forensics (
     FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS neural_thought_logs (
+CREATE TABLE IF NOT EXISTS intelligence_logs (
     id TEXT PRIMARY KEY,
     record_id TEXT NOT NULL,
     system_prompt TEXT NOT NULL,
@@ -154,7 +240,7 @@ CREATE TABLE IF NOT EXISTS neural_thought_logs (
     FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
 );
 
--- 5. System Intelligence & Logistics
+-- 6. System Intelligence & Logistics
 CREATE TABLE IF NOT EXISTS exports (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL,
@@ -170,9 +256,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at TEXT NOT NULL
 );
 
--- 6. Performance Optimization & Seed Data
+-- 7. Performance Optimization & Seed Data
 CREATE INDEX IF NOT EXISTS idx_records_status ON records(analysis_status);
-CREATE INDEX IF NOT EXISTS idx_assets_record ON record_assets(record_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_record ON analysis_chunks(record_id);
 CREATE INDEX IF NOT EXISTS idx_entities_record ON record_entities(record_id);
 CREATE INDEX IF NOT EXISTS idx_fragments_record ON intelligence_fragments(record_id);

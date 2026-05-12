@@ -4,16 +4,14 @@ use std::path::Path;
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::*;
-    use objc2::rc::Retained;
     use objc2::msg_send;
-    use objc2_foundation::{NSArray, NSDictionary, NSString, NSURL, NSObject};
-    use objc2_vision::{
-        VNImageRequestHandler, VNRecognizeTextRequest, VNRequest,
-    };
-    use objc2_pdf_kit::{PDFDocument, PDFPage};
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
     use objc2_app_kit::NSImage;
     use objc2_core_graphics::CGImage;
-    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSArray, NSDictionary, NSObject, NSString, NSURL};
+    use objc2_pdf_kit::{PDFDocument, PDFPage};
+    use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest};
 
     pub fn extract_text(path: &Path) -> Result<String> {
         if !path.exists() {
@@ -23,7 +21,11 @@ mod macos_impl {
         objc2::rc::autoreleasepool(|_| {
             let path_str = path.to_str().ok_or_else(|| anyhow!("invalid path"))?;
             let url = NSURL::fileURLWithPath(&NSString::from_str(path_str));
-            let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            let extension = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_lowercase();
 
             if extension == "pdf" {
                 extract_pdf_text(&url)
@@ -35,10 +37,11 @@ mod macos_impl {
 
     fn extract_image_text(url: &Retained<NSURL>) -> Result<String> {
         unsafe {
-            let cls = objc2::runtime::AnyClass::get(std::ffi::CStr::from_bytes_with_nul(b"VNImageRequestHandler\0").unwrap()).unwrap();
+            let cls = objc2::runtime::AnyClass::get(c"VNImageRequestHandler").unwrap();
             let handler: *mut VNImageRequestHandler = msg_send![cls, alloc];
             let options = NSDictionary::<NSObject, NSObject>::new();
-            let handler: *mut VNImageRequestHandler = msg_send![handler, initWithURL: &**url, options: &*options];
+            let handler: *mut VNImageRequestHandler =
+                msg_send![handler, initWithURL: &**url, options: &*options];
             let handler = Retained::from_raw(handler).unwrap();
             perform_vision_ocr(&handler)
         }
@@ -46,10 +49,12 @@ mod macos_impl {
 
     fn extract_pdf_text(url: &Retained<NSURL>) -> Result<String> {
         unsafe {
-            let cls = objc2::runtime::AnyClass::get(std::ffi::CStr::from_bytes_with_nul(b"PDFDocument\0").unwrap()).unwrap();
+            let cls = objc2::runtime::AnyClass::get(c"PDFDocument").unwrap();
             let doc: *mut PDFDocument = msg_send![cls, alloc];
             let doc: *mut PDFDocument = msg_send![doc, initWithURL: &**url];
-            if doc.is_null() { return Err(anyhow!("Failed to load PDF document")); }
+            if doc.is_null() {
+                return Err(anyhow!("Failed to load PDF document"));
+            }
             let doc = Retained::from_raw(doc).unwrap();
 
             let count: isize = msg_send![&*doc, pageCount];
@@ -74,18 +79,25 @@ mod macos_impl {
         unsafe {
             let box_rect: [f64; 4] = msg_send![page, boundsForBox: 0]; // 0 = kPDFDisplayBoxMediaBox
             let size = [box_rect[2] * 4.0, box_rect[3] * 4.0];
-            
+
             let ns_image: *mut NSImage = msg_send![page, thumbnailOfSize: size, forBox: 0];
-            if ns_image.is_null() { return Err(anyhow!("Failed to render page")); }
-            let ns_image = Retained::retain_autoreleased(ns_image).ok_or_else(|| anyhow!("Failed to retain image"))?;
+            if ns_image.is_null() {
+                return Err(anyhow!("Failed to render page"));
+            }
+            let ns_image = Retained::retain_autoreleased(ns_image)
+                .ok_or_else(|| anyhow!("Failed to retain image"))?;
 
-            let cg_image: *mut CGImage = msg_send![&*ns_image, CGImageForProposedRect: 0, context: 0, hints: 0];
-            if cg_image.is_null() { return Err(anyhow!("Failed to get CGImage")); }
+            let cg_image: *mut CGImage =
+                msg_send![&*ns_image, CGImageForProposedRect: 0, context: 0, hints: 0];
+            if cg_image.is_null() {
+                return Err(anyhow!("Failed to get CGImage"));
+            }
 
-            let cls = objc2::runtime::AnyClass::get(std::ffi::CStr::from_bytes_with_nul(b"VNImageRequestHandler\0").unwrap()).unwrap();
+            let cls = objc2::runtime::AnyClass::get(c"VNImageRequestHandler").unwrap();
             let handler: *mut VNImageRequestHandler = msg_send![cls, alloc];
             let options = NSDictionary::<NSObject, NSObject>::new();
-            let handler: *mut VNImageRequestHandler = msg_send![handler, initWithCGImage: cg_image, options: &*options];
+            let handler: *mut VNImageRequestHandler =
+                msg_send![handler, initWithCGImage: cg_image, options: &*options];
             let handler = Retained::from_raw(handler).unwrap();
 
             perform_vision_ocr(&handler)
@@ -94,16 +106,17 @@ mod macos_impl {
 
     fn perform_vision_ocr(handler: &VNImageRequestHandler) -> Result<String> {
         unsafe {
-            let cls = objc2::runtime::AnyClass::get(std::ffi::CStr::from_bytes_with_nul(b"VNRecognizeTextRequest\0").unwrap()).unwrap();
+            let cls = objc2::runtime::AnyClass::get(c"VNRecognizeTextRequest").unwrap();
             let request: *mut VNRecognizeTextRequest = msg_send![cls, alloc];
             let request: *mut VNRecognizeTextRequest = msg_send![request, init];
             let request = Retained::from_raw(request).unwrap();
-            
+
             let _: () = msg_send![&*request, setRecognitionLevel: 1]; // 1 = Accurate
             let _: () = msg_send![&*request, setUsesLanguageCorrection: true];
 
-            let requests = NSArray::from_slice(&[&*Retained::cast_unchecked::<VNRequest>(request.clone())]);
-            
+            let requests =
+                NSArray::from_slice(&[&*Retained::cast_unchecked::<VNRequest>(request.clone())]);
+
             let mut error: *mut objc2_foundation::NSError = std::ptr::null_mut();
             let success: bool = msg_send![handler, performRequests: &*requests, error: &mut error];
 
@@ -112,9 +125,11 @@ mod macos_impl {
             }
 
             let results: *mut NSArray<AnyObject> = msg_send![&*request, results];
-            if results.is_null() { return Err(anyhow!("no results")); }
+            if results.is_null() {
+                return Err(anyhow!("no results"));
+            }
             let results = &*results;
-            
+
             let mut full_text = String::new();
 
             for i in 0..results.count() {

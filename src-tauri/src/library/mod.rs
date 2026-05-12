@@ -232,13 +232,15 @@ impl LibraryManager {
 
     async fn download_to_library(&self, url: &str) -> Result<IngestedArtifact> {
         let parsed_url = Url::parse(url).with_context(|| format!("failed to parse URL: {url}"))?;
-        
+
         // Deterministic temp path for resuming
         let mut url_hasher = Sha256::new();
         url_hasher.update(url.as_bytes());
         let url_hash = hex::encode(url_hasher.finalize());
-        let part_path = self.app_data_dir.join(format!("dl-{}.part", &url_hash[..16]));
-        
+        let part_path = self
+            .app_data_dir
+            .join(format!("dl-{}.part", &url_hash[..16]));
+
         let mut downloaded_bytes = 0_u64;
         let mut hasher = Sha256::new();
 
@@ -251,7 +253,9 @@ impl LibraryManager {
                     let mut buffer = [0u8; 64 * 1024];
                     loop {
                         let n = file.read(&mut buffer).await?;
-                        if n == 0 { break; }
+                        if n == 0 {
+                            break;
+                        }
                         hasher.update(&buffer[..n]);
                     }
                     downloaded_bytes = size;
@@ -269,11 +273,9 @@ impl LibraryManager {
             .await
             .with_context(|| format!("failed to request {url}"))?;
 
-        let (mut temp_file, byte_size) = if response.status() == rquest::StatusCode::PARTIAL_CONTENT {
-            let file = fs::OpenOptions::new()
-                .append(true)
-                .open(&part_path)
-                .await?;
+        let (mut temp_file, byte_size) = if response.status() == rquest::StatusCode::PARTIAL_CONTENT
+        {
+            let file = fs::OpenOptions::new().append(true).open(&part_path).await?;
             (file, downloaded_bytes as i64)
         } else {
             // Server doesn't support range or file didn't exist
@@ -301,15 +303,16 @@ impl LibraryManager {
         temp_file.flush().await?;
         drop(temp_file);
 
-        let artifact = self.commit_temp_file(
-            part_path.clone(),
-            hasher,
-            total_downloaded,
-            original_filename,
-            media_type,
-            Some(url.to_string()),
-        )
-        .await?;
+        let artifact = self
+            .commit_temp_file(
+                part_path.clone(),
+                hasher,
+                total_downloaded,
+                original_filename,
+                media_type,
+                Some(url.to_string()),
+            )
+            .await?;
 
         // Clean up part file if it wasn't renamed (commit_temp_file might skip if existing)
         if part_path.exists() {
@@ -422,7 +425,9 @@ fn filename_from_url(raw_url: &str) -> Option<String> {
 }
 
 fn percent_decode(value: &str) -> String {
-    percent_encoding::percent_decode_str(value).decode_utf8_lossy().into_owned()
+    percent_encoding::percent_decode_str(value)
+        .decode_utf8_lossy()
+        .into_owned()
 }
 
 fn now() -> String {

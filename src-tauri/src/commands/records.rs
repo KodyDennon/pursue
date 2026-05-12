@@ -1,17 +1,17 @@
+use crate::commands::{now, to_error, AppState};
 use crate::db::records;
+use crate::library::LibraryManager;
 use crate::models::{
-    BulkDownloadItem, BulkDownloadReport, BulkDownloadStatus, DownloadResult,
-    ManualImportRequest, RecordFilter, RecordSummary, SyncReport,
+    BulkDownloadItem, BulkDownloadReport, BulkDownloadStatus, DownloadResult, ManualImportRequest,
+    RecordFilter, RecordSummary, SyncReport,
 };
 use crate::sources::war_gov;
-use crate::library::LibraryManager;
-use crate::commands::{AppState, to_error, now};
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use sqlx::{Row, SqlitePool};
 use std::path::Path;
 use std::sync::Arc;
-use tauri::{State};
+use tauri::State;
 use uuid::Uuid;
 
 #[tauri::command]
@@ -100,7 +100,7 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
         .fetch_optional(&state.db)
         .await
         .map_err(to_error)?;
-    
+
     if let Some(id) = active_job {
         return Ok(id);
     }
@@ -219,12 +219,15 @@ pub async fn ingest_web_page(
     state: State<'_, AppState>,
 ) -> Result<RecordSummary, String> {
     let record_id = Uuid::new_v4().to_string();
-    let temp_path = state.library.app_data_dir().join(format!("web-{}.txt", record_id));
-    
+    let temp_path = state
+        .library
+        .app_data_dir()
+        .join(format!("web-{}.txt", record_id));
+
     crate::sources::web::scrape_and_save(&url, &temp_path)
         .await
         .map_err(to_error)?;
-        
+
     let stable_key = format!("web:{}", record_id);
     sqlx::query(
         r#"
@@ -248,7 +251,7 @@ pub async fn ingest_web_page(
         .ingest_manual_file(&state.db, &record_id, &temp_path)
         .await
         .map_err(to_error)?;
-        
+
     let _ = tokio::fs::remove_file(&temp_path).await;
 
     records::find_summary_by_id(&state.db, &record_id)
@@ -431,19 +434,19 @@ pub async fn run_download_job(
         .await;
     }
 
-    let cancel_check = sqlx::query_scalar::<_, i64>("SELECT cancel_requested FROM download_jobs WHERE id = ?")
-        .bind(job_id)
-        .fetch_one(&db)
-        .await.unwrap_or(0);
+    let cancel_check =
+        sqlx::query_scalar::<_, i64>("SELECT cancel_requested FROM download_jobs WHERE id = ?")
+            .bind(job_id)
+            .fetch_one(&db)
+            .await
+            .unwrap_or(0);
 
     if cancel_check != 0 {
-        sqlx::query(
-            "UPDATE download_jobs SET status = 'cancelled', updated_at = ? WHERE id = ?",
-        )
-        .bind(now())
-        .bind(job_id)
-        .execute(&db)
-        .await?;
+        sqlx::query("UPDATE download_jobs SET status = 'cancelled', updated_at = ? WHERE id = ?")
+            .bind(now())
+            .bind(job_id)
+            .execute(&db)
+            .await?;
         return Ok(());
     }
 

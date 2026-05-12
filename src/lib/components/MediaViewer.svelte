@@ -75,7 +75,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if isOpen}
-  <div class="media-overlay" onclick={(e) => e.target === e.currentTarget && close()}>
+  <div class="media-overlay" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
     <div class="media-container glass-panel">
       <header class="media-header">
         <div class="media-info">
@@ -93,7 +93,7 @@
             </div>
           {/if}
           
-          <button class="icon-btn" onclick={() => invoke("get_record_artifact_path", { id: record.id }).then(p => openPath(p))} title="Open in System Viewer">
+          <button class="icon-btn" onclick={() => invoke<string>("get_record_artifact_path", { id: record.id }).then(p => openPath(p))} title="Open in System Viewer">
             <ExternalLink size={18} />
           </button>
           <button class="icon-btn close" onclick={close} title="Close">
@@ -103,6 +103,7 @@
       </header>
 
       <div class="media-content" 
+           role="presentation"
            class:grabbing={isDragging}
            onmousedown={handleMouseDown}
            onmousemove={handleMouseMove}
@@ -130,7 +131,7 @@
               Your browser does not support the video tag.
             </video>
           {:else if isPdf}
-            <iframe src="{assetUrl}#toolbar=0" title="PDF Viewer" />
+            <iframe src="{assetUrl}#toolbar=0" title="PDF Viewer"></iframe>
           {:else}
             <div class="unsupported-media">
               <div class="file-icon">
@@ -138,7 +139,7 @@
               </div>
               <h3>Unsupported Preview Type</h3>
               <p>Preview is not available for {fileType.toUpperCase()} files within the OS.</p>
-              <button class="primary-btn" onclick={() => invoke("get_record_artifact_path", { id: record.id }).then(p => openPath(p))}>
+              <button class="primary-btn" onclick={() => invoke<string>("get_record_artifact_path", { id: record.id }).then(p => openPath(p))}>
                 Open with External Application
               </button>
             </div>

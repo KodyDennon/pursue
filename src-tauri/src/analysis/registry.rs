@@ -47,7 +47,8 @@ pub fn get_model_registry() -> Vec<ModelDefinition> {
             size_label: "10.2 GB".to_string(),
             repo_id: "google/gemma-4-E2B-it".to_string(),
             filename: None,
-            description: "Standard forensic intelligence model for automated synthesis.".to_string(),
+            description: "Standard forensic intelligence model for automated synthesis."
+                .to_string(),
         },
         ModelDefinition {
             id: "gemma-4-e4b".to_string(),
@@ -56,7 +57,8 @@ pub fn get_model_registry() -> Vec<ModelDefinition> {
             size_label: "16.0 GB".to_string(),
             repo_id: "google/gemma-4-E4B-it".to_string(),
             filename: None,
-            description: "Elite multimodal model for deep forensic audits (Requires 18GB+ VRAM).".to_string(),
+            description: "Elite multimodal model for deep forensic audits (Requires 18GB+ VRAM)."
+                .to_string(),
         },
     ]
 }
@@ -69,7 +71,7 @@ mod tests {
     fn test_registry_contains_critical_models() {
         let registry = get_model_registry();
         let ids: Vec<String> = registry.iter().map(|m| m.id.clone()).collect();
-        
+
         assert!(ids.contains(&"bge-small".to_string()));
         assert!(ids.contains(&"gemma-4-e2b".to_string()));
         assert!(ids.contains(&"gemma-4-e4b".to_string()));
@@ -80,7 +82,7 @@ mod tests {
         let registry = get_model_registry();
         let embedding = registry.iter().find(|m| m.id == "bge-small").unwrap();
         let intelligence = registry.iter().find(|m| m.id == "gemma-4-e4b").unwrap();
-        
+
         assert_eq!(embedding.model_type, ModelType::Embedding);
         assert_eq!(intelligence.model_type, ModelType::Intelligence);
     }

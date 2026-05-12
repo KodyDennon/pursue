@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use sqlx::{Row, SqlitePool};
-use std::path::PathBuf;
 use tokio::fs;
 use uuid::Uuid;
 
@@ -115,9 +114,9 @@ async fn build_markdown(
         );
 
         if let Some(summary) = record.get::<Option<String>, _>("summary") {
-            output.push_str("\n");
+            output.push('\n');
             output.push_str(summary.trim());
-            output.push_str("\n");
+            output.push('\n');
         }
 
         let entities = sqlx::query(
@@ -162,7 +161,7 @@ async fn build_markdown(
             );
             output.push_str("\n\n");
         } else {
-            output.push_str("\n");
+            output.push('\n');
         }
     }
 
@@ -233,7 +232,7 @@ fn write_optional(output: &mut String, label: &str, value: Option<String>) {
     }
 }
 
-fn relative_export_path(path: &PathBuf, library: &LibraryManager) -> String {
+fn relative_export_path(path: &std::path::Path, library: &LibraryManager) -> String {
     path.strip_prefix(library.exports_dir())
         .unwrap_or(path)
         .to_string_lossy()

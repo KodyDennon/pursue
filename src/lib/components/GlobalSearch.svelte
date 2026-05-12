@@ -14,10 +14,10 @@
     const handleKeydown = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        $globalSearchOpen = true;
+        globalSearchOpen.isOpen = true;
       }
-      if (e.key === "Escape" && $globalSearchOpen) {
-        $globalSearchOpen = false;
+      if (e.key === "Escape" && globalSearchOpen.isOpen) {
+        globalSearchOpen.isOpen = false;
       }
     };
     window.addEventListener("keydown", handleKeydown);
@@ -25,7 +25,7 @@
   });
 
   $effect(() => {
-    if ($globalSearchOpen && searchInput) {
+    if (globalSearchOpen.isOpen && searchInput) {
       setTimeout(() => searchInput?.focus(), 50);
     }
   });
@@ -48,10 +48,10 @@
   }
 </script>
 
-{#if $globalSearchOpen}
+{#if globalSearchOpen.isOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="search-overlay" onclick={(e) => { if (e.target === e.currentTarget) $globalSearchOpen = false; }}>
+  <div class="search-overlay" onclick={(e) => { if (e.target === e.currentTarget) globalSearchOpen.isOpen = false; }}>
     <div class="search-modal glass-panel">
       <div class="search-bar">
         <Search size={20} class="search-icon" />
@@ -79,7 +79,7 @@
           {#each results.results as result}
             <button class="result-row" onclick={() => {
                // Select the record in the main view ideally, but for now just close
-               $globalSearchOpen = false;
+               globalSearchOpen.isOpen = false;
             }}>
                <div class="r-head">
                  <span class="agency-badge">{result.agency || "Unknown"}</span>

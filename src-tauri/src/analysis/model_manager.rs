@@ -3,6 +3,7 @@ use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use rquest::Client;
 use serde::Serialize;
+use sqlx::Row;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,7 +12,6 @@ use tauri_plugin_log::log::{info, warn};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
-use sqlx::Row;
 
 #[derive(Clone, Serialize)]
 pub struct ModelProgress {
@@ -38,7 +38,7 @@ impl ModelManager {
             .redirect(rquest::redirect::Policy::limited(20))
             .build()
             .unwrap_or_else(|_| Client::new());
-            
+
         Self {
             client,
             db: None,
@@ -65,11 +65,11 @@ impl ModelManager {
     ) -> Result<PathBuf> {
         // If the URL is a repo ID (no resolve/gguf/onnx), provision as repo
         if !url.contains("/resolve/") && !url.ends_with(".gguf") && !url.ends_with(".onnx") {
-             return self.provision_repository(app, model_id, url).await;
+            return self.provision_repository(app, model_id, url).await;
         }
 
         let target_path = self.models_dir.join(model_name);
-        
+
         // Wait for lock on this specific model
         loop {
             let mut locks = self.active_locks.lock().await;
@@ -85,12 +85,14 @@ impl ModelManager {
         // Fetch HF token if available
         let hf_token = self.get_hf_token().await;
 
-        let result = self.ensure_model_inner(app, model_id, model_name, url, &target_path, hf_token).await;
-        
+        let result = self
+            .ensure_model_inner(app, model_id, model_name, url, &target_path, hf_token)
+            .await;
+
         // Release lock
         let mut locks = self.active_locks.lock().await;
         locks.remove(model_name);
-        
+
         result
     }
 
@@ -104,16 +106,23 @@ impl ModelManager {
         let repo_dir = self.models_dir.join(model_id);
         fs::create_dir_all(&repo_dir).await?;
 
-        info!("Downloading repository {} via HTTP to {}", repo_id, repo_dir.display());
-        
-        let _ = app.emit("model-progress", ModelProgress {
-            model_id: model_id.to_string(),
-            bytes_downloaded: 0,
-            total_bytes: None,
-            status: format!("Initializing download for {}...", repo_id),
-            speed_mbps: None,
-            eta_seconds: None,
-        });
+        info!(
+            "Downloading repository {} via HTTP to {}",
+            repo_id,
+            repo_dir.display()
+        );
+
+        let _ = app.emit(
+            "model-progress",
+            ModelProgress {
+                model_id: model_id.to_string(),
+                bytes_downloaded: 0,
+                total_bytes: None,
+                status: format!("Initializing download for {}...", repo_id),
+                speed_mbps: None,
+                eta_seconds: None,
+            },
+        );
 
         self.provision_repository_http(app, model_id, repo_id).await
     }
@@ -130,7 +139,10 @@ impl ModelManager {
 
         // 1. Fetch file list from HF API
         let hf_token = self.get_hf_token().await;
-        let mut request = self.client.get(format!("https://huggingface.co/api/models/{}/tree/main?recursive=1", repo_id));
+        let mut request = self.client.get(format!(
+            "https://huggingface.co/api/models/{}/tree/main?recursive=1",
+            repo_id
+        ));
         if let Some(token) = &hf_token {
             request = request.header("Authorization", format!("Bearer {}", token));
         }
@@ -155,25 +167,49 @@ impl ModelManager {
 
         // 3. Download each file
         for (i, file_path) in files_to_download.iter().enumerate() {
-            let download_url = format!("https://huggingface.co/{}/resolve/main/{}", repo_id, file_path);
+            let download_url = format!(
+                "https://huggingface.co/{}/resolve/main/{}",
+                repo_id, file_path
+            );
             let target_file_path = repo_dir.join(file_path);
-            
+
             if let Some(parent) = target_file_path.parent() {
                 fs::create_dir_all(parent).await?;
             }
 
-            info!("Syncing repo file [{}/{}]: {}", i + 1, files_to_download.len(), file_path);
-            
-            let _ = app.emit("model-progress", ModelProgress {
-                model_id: model_id.to_string(),
-                bytes_downloaded: (i * 100) as u64,
-                total_bytes: Some(files_to_download.len() as u64 * 100),
-                status: format!("Syncing {} ({} of {})", file_path, i+1, files_to_download.len()),
-                speed_mbps: None,
-                eta_seconds: None,
-            });
+            info!(
+                "Syncing repo file [{}/{}]: {}",
+                i + 1,
+                files_to_download.len(),
+                file_path
+            );
 
-            self.ensure_model_inner(app, model_id, file_path, &download_url, &target_file_path, hf_token.clone()).await?;
+            let _ = app.emit(
+                "model-progress",
+                ModelProgress {
+                    model_id: model_id.to_string(),
+                    bytes_downloaded: (i * 100) as u64,
+                    total_bytes: Some(files_to_download.len() as u64 * 100),
+                    status: format!(
+                        "Syncing {} ({} of {})",
+                        file_path,
+                        i + 1,
+                        files_to_download.len()
+                    ),
+                    speed_mbps: None,
+                    eta_seconds: None,
+                },
+            );
+
+            self.ensure_model_inner(
+                app,
+                model_id,
+                file_path,
+                &download_url,
+                &target_file_path,
+                hf_token.clone(),
+            )
+            .await?;
         }
 
         Ok(repo_dir)
@@ -181,9 +217,10 @@ impl ModelManager {
 
     async fn get_hf_token(&self) -> Option<String> {
         if let Some(pool) = &self.db {
-            if let Ok(Some(row)) = sqlx::query("SELECT value_json FROM app_settings WHERE key = 'huggingface_token'")
-                .fetch_optional(pool)
-                .await 
+            if let Ok(Some(row)) =
+                sqlx::query("SELECT value_json FROM app_settings WHERE key = 'huggingface_token'")
+                    .fetch_optional(pool)
+                    .await
             {
                 let val: String = row.get("value_json");
                 if let Ok(token) = serde_json::from_str::<String>(&val) {
@@ -208,7 +245,7 @@ impl ModelManager {
         if target_path.exists() {
             let is_gguf = model_name.ends_with(".gguf");
             let is_safetensors = model_name.ends_with(".safetensors");
-            
+
             if let Ok(file_metadata) = fs::metadata(&target_path).await {
                 let size = file_metadata.len();
                 if let Ok(mut file) = tokio::fs::File::open(&target_path).await {
@@ -218,7 +255,10 @@ impl ModelManager {
                         let mut is_corrupted = false;
                         if is_gguf {
                             if &magic[..4] != b"GGUF" {
-                                warn!("Model file {} is corrupted (invalid GGUF magic).", model_name);
+                                warn!(
+                                    "Model file {} is corrupted (invalid GGUF magic).",
+                                    model_name
+                                );
                                 is_corrupted = true;
                             } else if size < 100 * 1024 * 1024 {
                                 is_corrupted = true;
@@ -227,21 +267,30 @@ impl ModelManager {
                             // Safetensors: first 8 bytes = LE u64 header length
                             let header_len = u64::from_le_bytes(magic);
                             if header_len == 0 || header_len > 100_000_000 {
-                                warn!("Safetensors {} has invalid header length: {}", model_name, header_len);
+                                warn!(
+                                    "Safetensors {} has invalid header length: {}",
+                                    model_name, header_len
+                                );
                                 is_corrupted = true;
                             } else {
                                 // Read header JSON and sum tensor sizes to get expected file size
                                 let mut header_buf = vec![0u8; header_len as usize];
                                 if file.read_exact(&mut header_buf).await.is_ok() {
-                                    if let Ok(header_json) = serde_json::from_slice::<serde_json::Value>(&header_buf) {
+                                    if let Ok(header_json) =
+                                        serde_json::from_slice::<serde_json::Value>(&header_buf)
+                                    {
                                         // Calculate total tensor data size from offsets
                                         let mut max_end: u64 = 0;
                                         if let Some(obj) = header_json.as_object() {
                                             for (key, val) in obj {
-                                                if key == "__metadata__" { continue; }
+                                                if key == "__metadata__" {
+                                                    continue;
+                                                }
                                                 if let Some(offsets) = val.get("data_offsets") {
                                                     if let Some(arr) = offsets.as_array() {
-                                                        if let Some(end) = arr.get(1).and_then(|v| v.as_u64()) {
+                                                        if let Some(end) =
+                                                            arr.get(1).and_then(|v| v.as_u64())
+                                                        {
                                                             max_end = max_end.max(end);
                                                         }
                                                     }
@@ -250,7 +299,10 @@ impl ModelManager {
                                         }
                                         let expected_size = 8 + header_len + max_end;
                                         if size != expected_size {
-                                            warn!("Safetensors {} size mismatch: file={} expected={}", model_name, size, expected_size);
+                                            warn!(
+                                                "Safetensors {} size mismatch: file={} expected={}",
+                                                model_name, size, expected_size
+                                            );
                                             is_corrupted = true;
                                         }
                                     } else {
@@ -277,7 +329,7 @@ impl ModelManager {
         fs::create_dir_all(&self.models_dir).await?;
         let part_path = target_path.with_extension("part");
         let mut downloaded = 0u64;
-        
+
         if part_path.exists() {
             if let Ok(metadata) = fs::metadata(&part_path).await {
                 downloaded = metadata.len();
@@ -293,10 +345,17 @@ impl ModelManager {
         }
 
         let response = request.send().await?.error_for_status()?;
-        
+
         if let Some(content_type) = response.headers().get("content-type") {
-            if content_type.to_str().unwrap_or_default().contains("text/html") {
-                return Err(anyhow!("HuggingFace returned an HTML page instead of the model file. URL: {}", url));
+            if content_type
+                .to_str()
+                .unwrap_or_default()
+                .contains("text/html")
+            {
+                return Err(anyhow!(
+                    "HuggingFace returned an HTML page instead of the model file. URL: {}",
+                    url
+                ));
             }
         }
 
@@ -315,14 +374,17 @@ impl ModelManager {
         let session_start = std::time::Instant::now();
         let mut session_downloaded = 0u64;
 
-        let _ = app.emit("model-progress", ModelProgress {
-            model_id: model_id.to_string(),
-            bytes_downloaded: downloaded,
-            total_bytes,
-            status: "starting".to_string(),
-            speed_mbps: None,
-            eta_seconds: None,
-        });
+        let _ = app.emit(
+            "model-progress",
+            ModelProgress {
+                model_id: model_id.to_string(),
+                bytes_downloaded: downloaded,
+                total_bytes,
+                status: "starting".to_string(),
+                speed_mbps: None,
+                eta_seconds: None,
+            },
+        );
 
         while let Some(item) = stream.next().await {
             let chunk = item?;
@@ -346,28 +408,33 @@ impl ModelManager {
                 }
             }
 
-            let _ = app.emit("model-progress", ModelProgress {
-                model_id: model_id.to_string(),
-                bytes_downloaded: downloaded,
-                total_bytes,
-                status: "downloading".to_string(),
-                speed_mbps,
-                eta_seconds,
-            });
+            let _ = app.emit(
+                "model-progress",
+                ModelProgress {
+                    model_id: model_id.to_string(),
+                    bytes_downloaded: downloaded,
+                    total_bytes,
+                    status: "downloading".to_string(),
+                    speed_mbps,
+                    eta_seconds,
+                },
+            );
         }
 
         file.flush().await?;
         drop(file);
         fs::rename(&part_path, &target_path).await?;
-        let _ = app.emit("model-progress", ModelProgress {
-            model_id: model_id.to_string(),
-            bytes_downloaded: downloaded,
-            total_bytes,
-            status: "completed".to_string(),
-            speed_mbps: None,
-            eta_seconds: None,
-        });
+        let _ = app.emit(
+            "model-progress",
+            ModelProgress {
+                model_id: model_id.to_string(),
+                bytes_downloaded: downloaded,
+                total_bytes,
+                status: "completed".to_string(),
+                speed_mbps: None,
+                eta_seconds: None,
+            },
+        );
         Ok(target_path.clone())
-
     }
 }

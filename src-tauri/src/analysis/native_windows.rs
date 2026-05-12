@@ -7,7 +7,11 @@ pub async fn extract_text_windows<P: AsRef<Path>>(path: P) -> Result<String> {
     use tokio::process::Command;
 
     let path = path.as_ref().to_path_buf();
-    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+    let extension = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     let path_str = path
         .to_str()
         .ok_or_else(|| anyhow!("path is not valid UTF-8"))?
