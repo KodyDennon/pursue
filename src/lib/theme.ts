@@ -43,19 +43,23 @@ function createThemeStore() {
 
 	const { subscribe, set } = writable<ThemePalette>(initial);
 
+	if (isBrowser) {
+		subscribe((theme) => {
+			applyThemeToDocument(theme);
+		});
+	}
+
 	return {
 		subscribe,
 		set: (theme: ThemePalette) => {
 			if (isBrowser) {
 				localStorage.setItem('pursue-theme', JSON.stringify(theme));
-				applyThemeToDocument(theme);
 			}
 			set(theme);
 		},
 		reset: () => {
 			if (isBrowser) {
 				localStorage.removeItem('pursue-theme');
-				applyThemeToDocument(defaultBlackOpsTheme);
 			}
 			set(defaultBlackOpsTheme);
 		}

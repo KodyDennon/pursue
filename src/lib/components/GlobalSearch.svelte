@@ -14,10 +14,10 @@
 		const handleKeydown = (e: KeyboardEvent) => {
 			if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
 				e.preventDefault();
-				globalSearchOpen.isOpen = true;
+				$globalSearchOpen = true;
 			}
-			if (e.key === 'Escape' && globalSearchOpen.isOpen) {
-				globalSearchOpen.isOpen = false;
+			if (e.key === 'Escape' && $globalSearchOpen) {
+				$globalSearchOpen = false;
 			}
 		};
 		window.addEventListener('keydown', handleKeydown);
@@ -25,7 +25,7 @@
 	});
 
 	$effect(() => {
-		if (globalSearchOpen.isOpen && searchInput) {
+		if ($globalSearchOpen && searchInput) {
 			setTimeout(() => searchInput?.focus(), 50);
 		}
 	});
@@ -48,13 +48,13 @@
 	}
 </script>
 
-{#if globalSearchOpen.isOpen}
+{#if $globalSearchOpen}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="search-overlay"
 		onclick={(e) => {
-			if (e.target === e.currentTarget) globalSearchOpen.isOpen = false;
+			if (e.target === e.currentTarget) $globalSearchOpen = false;
 		}}
 	>
 		<div class="search-modal glass-panel">
@@ -86,7 +86,7 @@
 							class="result-row"
 							onclick={() => {
 								// Select the record in the main view ideally, but for now just close
-								globalSearchOpen.isOpen = false;
+								$globalSearchOpen = false;
 							}}
 						>
 							<div class="r-head">

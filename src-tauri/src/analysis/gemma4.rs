@@ -71,12 +71,15 @@ pub struct Mlp {
 
 impl Mlp {
     fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
+            "[Gemma4] Initializing MLP with hidden_size: {}, intermediate_size: {}",
+            cfg.hidden_size, cfg.intermediate_size
+        );
         let gate_proj =
             candle_nn::linear_no_bias(cfg.hidden_size, cfg.intermediate_size, vb.pp("gate_proj"))?;
         let up_proj =
             candle_nn::linear_no_bias(cfg.hidden_size, cfg.intermediate_size, vb.pp("up_proj"))?;
         let down_proj =
-            candle_nn::linear_no_bias(cfg.hidden_size, cfg.hidden_size, vb.pp("down_proj"))?;
+            candle_nn::linear_no_bias(cfg.intermediate_size, cfg.hidden_size, vb.pp("down_proj"))?;
         Ok(Self {
             gate_proj,
             up_proj,
@@ -374,6 +377,9 @@ pub struct Model {
 
 impl Model {
     pub fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
+            "[Gemma4] Initializing model: vocab_size={}, layers={}, hidden_size={}",
+            cfg.vocab_size, cfg.num_hidden_layers, cfg.hidden_size
+        );
         // Find the architecture root by checking for common embedding or layer tensor paths
         let mut model_prefix = None;
         let prefixes = [
@@ -417,6 +423,11 @@ impl Model {
         let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
         let vb_layers = vb_m.pp("layers");
         for i in 0..cfg.num_hidden_layers {
+            if i % 10 == 0 || i == cfg.num_hidden_layers - 1 {
+                    "[Gemma4] Initializing layer {}/{}",
+                    i, cfg.num_hidden_layers
+                );
+            }
             layers.push(DecoderLayer::new(cfg, vb_layers.pp(i))?);
         }
         let norm = rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb_m.pp("norm"))?;
@@ -434,6 +445,7 @@ impl Model {
         };
 
         let lm_head = candle_nn::linear_no_bias(cfg.hidden_size, cfg.vocab_size, vb_head)?;
+
 
         Ok(Self {
             embed_tokens,

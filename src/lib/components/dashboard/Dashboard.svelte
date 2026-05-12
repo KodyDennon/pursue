@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import GridView from './GridView.svelte';
 	import IntelCardsView from './IntelCardsView.svelte';
 	import ListView from './ListView.svelte';
@@ -26,6 +27,9 @@
 		onAnalyze: () => void;
 		onViewMedia: (record: RecordSummary) => void;
 	}>();
+
+	onMount(() => {
+	});
 </script>
 
 <div class="dashboard-container">

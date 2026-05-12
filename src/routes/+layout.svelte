@@ -1,7 +1,6 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { activeTheme } from '$lib/theme';
 	import AppDock from '$lib/components/AppDock.svelte';
 	import GlobalSearch from '$lib/components/GlobalSearch.svelte';
 	import Toasts from '$lib/components/Toasts.svelte';
@@ -10,11 +9,6 @@
 	let { children } = $props();
 
 	onMount(() => {
-		// Re-apply theme on client load just to be sure
-		activeTheme.subscribe(() => {
-			// Handled by the store itself, but subscribe ensures it binds
-		});
-
 		// Check for system updates silently on startup
 		setTimeout(() => {
 			checkForUpdates(true);

@@ -60,6 +60,9 @@ impl IntelligenceExtractor {
         text: &str,
         images: Vec<PathBuf>,
     ) -> Result<Value> {
+            "[Extraction] Starting metadata extraction for record: {}",
+            record_id
+        );
         let text_owned = text.to_string();
         let handle = app.clone();
         let rid = record_id.to_string();
@@ -153,9 +156,12 @@ impl IntelligenceExtractor {
                     .bind(now())
                     .execute(&db).await?;
 
+
                 Ok(val)
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                Err(e)
+            }
         }
     }
 

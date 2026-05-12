@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { listen } from '@tauri-apps/api/event';
 	import IntelligenceDossier from '$lib/components/IntelligenceDossier.svelte';
 	import Map from '$lib/components/Map.svelte';
 	import LinkAnalysis from '$lib/components/LinkAnalysis.svelte';
@@ -16,7 +15,6 @@
 	import Dashboard from '$lib/components/dashboard/Dashboard.svelte';
 	import { MODELS } from '$lib/models';
 	import type { CaseSummary, DatabaseStatus, RecordSummary } from '$lib/types';
-	import { Loader2 } from 'lucide-svelte';
 	import { addToast, updateToast } from '$lib/toastStore';
 	import { activeView } from '$lib/store';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -36,6 +34,7 @@
 	let analysisModalOpen = $state(false);
 	let viewerOpen = $state(false);
 	let viewerRecord = $state<RecordSummary | null>(null);
+	let hasLoaded = $state(false);
 
 	async function loadInitialData() {
 		initializing = true;
@@ -98,7 +97,7 @@
 				duration: 3000
 			});
 
-			activeView.current = 'agent';
+			$activeView = 'agent';
 			await invoke('download_missing_records');
 			busy = null;
 		} catch (e) {
@@ -149,7 +148,6 @@
 			try {
 				systemStats = await invoke('get_system_stats');
 			} catch (e) {
-				console.warn('Failed to poll system stats', e);
 			}
 		}, 2000);
 
@@ -189,11 +187,14 @@
 		};
 	});
 
-	let hasLoaded = $state(false);
-	// This effect is now just a backup in case activeView changes or after first-launch completion
 	$effect(() => {
+			isProvisioned: $state.snapshot(isProvisioned), 
+			hasLoaded: $state.snapshot(hasLoaded), 
+			initializing: $state.snapshot(initializing), 
+			activeView: $state.snapshot($activeView) 
+		});
 		if (isProvisioned && !hasLoaded && !initializing) {
-			if (activeView.current === 'dashboard') {
+			if ($activeView === 'dashboard') {
 				hasLoaded = true;
 				loadInitialData();
 			}
@@ -202,7 +203,7 @@
 
 	$effect(() => {
 		// Clear selection when switching top-level modules
-		if (activeView.current) {
+		if ($activeView) {
 			selectedRecord = null;
 		}
 	});
@@ -218,9 +219,9 @@
 {:else if initializing}
 	<div class="system-splash">
 		<div class="splash-content">
-			<Loader2 class="spin" size={48} />
-			<h2>Intelligence OS Initializing</h2>
-			<p>Syncing local evidence vault and intelligence models...</p>
+			<div class="loader-spinner"></div>
+			<h2>INTELLIGENCE OS INITIALIZING</h2>
+			<p>Syncing local evidence vault and neural models...</p>
 			<div class="boot-log">
 				<span>[SYSTEM] Mounting secure database...</span>
 				<span>[SYSTEM] Initializing vector search engine...</span>
@@ -233,15 +234,15 @@
 		<header class="os-header glass-header">
 			<div class="view-context">
 				<h2 class="view-title">
-					{(activeView.current === 'dashboard'
+					{($activeView === 'dashboard'
 						? 'Evidence Archive'
-						: activeView.current === 'intelligence'
+						: $activeView === 'intelligence'
 							? 'Neural Engine'
-							: activeView.current === 'vault'
+							: $activeView === 'vault'
 								? 'Secure Vault'
-								: activeView.current === 'agent'
+								: $activeView === 'agent'
 									? 'Ingestion Agent'
-									: activeView.current
+									: $activeView
 					).toUpperCase()}
 				</h2>
 			</div>
@@ -272,7 +273,7 @@
 		<div class="os-body">
 			<main class="os-main">
 				<div class="view-container">
-					{#if activeView.current === 'dashboard'}
+					{#if $activeView === 'dashboard'}
 						<Dashboard
 							{records}
 							libraryPath={databaseStatus?.library_path ?? null}
@@ -287,16 +288,16 @@
 								viewerOpen = true;
 							}}
 						/>
-					{:else if activeView.current === 'intelligence'}
+					{:else if $activeView === 'intelligence'}
 						<IntelligenceCenter onAnalyze={() => (analysisModalOpen = true)} />
-					{:else if activeView.current === 'vault'}
+					{:else if $activeView === 'vault'}
 						<EvidenceVault />
-					{:else if activeView.current === 'agent'}
+					{:else if $activeView === 'agent'}
 						<DownloadAgent
 							onComplete={loadInitialData}
 							onAnalyze={() => (analysisModalOpen = true)}
 						/>
-					{:else if activeView.current === 'map'}
+					{:else if $activeView === 'map'}
 						{#if selectedRecord}
 							<IntelligenceDossier
 								record={selectedRecord}
@@ -312,11 +313,11 @@
 								<Map {records} onSelect={(r) => (selectedRecord = r)} />
 							</div>
 						{/if}
-					{:else if activeView.current === 'link-analysis'}
+					{:else if $activeView === 'link-analysis'}
 						<div class="view-empty">
 							<LinkAnalysis {records} />
 						</div>
-					{:else if activeView.current === 'settings'}
+					{:else if $activeView === 'settings'}
 						<Settings />
 					{/if}
 				</div>
@@ -562,6 +563,21 @@
 	.splash-content p {
 		color: var(--text-secondary);
 		margin: 0;
+	}
+
+	.loader-spinner {
+		width: 40px;
+		height: 40px;
+		border: 3px solid rgba(231, 196, 107, 0.1);
+		border-top: 3px solid var(--accent-primary);
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+		margin-bottom: 24px;
+	}
+
+	@keyframes spin {
+		0% { transform: rotate(0deg); }
+		100% { transform: rotate(360deg); }
 	}
 
 	.boot-log {

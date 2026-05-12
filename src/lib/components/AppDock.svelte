@@ -11,6 +11,10 @@
 	} from 'lucide-svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import { activeView, globalSearchOpen } from '$lib/store';
+	import { onMount } from 'svelte';
+
+	onMount(() => {
+	});
 </script>
 
 <nav class="dock">
@@ -22,48 +26,48 @@
 		<div class="nav-items">
 			<button
 				class="nav-item"
-				class:active={activeView.current === 'dashboard'}
-				onclick={() => (activeView.current = 'dashboard')}
+				class:active={$activeView === 'dashboard'}
+				onclick={() => ($activeView = 'dashboard')}
 				title="Evidence Archive"
 			>
 				<Database size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={activeView.current === 'intelligence'}
-				onclick={() => (activeView.current = 'intelligence')}
+				class:active={$activeView === 'intelligence'}
+				onclick={() => ($activeView = 'intelligence')}
 				title="Neural Engine"
 			>
 				<Brain size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={activeView.current === 'vault'}
-				onclick={() => (activeView.current = 'vault')}
+				class:active={$activeView === 'vault'}
+				onclick={() => ($activeView = 'vault')}
 				title="Secure Vault"
 			>
 				<ShieldCheck size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={activeView.current === 'agent'}
-				onclick={() => (activeView.current = 'agent')}
+				class:active={$activeView === 'agent'}
+				onclick={() => ($activeView = 'agent')}
 				title="Ingestion Agent"
 			>
 				<DownloadCloud size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={activeView.current === 'map'}
-				onclick={() => (activeView.current = 'map')}
+				class:active={$activeView === 'map'}
+				onclick={() => ($activeView = 'map')}
 				title="Tactical Map"
 			>
 				<Map size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={activeView.current === 'link-analysis'}
-				onclick={() => (activeView.current = 'link-analysis')}
+				class:active={$activeView === 'link-analysis'}
+				onclick={() => ($activeView = 'link-analysis')}
 				title="Link Analysis"
 			>
 				<BrainCircuit size={22} />
@@ -72,13 +76,13 @@
 	</div>
 
 	<div class="dock-bottom">
-		<button class="nav-item" onclick={() => (globalSearchOpen.isOpen = true)} title="Global Search">
+		<button class="nav-item" onclick={() => ($globalSearchOpen = true)} title="Global Search">
 			<Search size={22} />
 		</button>
 		<button
 			class="nav-item"
-			class:active={activeView.current === 'settings'}
-			onclick={() => (activeView.current = 'settings')}
+			class:active={$activeView === 'settings'}
+			onclick={() => ($activeView = 'settings')}
 			title="Settings"
 		>
 			<Settings size={22} />

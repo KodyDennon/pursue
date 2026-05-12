@@ -44,20 +44,28 @@
 	let currentModelName = $state('');
 
 	onMount(() => {
+		console.log('[FirstLaunch] Component mounted.');
 		// 1. Check Diagnostics and Provisioning status
 		(async () => {
+			console.log('[FirstLaunch] Probing hardware diagnostics...');
 			try {
 				specs = await invoke<HardwareDiagnostics>('get_hardware_diagnostics');
 				modelStatus = await invoke<Record<string, boolean>>('check_model_status');
+
+				console.log('[FirstLaunch] Diagnostics:', specs);
+				console.log('[FirstLaunch] Model Status:', modelStatus);
 
 				selectedTier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
 
 				const requiredIds = MODELS[selectedTier].map((m) => m.id);
 				const allPresent = requiredIds.every((id) => modelStatus[id]);
 
+				console.log('[FirstLaunch] Tier:', selectedTier, 'All present:', allPresent);
+
 				if (allPresent) {
 					step = 'ready';
 					statusText = 'Intelligence OS already provisioned.';
+					console.log('[FirstLaunch] Already provisioned, completing...');
 					setTimeout(onComplete, 500);
 					return;
 				}
@@ -65,7 +73,7 @@
 				step = 'selection';
 				statusText = 'Environment scan complete.';
 			} catch (e) {
-				console.error('Initialization probe failed', e);
+				console.error('[FirstLaunch] Initialization probe failed', e);
 				statusText = 'Hardware probe failed. Using standard profile.';
 				step = 'selection';
 			}

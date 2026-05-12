@@ -97,7 +97,7 @@
 </script>
 
 <div class="global-actions">
-	{#if activeView.current === 'dashboard'}
+	{#if $activeView === 'dashboard'}
 		<div class="view-toggles">
 			<button
 				class="toggle-btn"

@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 	import { openPath, openUrl } from '@tauri-apps/plugin-opener';
-	import { listen } from '@tauri-apps/api/event';
 	import {
 		AlertCircle,
 		Brain,

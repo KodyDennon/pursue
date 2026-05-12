@@ -10,13 +10,17 @@
 		"frontendDist": "../build"
 	},
 	"app": {
+		"macOSPrivateApi": true,
 		"windows": [
 			{
 				"title": "PURSUE Data Analyzer",
 				"width": 1280,
-				"height": 820,
-				"minWidth": 1100,
-				"minHeight": 720
+				"height": 840,
+				"resizable": true,
+				"fullscreen": false,
+				"transparent": true,
+				"decorations": false,
+				"visible": true
 			}
 		],
 		"security": {
@@ -25,12 +29,6 @@
 	},
 	"bundle": {
 		"active": true,
-		"targets": "all",
-		"createUpdaterArtifacts": true,
-		"macOS": {
-			"minimumSystemVersion": "14.0"
-		},
-		"resources": [],
 		"icon": [
 			"icons/32x32.png",
 			"icons/128x128.png",
@@ -41,7 +39,7 @@
 	},
 	"plugins": {
 		"updater": {
-			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJCOTUzNDFGMjQ5NjRCNzUKUldSMVM1WWtIelNWdTlHTEIxT1p6Q2QvWWNuY1RVTnp1RXArZ085NmgzNkNwd2libHNtSWFJMy8K",
+			"pubkey": "dW5zaWduIHB1YmxpYyBrZXk6IEJCOTUzNDFGMjQ5NjRCNzUKUldSMVM1WWtIelNWdTlHTEIxT1p6Q2QvWWNuY1RVTnp1RXArZ085NmgzNkNwd2libHNtSWFJMy8K",
 			"endpoints": ["https://github.com/KodyDennon/pursue/releases/latest/download/latest.json"]
 		}
 	}

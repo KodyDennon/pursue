@@ -1,3 +1,5 @@
+import { writable } from 'svelte/store';
+
 export type ViewMode =
 	| 'dashboard'
 	| 'map'
@@ -7,10 +9,6 @@ export type ViewMode =
 	| 'vault'
 	| 'settings';
 
-export const activeView = $state({
-	current: 'dashboard' as ViewMode
-});
+export const activeView = writable<ViewMode>('dashboard');
 
-export const globalSearchOpen = $state({
-	isOpen: false
-});
+export const globalSearchOpen = writable<boolean>(false);
