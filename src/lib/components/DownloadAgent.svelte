@@ -11,6 +11,7 @@
 	} from 'lucide-svelte';
 	import type { BulkDownloadReport, BulkDownloadStatus, DatabaseStatus } from '$lib/types';
 	import { addToast } from '$lib/toastStore';
+	import { formatBytes } from '$lib/utils';
 
 	let { onComplete } = $props<{
 		onComplete?: () => void;
@@ -145,14 +146,6 @@
 	function getProgress(job: BulkDownloadStatus) {
 		if (job.total === 0) return 0;
 		return ((job.completed + job.failed) / (job.total - job.skipped)) * 100;
-	}
-
-	function formatBytes(bytes: number) {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 	}
 </script>
 

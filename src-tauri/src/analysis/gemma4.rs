@@ -1,5 +1,6 @@
 use candle_core::{DType, Device, IndexOp, Result, Tensor, D};
 use candle_nn::{rms_norm, Linear, Module, RmsNorm, VarBuilder};
+use log::debug;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ConfigWrapper {
@@ -71,6 +72,7 @@ pub struct Mlp {
 
 impl Mlp {
     fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
+        debug!(
             "[Gemma4] Initializing MLP with hidden_size: {}, intermediate_size: {}",
             cfg.hidden_size, cfg.intermediate_size
         );
@@ -152,34 +154,63 @@ pub struct Attention {
 
 impl Attention {
     pub fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
-        let q_proj = candle_nn::linear_no_bias(
-            cfg.hidden_size,
-            cfg.num_attention_heads * cfg.head_dim,
-            vb.pp("q_proj"),
-        )?;
-        let k_proj = candle_nn::linear_no_bias(
-            cfg.hidden_size,
-            cfg.num_key_value_heads * cfg.head_dim,
-            vb.pp("k_proj"),
-        )?;
-        let v_proj = candle_nn::linear_no_bias(
-            cfg.hidden_size,
-            cfg.num_key_value_heads * cfg.head_dim,
-            vb.pp("v_proj"),
-        )?;
-        let o_proj = candle_nn::linear_no_bias(
-            cfg.num_attention_heads * cfg.head_dim,
-            cfg.hidden_size,
-            vb.pp("o_proj"),
-        )?;
+        // DYNAMIC STRUCTURAL ADAPTATION:
+        // We prioritize actual weight dimensions over config.json to handle variants with
+        // non-standard attention head layouts or mismatched configurations.
+
+        let q_out_dim = vb
+            .pp("q_proj")
+            .get(
+                (cfg.hidden_size, cfg.num_attention_heads * cfg.head_dim),
+                "weight",
+            )?
+            .dim(0)?;
+        // Handle potential double-head layouts (like Gemma 2)
+        let q_out_dim = if q_out_dim != cfg.num_attention_heads * cfg.head_dim {
+            vb.pp("q_proj")
+                .get(
+                    (cfg.hidden_size, cfg.num_attention_heads * cfg.head_dim * 2),
+                    "weight",
+                )?
+                .dim(0)?
+        } else {
+            q_out_dim
+        };
+
+        let k_out_dim = vb
+            .pp("k_proj")
+            .get(
+                (cfg.hidden_size, cfg.num_key_value_heads * cfg.head_dim),
+                "weight",
+            )?
+            .dim(0)?;
+        let v_out_dim = vb
+            .pp("v_proj")
+            .get(
+                (cfg.hidden_size, cfg.num_key_value_heads * cfg.head_dim),
+                "weight",
+            )?
+            .dim(0)?;
+
+        let q_proj = candle_nn::linear_no_bias(cfg.hidden_size, q_out_dim, vb.pp("q_proj"))?;
+        let k_proj = candle_nn::linear_no_bias(cfg.hidden_size, k_out_dim, vb.pp("k_proj"))?;
+        let v_proj = candle_nn::linear_no_bias(cfg.hidden_size, v_out_dim, vb.pp("v_proj"))?;
+        let o_proj = candle_nn::linear_no_bias(q_out_dim, cfg.hidden_size, vb.pp("o_proj"))?;
+
+        // Determine actual head dimension from q_norm or fallback to derived
+        let mut actual_head_dim = q_out_dim / cfg.num_attention_heads;
 
         let q_norm = if vb.contains_tensor("q_norm.weight") {
-            Some(rms_norm(cfg.head_dim, cfg.rms_norm_eps, vb.pp("q_norm"))?)
+            let norm_dim = vb.pp("q_norm").get(cfg.head_dim, "weight")?.dim(0)?;
+            actual_head_dim = norm_dim; // Ground truth dimension found in weights
+            Some(rms_norm(norm_dim, cfg.rms_norm_eps, vb.pp("q_norm"))?)
         } else {
             None
         };
+
         let k_norm = if vb.contains_tensor("k_norm.weight") {
-            Some(rms_norm(cfg.head_dim, cfg.rms_norm_eps, vb.pp("k_norm"))?)
+            let norm_dim = vb.pp("k_norm").get(cfg.head_dim, "weight")?.dim(0)?;
+            Some(rms_norm(norm_dim, cfg.rms_norm_eps, vb.pp("k_norm"))?)
         } else {
             None
         };
@@ -192,9 +223,9 @@ impl Attention {
             o_proj,
             q_norm,
             k_norm,
-            num_heads: cfg.num_attention_heads,
-            num_kv_heads: cfg.num_key_value_heads,
-            head_dim: cfg.head_dim,
+            num_heads: q_out_dim / actual_head_dim,
+            num_kv_heads: k_out_dim / actual_head_dim,
+            head_dim: actual_head_dim,
             rotary,
         })
     }
@@ -377,6 +408,7 @@ pub struct Model {
 
 impl Model {
     pub fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
+        debug!(
             "[Gemma4] Initializing model: vocab_size={}, layers={}, hidden_size={}",
             cfg.vocab_size, cfg.num_hidden_layers, cfg.hidden_size
         );
@@ -424,6 +456,7 @@ impl Model {
         let vb_layers = vb_m.pp("layers");
         for i in 0..cfg.num_hidden_layers {
             if i % 10 == 0 || i == cfg.num_hidden_layers - 1 {
+                debug!(
                     "[Gemma4] Initializing layer {}/{}",
                     i, cfg.num_hidden_layers
                 );
@@ -446,6 +479,7 @@ impl Model {
 
         let lm_head = candle_nn::linear_no_bias(cfg.hidden_size, cfg.vocab_size, vb_head)?;
 
+        debug!("[Gemma4] Model initialization successful.");
 
         Ok(Self {
             embed_tokens,

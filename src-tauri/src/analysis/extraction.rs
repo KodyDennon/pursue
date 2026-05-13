@@ -2,6 +2,7 @@ use crate::analysis::gemma4;
 use crate::commands::AppState;
 use crate::common::now;
 use anyhow::{anyhow, Result};
+use log::debug;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
@@ -60,6 +61,7 @@ impl IntelligenceExtractor {
         text: &str,
         images: Vec<PathBuf>,
     ) -> Result<Value> {
+        debug!(
             "[Extraction] Starting metadata extraction for record: {}",
             record_id
         );
@@ -72,6 +74,7 @@ impl IntelligenceExtractor {
 
         // 1. Ensure Model Readiness
         if cache.is_none() || cache.as_ref().unwrap().repo_path != repo_path {
+            debug!("[Extraction] Loading model from: {:?}", repo_path);
             let _ = handle.emit(
                 "analysis-progress",
                 json!({
@@ -80,6 +83,7 @@ impl IntelligenceExtractor {
                 }),
             );
             *cache = Some(Self::load_context(&repo_path)?);
+            debug!("[Extraction] Model loaded and cached.");
         }
 
         let ctx = cache.take().unwrap();
@@ -118,6 +122,7 @@ impl IntelligenceExtractor {
         };
 
         // 4. Inference Orchestration (spawn_blocking)
+        debug!("[Extraction] Spawning inference task...");
         let result = tokio::task::spawn_blocking(move || {
             Self::run_inference(
                 handle,
@@ -133,6 +138,7 @@ impl IntelligenceExtractor {
         // 4. Restore Cache
         match result {
             Ok((val, thought, ctx_to_restore)) => {
+                debug!("[Extraction] Inference completed successfully.");
                 *cache = Some(ctx_to_restore);
 
                 // 5. Post-process: Persist fragments & Neural Logs
@@ -156,10 +162,12 @@ impl IntelligenceExtractor {
                     .bind(now())
                     .execute(&db).await?;
 
+                debug!("[Extraction] Logged to database. Done.");
 
                 Ok(val)
             }
             Err(e) => {
+                debug!("[Extraction] Inference task failed: {:?}", e);
                 Err(e)
             }
         }

@@ -5,6 +5,7 @@
 	import { Database, ShieldCheck, HardDrive, FileText, AlertTriangle } from 'lucide-svelte';
 	import { addToast } from '$lib/toastStore';
 	import type { DatabaseStatus } from '$lib/types';
+	import { formatBytes } from '$lib/utils';
 
 	let stats = $state<DatabaseStatus & {
 		pending_count?: number;
@@ -98,14 +99,6 @@
 			verifyStatusText = '';
 			verifyProgress = 0;
 		}
-	}
-
-	function formatBytes(bytes: number) {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 	}
 
 	onMount(() => {

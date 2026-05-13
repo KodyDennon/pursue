@@ -12,8 +12,10 @@
 	import Logo from '$lib/components/Logo.svelte';
 	import { activeView, globalSearchOpen } from '$lib/store';
 	import { onMount } from 'svelte';
+	import { logger } from '$lib/logger';
 
 	onMount(() => {
+		logger.debug('[AppDock] Mounted.');
 	});
 </script>
 

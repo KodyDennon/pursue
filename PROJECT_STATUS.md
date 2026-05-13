@@ -11,8 +11,13 @@ Last updated: May 10, 2026
 - Local-first Decoupled Intelligence Pipeline (Indexing vs. Synthesis) with Gemma 4 neural engine support.
 - Phase 1 (Indexing): Foundation layer with digital text extraction, multi-engine OCR (macOS Vision / Windows Media / Tesseract), and entity graph population.
 
-## Current Status (May 10, 2026)
+## Current Status (May 11, 2026)
 
+- **Phase Decoupling Complete**: Deep Intelligence (Gemma) is now strictly decoupled from Foundation Indexing (OCR/Vector). Batch operations only perform high-performance indexing, while Gemma is reserved for single-record deep audits.
+- **Forced OCR Infrastructure**: Implemented `force_ocr` protocol to bypass digital-text fast paths, ensuring high-resolution pixel-level OCR is triggered during re-audits.
+- **Dynamic Structural Adaptation**: Resolved all 'shape mismatch' errors in Gemma 4 engine (MLP, Attention, Normalization) by implementing a dynamic dimension grounding layer that prioritizes actual weight shapes over `config.json`.
+- **UI Hardening**: Resolved '0 of 0' batch progress display and standardized tactical metrics across all dashboard components.
+- **Real-time Telemetry**: Centralized all diagnostic logging behind a production-safe `Logger` utility.
 - **Structural Hardening Complete**: Pipeline decoupled into Indexer/Synthesizer/Persistence services.
 - **Async Purity**: All `block_on` anti-patterns eliminated; inference isolated in `spawn_blocking`.
 - **Model Manifest**: Centralized `ModelRegistry` (v1.0) synced across Rust and Svelte.

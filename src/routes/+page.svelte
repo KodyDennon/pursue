@@ -18,6 +18,8 @@
 	import { addToast, updateToast } from '$lib/toastStore';
 	import { activeView } from '$lib/store';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+	import { logger } from '$lib/logger';
+	import { formatBytes } from '$lib/utils';
 
 	let isProvisioned = $state(false);
 
@@ -37,6 +39,7 @@
 	let hasLoaded = $state(false);
 
 	async function loadInitialData() {
+		logger.debug('[App] loadInitialData called');
 		initializing = true;
 		try {
 			if (query.trim()) {
@@ -106,18 +109,6 @@
 		}
 	}
 
-	function formatBytes(value: number | null | undefined) {
-		if (!value) return '0 B';
-		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-		let next = value;
-		let unit = 0;
-		while (next >= 1024 && unit < units.length - 1) {
-			next /= 1024;
-			unit += 1;
-		}
-		return `${next.toFixed(next >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-	}
-
 	let systemStats = $state<{
 		cpu_usage: number;
 		process_memory_mb: number;
@@ -125,15 +116,18 @@
 
 	// Auto-detect provisioning
 	onMount(() => {
+		logger.debug('[App] Mounting +page...');
 		(async () => {
 			try {
 				const modelStatus = await invoke<Record<string, boolean>>('check_model_status');
 				const specs = await invoke<{ recommended_tier: 'Standard' | 'Elite' }>('get_hardware_diagnostics');
 
+				logger.debug('[App] Specs:', specs);
 				const tier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
 				const requiredModels = MODELS[tier];
 
 				const allPresent = requiredModels.every((m) => modelStatus[m.id]);
+				logger.debug('[App] All models present:', allPresent);
 				if (allPresent) {
 					isProvisioned = true;
 					// If already provisioned, trigger load immediately
@@ -148,6 +142,7 @@
 			try {
 				systemStats = await invoke('get_system_stats');
 			} catch (e) {
+				logger.debug('Failed to poll system stats', e);
 			}
 		}, 2000);
 
@@ -188,6 +183,7 @@
 	});
 
 	$effect(() => {
+		logger.debug('[App] Provisioned/View effect:', { 
 			isProvisioned: $state.snapshot(isProvisioned), 
 			hasLoaded: $state.snapshot(hasLoaded), 
 			initializing: $state.snapshot(initializing), 
@@ -195,6 +191,7 @@
 		});
 		if (isProvisioned && !hasLoaded && !initializing) {
 			if ($activeView === 'dashboard') {
+				logger.debug('[App] Triggering loadInitialData from effect...');
 				hasLoaded = true;
 				loadInitialData();
 			}
@@ -202,6 +199,7 @@
 	});
 
 	$effect(() => {
+		logger.debug('[App] Active view changed:', $state.snapshot($activeView));
 		// Clear selection when switching top-level modules
 		if ($activeView) {
 			selectedRecord = null;
@@ -212,6 +210,7 @@
 {#if !isProvisioned}
 	<FirstLaunch
 		onComplete={() => {
+			logger.debug('[App] FirstLaunch complete.');
 			isProvisioned = true;
 			loadInitialData();
 		}}

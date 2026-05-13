@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { convertFileSrc } from '@tauri-apps/api/core';
 	import type { RecordSummary } from '$lib/types';
+	import { formatBytes } from '$lib/utils';
 	import {
 		FileText,
 		MapPin,
@@ -9,9 +10,10 @@
 		CheckCircle2,
 		Clock,
 		Zap,
-		Maximize2
+		Maximize2,
+		Loader2,
+		AlertCircle
 	} from 'lucide-svelte';
-
 	let {
 		records,
 		libraryPath = null,
@@ -31,18 +33,6 @@
 		const cleanLib =
 			libraryPath.endsWith('/') || libraryPath.endsWith('\\') ? libraryPath : libraryPath + '/';
 		return convertFileSrc(cleanLib + rel);
-	}
-
-	function formatBytes(value: number | null | undefined) {
-		if (!value) return '0 B';
-		const units = ['B', 'KB', 'MB', 'GB'];
-		let next = value;
-		let unit = 0;
-		while (next >= 1024 && unit < units.length - 1) {
-			next /= 1024;
-			unit += 1;
-		}
-		return `${next.toFixed(next >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 	}
 </script>
 
@@ -91,16 +81,21 @@
 							<div
 								class="status"
 								class:ready={record.analysis_status === 'completed'}
-								class:indexed={record.analysis_status === 'indexed' ||
-									record.analysis_status === 'indexing'}
+								class:busy={record.analysis_status === 'synthesizing'}
+								class:pending={record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
+								class:error={record.analysis_status === 'failed'}
 							>
 								{#if record.analysis_status === 'completed'}
 									<CheckCircle2 size={10} /> <span>READY</span>
-								{:else if record.analysis_status === 'indexed' || record.analysis_status === 'indexing'}
-									<Zap size={10} /> <span>{record.analysis_status.toUpperCase()}</span>
+								{:else if record.analysis_status === 'synthesizing'}
+									<Zap size={10} class="spin" /> <span>NEURAL</span>
+								{:else if record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
+									<Loader2 size={10} class="spin" /> <span>FOUNDATION</span>
+								{:else if record.analysis_status === 'failed'}
+									<AlertCircle size={10} /> <span>FAILED</span>
 								{:else}
 									<Clock size={10} />
-									<span>{record.analysis_status?.toUpperCase() || 'PENDING'}</span>
+									<span>PENDING</span>
 								{/if}
 							</div>
 						</header>
@@ -249,9 +244,19 @@
 		background: rgba(77, 243, 169, 0.1);
 	}
 
-	.status.indexed {
+	.status.busy {
+		color: var(--accent-primary);
+		background: rgba(231, 196, 107, 0.1);
+	}
+
+	.status.pending {
 		color: #3296ff;
 		background: rgba(50, 150, 255, 0.1);
+	}
+
+	.status.error {
+		color: var(--accent-danger);
+		background: rgba(243, 77, 77, 0.1);
 	}
 
 	h3 {

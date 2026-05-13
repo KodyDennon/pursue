@@ -14,6 +14,8 @@
 	} from 'lucide-svelte';
 	import type { DatabaseStatus } from '$lib/types';
 	import { addToast } from '$lib/toastStore';
+	import { logger } from '$lib/logger';
+	import { formatBytes } from '$lib/utils';
 
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
@@ -47,13 +49,15 @@
 	let analysisProgress = $state(0);
 	let analysisActive = $state(false);
 	let analysisStatus = $state('');
+	let processedCount = $state(0);
+	let totalCount = $state(0);
 
 	async function loadStatus() {
-		console.log('[IntelligenceCenter] Syncing status...');
+		logger.debug('[IntelligenceCenter] Syncing status...');
 		try {
 			status = await invoke<DatabaseStatus>('get_database_status');
 			diagnostics = await invoke<HardwareDiagnostics>('get_hardware_diagnostics');
-			console.log('[IntelligenceCenter] Diagnostics loaded:', diagnostics);
+			logger.debug('[IntelligenceCenter] Diagnostics loaded:', diagnostics);
 			if (models.length === 0) {
 				const registry = await invoke<{
 					id: string;
@@ -116,10 +120,10 @@
 			analysisActive = true;
 			analysisProgress = 0;
 			analysisStatus = 'Scanning for pending audits...';
-			const count = await invoke<number>('analyze_all_records');
+			const count = await invoke<number>('analyze_all_records', { forceOcr: false });
 			addToast({
 				type: 'info',
-				message: `Neural Indexing initiated for ${count} records.`,
+				message: `Foundation Indexing initiated for ${count} records.`,
 				duration: 5000
 			});
 		} catch (e) {
@@ -132,7 +136,7 @@
 		if (analysisActive) return;
 		if (
 			!confirm(
-				'CRITICAL ACTION: This will purge all existing intelligence, OCR results, and forensic summaries and rerun the entire extraction pipeline. Proceed?'
+				'CRITICAL ACTION: This will purge all existing intelligence, OCR results, and forensic summaries and rerun the entire foundation indexing pipeline (FORCED PIXEL OCR). Proceed?'
 			)
 		)
 			return;
@@ -142,10 +146,10 @@
 			analysisActive = true;
 			analysisProgress = 0;
 			analysisStatus = 'Resetting Archive Intelligence...';
-			const count = await invoke<number>('reprocess_all_records');
+			const count = await invoke<number>('reprocess_all_records', { forceOcr: true });
 			addToast({
 				type: 'info',
-				message: `Neural Re-Audit initiated for ${count} records.`,
+				message: `Deep Re-Audit initiated for ${count} records.`,
 				duration: 5000
 			});
 		} catch (e) {
@@ -155,6 +159,7 @@
 	}
 
 	onMount(() => {
+		logger.debug('[IntelligenceCenter] Mounted.');
 		loadStatus();
 		const interval = setInterval(loadStatus, 5000);
 
@@ -170,6 +175,7 @@
 			eta_seconds?: number;
 		}>('model-progress', (event) => {
 			const payload = event.payload;
+			logger.debug('[IntelligenceCenter] Model Progress:', payload.status, payload.model_id);
 			const model = models.find((m) => m.id === payload.model_id);
 			if (model) {
 				model.status = payload.status;
@@ -189,6 +195,10 @@
 			token_limit?: number;
 		}>('analysis-progress', (event) => {
 			const { current, total, status } = event.payload;
+			logger.debug('[IntelligenceCenter] Analysis Progress:', status, { current, total });
+
+			processedCount = current ?? processedCount;
+			totalCount = total ?? totalCount;
 
 			if (status === 'completed' || status === 'batch-complete') {
 				analysisActive = false;
@@ -202,8 +212,8 @@
 				analysisProgress = (curToken / totToken) * 100;
 			} else {
 				analysisActive = true;
-				const cur = current ?? 0;
-				const tot = total ?? 0;
+				const cur = processedCount;
+				const tot = totalCount;
 				if (tot > 0) {
 					analysisProgress = (cur / tot) * 100;
 				}
@@ -378,7 +388,7 @@
 						</div>
 						<div class="metric">
 							<span>Storage Overhead</span>
-							<strong>{(status.artifact_bytes / 1024 / 1024).toFixed(1)} MB</strong>
+							<strong>{formatBytes(status.artifact_bytes)}</strong>
 						</div>
 						<div class="metric">
 							<span>Search Engine</span>

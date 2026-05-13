@@ -3,6 +3,7 @@
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { onMount } from 'svelte';
 	import { Brain, X, Loader2, CheckCircle2, AlertCircle, Terminal, Activity } from 'lucide-svelte';
+	import { logger } from '$lib/logger';
 
 	let { isOpen = $bindable(false), onComplete } = $props<{
 		isOpen: boolean;
@@ -53,12 +54,12 @@
 		progress = 0;
 		processedCount = 0;
 		logs = [];
-		addLog('Neural Extraction Engine starting...', 'info');
-		addLog('Mounting Gemma 4B Model (Int IT)...', 'info');
+		addLog('Intelligence Foundation Engine starting...', 'info');
+		addLog('Loading high-resolution OCR engine...', 'info');
 
 		try {
 			const cmd = forceReprocess ? 'reprocess_all_records' : 'analyze_all_records';
-			const count = await invoke<number>(cmd);
+			const count = await invoke<number>(cmd, { forceOcr: forceReprocess });
 			totalCount = count;
 			if (count === 0) {
 				addLog('No pending records found. Archive is already up-to-date.', 'success');
@@ -66,7 +67,7 @@
 				busy = false;
 				return;
 			}
-			addLog(`Task queued: ${count} records identified for deep extraction.`, 'info');
+			addLog(`Task queued: ${count} records identified for foundation indexing.`, 'info');
 			status = 'processing';
 		} catch (e) {
 			addLog(`Initialization failed: ${e}`, 'error');
@@ -77,9 +78,11 @@
 
 	onMount(() => {
 		let unlisten: UnlistenFn;
+		logger.debug('[AnalysisModal] Mounted, listening for progress...');
 
 		listen<AnalysisProgress>('analysis-progress', (event) => {
 			const payload = event.payload;
+			logger.debug('[AnalysisModal] Progress Event:', payload.status, payload);
 
 			// Auto-activate and open modal if an event comes in from elsewhere
 			const activeStatuses = [
@@ -148,8 +151,10 @@
 					status = 'indexing-vector';
 				}
 			} else if (payload.status === 'synthesizing' || payload.status === 'synthesizing-start') {
-				if (status !== 'synthesizing' && status !== 'reasoning') {
-					addLog(`Intelligence Phase: Gemma 4 performing deep synthesis...`, 'info');
+				if (status !== 'synthesizing') {
+					if (payload.status === 'synthesizing-start') {
+						addLog(`Intelligence Phase: Gemma 4 performing deep synthesis...`, 'info');
+					}
 					status = 'synthesizing';
 					thoughtText = ''; // Reset for new record
 				}
@@ -179,8 +184,8 @@
 				<div class="brand">
 					<Brain size={24} class="accent-icon" />
 					<div>
-						<h2>Neural Extraction Engine</h2>
-						<p>Gemma-powered automated intelligence synthesis.</p>
+						<h2>Intelligence Foundation Engine</h2>
+						<p>High-resolution OCR and semantic vector indexing.</p>
 					</div>
 				</div>
 				<button class="close-btn" onclick={close}><X size={20} /></button>
@@ -190,7 +195,7 @@
 				<section class="status-overview">
 					<div class="progress-wrap">
 						<div class="stats-row">
-							<span class="status-label">{status.toUpperCase()}</span>
+							<span class="status-label">{status === 'standby' ? 'READY FOR INGESTION' : status.toUpperCase()}</span>
 							<span class="count-label">{processedCount} / {totalCount} RECORDS</span>
 						</div>
 						<div class="progress-bar-bg">
@@ -209,22 +214,20 @@
 								>
 							</div>
 						</div>
-						<div class="info-card" class:thinking={status === 'reasoning'}>
+						<div class="info-card" class:thinking={status === 'reasoning' || status === 'synthesizing'}>
 							<Terminal size={18} />
 							<div class="val">
 								<span class="l">Status</span>
 								<span class="v">
-									{status === 'processing'
-										? 'INDEXING'
-										: status === 'extracting-foundation'
-											? 'OCR'
-											: status === 'indexing-vector'
-												? 'VECTORIZING'
-												: status === 'synthesizing'
-													? 'SYNTHESIZING'
-													: status === 'reasoning'
-														? 'THINKING'
-														: status.toUpperCase()}
+									{status === 'processing' || status === 'extracting-foundation'
+										? 'OCR / FOUNDATION'
+										: status === 'indexing-vector'
+											? 'VECTORIZING'
+											: status === 'synthesizing' || status === 'synthesizing-start' || status === 'analyzing'
+												? 'NEURAL SYNTHESIS'
+												: status === 'loading-model'
+													? 'WAKING MODEL'
+													: status.toUpperCase()}
 								</span>
 							</div>
 						</div>
@@ -239,13 +242,13 @@
 								{:else if status === 'completed'}
 									<CheckCircle2 size={18} /> TASK COMPLETE
 								{:else}
-									START BATCH PROCESS
+									START BATCH INDEXING
 								{/if}
 							</button>
 							{#if !busy && status !== 'completed'}
 								<label class="reprocess-toggle">
 									<input type="checkbox" bind:checked={forceReprocess} />
-									<span>DEEP RE-AUDIT</span>
+									<span>FORCE PIXEL OCR (RE-AUDIT)</span>
 								</label>
 							{/if}
 						</div>
@@ -256,7 +259,7 @@
 					<div class="log-section">
 						<div class="section-head">
 							<Terminal size={14} />
-							<span>EXTRACTION OUTPUT LOG</span>
+							<span>FOUNDATION OUTPUT LOG</span>
 						</div>
 						<div class="log-viewport custom-scrollbar">
 							{#each logs as log (log.id)}
@@ -271,7 +274,7 @@
 					<div class="thought-section">
 						<div class="section-head">
 							<Activity size={14} />
-							<span>NEURAL THOUGHT STREAM</span>
+							<span>NEURAL SYNTHESIS STREAM</span>
 						</div>
 						<div class="thought-viewport custom-scrollbar">
 							{#if status === 'synthesizing' || status === 'reasoning'}
@@ -280,7 +283,7 @@
 									{thoughtText}
 								</div>
 							{:else}
-								<div class="empty-state">Standby for intelligence synthesis...</div>
+								<div class="empty-state">Standby for intelligence synthesis (Dossier Mode only)...</div>
 							{/if}
 						</div>
 					</div>
@@ -291,7 +294,7 @@
 				<div class="notice">
 					<AlertCircle size={14} />
 					<span
-						>Intelligence extraction is hardware intensive. Do not close the application during
+						>Indexing and OCR are hardware intensive. Do not close the application during
 						active processing.</span
 					>
 				</div>

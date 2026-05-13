@@ -107,15 +107,21 @@ impl AnalysisManager {
         &self,
         app: &tauri::AppHandle,
         record_id: &str,
+        force_ocr: bool,
+        current: usize,
+        total: usize,
     ) -> Result<AnalysisReport> {
-        info!("Indexing record: {}", record_id);
+        info!("Indexing record: {} ({}/{})", record_id, current, total);
         sqlx::query(
             "UPDATE records SET analysis_status = 'indexing', analysis_error = NULL WHERE id = ?",
         )
         .bind(record_id)
         .execute(&self.db)
         .await?;
-        match self.index_record_inner(app, record_id).await {
+        match self
+            .index_record_inner(app, record_id, force_ocr, current, total)
+            .await
+        {
             Ok(report) => Ok(report),
             Err(error) => {
                 let message = error.to_string();
@@ -146,6 +152,9 @@ impl AnalysisManager {
         &self,
         _app: &tauri::AppHandle,
         record_id: &str,
+        force_ocr: bool,
+        current: usize,
+        total: usize,
     ) -> Result<AnalysisReport> {
         let record = records::find_by_id(&self.db, record_id)
             .await?
@@ -157,9 +166,14 @@ impl AnalysisManager {
         // 1. OCR (Foundation)
         let _ = _app.emit(
             "analysis-progress",
-            serde_json::json!({ "status": "extracting-foundation", "record_id": record_id }),
+            serde_json::json!({
+                "status": "extracting-foundation",
+                "record_id": record_id,
+                "current": current,
+                "total": total
+            }),
         );
-        let (text, engine) = self.indexer.extract(&full_path).await?;
+        let (text, engine) = self.indexer.extract(&full_path, force_ocr).await?;
 
         sqlx::query("INSERT INTO analysis_results (record_id, ocr_text, status, processed_at) VALUES (?, ?, 'indexed', ?) ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'indexed'")
             .bind(record_id).bind(&text).bind(crate::common::now()).execute(&self.db).await?;
@@ -360,7 +374,7 @@ impl AnalysisManager {
         app: &tauri::AppHandle,
         record_id: &str,
     ) -> Result<AnalysisReport> {
-        self.index_record(app, record_id).await?;
+        self.index_record(app, record_id, false, 1, 1).await?;
         self.synthesize_intelligence(app, record_id).await
     }
 }

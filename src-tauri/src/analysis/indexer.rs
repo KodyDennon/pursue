@@ -15,14 +15,14 @@ impl TextExtractor {
         Self { ocr, pdf }
     }
 
-    pub async fn extract(&self, path: &Path) -> Result<(String, String)> {
+    pub async fn extract(&self, path: &Path, force_ocr: bool) -> Result<(String, String)> {
         let extension = path
             .extension()
             .and_then(|v| v.to_str())
             .unwrap_or("")
             .to_lowercase();
         match extension.as_str() {
-            "pdf" => self.extract_pdf(path).await,
+            "pdf" => self.extract_pdf(path, force_ocr).await,
             "txt" | "md" | "csv" | "json" => {
                 Ok((fs::read_to_string(path).await?, "text-file".to_string()))
             }
@@ -33,15 +33,14 @@ impl TextExtractor {
         }
     }
 
-    async fn extract_pdf(&self, path: &Path) -> Result<(String, String)> {
-        let digital = self.pdf.extract_text(path).await?;
-        if digital.trim().len() > 100 {
-            return Ok((digital, "pdf-text".to_string()));
-        }
-
+    async fn extract_pdf(&self, path: &Path, force_ocr: bool) -> Result<(String, String)> {
+        // Always-On Pixel OCR: We prioritize high-resolution Vision OCR over digital text layers
+        // to ensure we capture graphic overlays, improper redactions, and visual evidence.
+        
+        info!("Initiating high-resolution Pixel OCR for foundation indexing...");
+        
         #[cfg(target_os = "macos")]
         {
-            info!("Digital text sparse. Triggering macOS Vision OCR...");
             if let Ok(text) = crate::analysis::native_macos::extract_text_macos(path).await {
                 return Ok((text, "macos-vision-pdf".to_string()));
             }
@@ -49,14 +48,19 @@ impl TextExtractor {
 
         #[cfg(target_os = "windows")]
         {
-            info!("Digital text sparse. Triggering Windows Media OCR...");
             if let Ok(text) = crate::analysis::native_windows::extract_text_windows(path).await {
                 return Ok((text, "windows-ocr-pdf".to_string()));
             }
         }
 
+        // Fallback to digital text only if vision OCR fails completely
+        let digital = self.pdf.extract_text(path).await?;
+        if digital.trim().len() > 10 {
+             return Ok((digital, "pdf-digital-fallback".to_string()));
+        }
+
         let text = self.ocr.extract_text_fallback(path).await?;
-        Ok((text, "rust-ocrs".to_string()))
+        Ok((text, "rust-ocrs-fallback".to_string()))
     }
 
     async fn extract_image(&self, path: &Path) -> Result<(String, String)> {

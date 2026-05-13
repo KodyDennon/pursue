@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { logger } from '$lib/logger';
+	logger.debug('[Layout] Script initializing...');
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import AppDock from '$lib/components/AppDock.svelte';
@@ -9,8 +11,10 @@
 	let { children } = $props();
 
 	onMount(() => {
+		logger.debug('[Layout] Layout mounted.');
 		// Check for system updates silently on startup
 		setTimeout(() => {
+			logger.debug('[Layout] Triggering background update check...');
 			checkForUpdates(true);
 		}, 3000); // Wait 3s to let system settle
 	});

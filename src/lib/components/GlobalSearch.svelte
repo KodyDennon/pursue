@@ -4,6 +4,7 @@
 	import { Search } from 'lucide-svelte';
 	import { globalSearchOpen } from '$lib/store';
 	import type { SearchResults } from '$lib/types';
+	import { logger } from '$lib/logger';
 
 	let query = $state('');
 	let results = $state<SearchResults | null>(null);
@@ -11,6 +12,7 @@
 	let searchInput = $state<HTMLInputElement>();
 
 	onMount(() => {
+		logger.debug('[GlobalSearch] Mounted.');
 		const handleKeydown = (e: KeyboardEvent) => {
 			if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
 				e.preventDefault();

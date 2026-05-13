@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { logger } from '$lib/logger';
 	import GridView from './GridView.svelte';
 	import IntelCardsView from './IntelCardsView.svelte';
 	import ListView from './ListView.svelte';
@@ -29,6 +30,7 @@
 	}>();
 
 	onMount(() => {
+		logger.debug('[Dashboard] Dashboard mounted. View mode:', viewMode, 'Records:', records.length);
 	});
 </script>
 

@@ -12,6 +12,7 @@
 		RefreshCcw
 	} from 'lucide-svelte';
 	import { checkForUpdates } from '$lib/updater';
+	import { formatBytes } from '$lib/utils';
 	import { addToast } from '$lib/toastStore';
 	import type { DatabaseStatus } from '$lib/types';
 
@@ -116,14 +117,6 @@
 		loadAppSettings();
 		appVersion = await getVersion();
 	});
-
-	function formatBytes(bytes: number) {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-	}
 </script>
 
 <div class="settings-container custom-scrollbar">

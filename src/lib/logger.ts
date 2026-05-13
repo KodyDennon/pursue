@@ -9,15 +9,15 @@ if (import.meta.env.DEV) {
 }
 
 export const logger = {
-    debug: (...args: any[]) => {
+    debug: (...args: unknown[]) => {
         if (get(isDebugEnabled)) {
             console.warn(...args);
         }
     },
-    info: (...args: any[]) => {
+    info: (...args: unknown[]) => {
         console.log(...args);
     },
-    error: (...args: any[]) => {
+    error: (...args: unknown[]) => {
         console.error(...args);
     },
     enable: () => isDebugEnabled.set(true),

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { convertFileSrc } from '@tauri-apps/api/core';
 	import type { RecordSummary } from '$lib/types';
-	import { FileText, MapPin, Calendar, CheckCircle2, Clock, Zap, Maximize2 } from 'lucide-svelte';
+	import { formatBytes } from '$lib/utils';
+	import { FileText, MapPin, Calendar, CheckCircle2, Clock, Zap, Maximize2, Loader2 } from 'lucide-svelte';
 
 	let {
 		records,
@@ -19,22 +20,9 @@
 
 	function resolvePath(rel: string | null) {
 		if (!rel || !libraryPath) return '';
-		// Ensure we have a clean join
 		const cleanLib =
 			libraryPath.endsWith('/') || libraryPath.endsWith('\\') ? libraryPath : libraryPath + '/';
 		return convertFileSrc(cleanLib + rel);
-	}
-
-	function formatBytes(value: number | null | undefined) {
-		if (!value) return '0 B';
-		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-		let next = value;
-		let unit = 0;
-		while (next >= 1024 && unit < units.length - 1) {
-			next /= 1024;
-			unit += 1;
-		}
-		return `${next.toFixed(next >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 	}
 </script>
 
@@ -86,18 +74,29 @@
 					<span class="agency-tag">{record.agency || 'AARO_OFFICIAL'}</span>
 					<div
 						class="status-indicator"
-						class:completed={record.analysis_status === 'completed'}
-						class:indexed={record.analysis_status === 'indexed' ||
-							record.analysis_status === 'indexing'}
+						class:ready={record.analysis_status === 'completed'}
+						class:busy={record.analysis_status === 'synthesizing'}
+						class:pending={record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
+						class:error={record.analysis_status === 'failed'}
 					>
 						{#if record.analysis_status === 'completed'}
 							<CheckCircle2 size={12} />
-						{:else if record.analysis_status === 'indexed' || record.analysis_status === 'indexing'}
-							<Zap size={12} />
+						{:else if record.analysis_status === 'synthesizing'}
+							<Zap size={12} class="spin" />
+						{:else if record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
+							<Loader2 size={12} class="spin" />
 						{:else}
 							<Clock size={12} />
 						{/if}
-						<span>{record.analysis_status?.toUpperCase() || 'pending'}</span>
+						<span>
+							{record.analysis_status === 'extracting-foundation' 
+								? 'FOUNDATION' 
+								: record.analysis_status === 'indexing'
+									? 'INDEXING'
+									: record.analysis_status === 'synthesizing'
+										? 'NEURAL'
+										: record.analysis_status?.toUpperCase() || 'pending'}
+						</span>
 					</div>
 				</header>
 
@@ -124,12 +123,18 @@
 					<div
 						class="intel-tag"
 						class:active={record.analysis_status === 'completed'}
-						class:indexed={record.analysis_status === 'indexed'}
+						class:pending={record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
+						class:busy={record.analysis_status === 'synthesizing'}
+						class:error={record.analysis_status === 'failed'}
 					>
 						{#if record.analysis_status === 'completed'}
 							INTELLIGENCE READY
-						{:else if record.analysis_status === 'indexed'}
-							FOUNDATION INDEXED
+						{:else if record.analysis_status === 'synthesizing'}
+							NEURAL SYNTHESIS
+						{:else if record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
+							FOUNDATION OCR
+						{:else if record.analysis_status === 'failed'}
+							AUDIT FAILED
 						{:else}
 							AWAITING ANALYSIS
 						{/if}
@@ -325,14 +330,24 @@
 		color: var(--text-tertiary);
 	}
 
-	.status-indicator.completed {
+	.status-indicator.ready {
 		background: rgba(77, 243, 169, 0.1);
 		color: var(--accent-success);
 	}
 
-	.status-indicator.indexed {
+	.status-indicator.busy {
+		background: rgba(231, 196, 107, 0.1);
+		color: var(--accent-primary);
+	}
+
+	.status-indicator.pending {
 		background: rgba(50, 150, 255, 0.1);
 		color: #3296ff;
+	}
+
+	.status-indicator.error {
+		background: rgba(243, 77, 77, 0.1);
+		color: var(--accent-danger);
 	}
 
 	.card-body {
@@ -399,8 +414,18 @@
 		box-shadow: 0 0 10px rgba(231, 196, 107, 0.3);
 	}
 
-	.intel-tag.indexed {
+	.intel-tag.busy {
+		background: rgba(231, 196, 107, 0.15);
+		color: var(--accent-primary);
+	}
+
+	.intel-tag.pending {
 		background: rgba(50, 150, 255, 0.15);
 		color: #3296ff;
+	}
+
+	.intel-tag.error {
+		background: rgba(243, 77, 77, 0.15);
+		color: var(--accent-danger);
 	}
 </style>
