@@ -90,39 +90,57 @@ impl IntelligenceExtractor {
 
         let rid_clone = rid.clone();
 
-        // 2. Retrieval-Augmented Context (Async)
-        // For long documents, we prioritize fragments from THIS record.
+        // 2. RETRIEVAL-AUGMENTED INTELLIGENCE (RAG)
+        // We fetch the top 15 most relevant semantic chunks and the forensic discoveries manifest.
         let fragments =
-            crate::search::query_related_fragments_for_record(&db, &rid, &text_owned, 10)
+            crate::search::query_related_fragments_for_record(&db, &rid, &text_owned, 15)
                 .await
                 .unwrap_or_default();
-        let related_context = if !fragments.is_empty() {
-            format!(
-                "\nCRITICAL CONTEXT FROM DOCUMENT CHUNKS:\n{}\n",
-                fragments.join("\n---\n")
-            )
-        } else {
-            "".to_string()
-        };
 
-        // 3. Optimize Input Text (Handle huge multi-page docs)
-        // If text is too long, we take the head and tail, and rely on RAG for the middle.
-        let processed_text = if text_owned.len() > 15000 {
-            let head: String = text_owned.chars().take(8000).collect();
-            let tail: String = text_owned
-                .chars()
-                .skip(text_owned.chars().count() - 4000)
-                .collect();
+        let forensics = sqlx::query(
+            "SELECT layer_type, content, confidence FROM record_forensics WHERE record_id = ?",
+        )
+        .bind(&rid)
+        .fetch_all(&db)
+        .await?;
+
+        let mut forensic_manifest = String::from("FORENSIC VISUAL MANIFEST:\n");
+        if forensics.is_empty() {
+            forensic_manifest.push_str("- No visual anomalies detected by foundation OCR.\n");
+        } else {
+            use sqlx::Row;
+            for row in forensics {
+                let ty: String = row.get("layer_type");
+                let content: String = row.get("content");
+                let conf: f64 = row.get("confidence");
+                forensic_manifest.push_str(&format!(
+                    "- [{}] {} (Confidence: {:.2})\n",
+                    ty.to_uppercase(),
+                    content,
+                    conf
+                ));
+            }
+        }
+
+        let related_context = format!(
+            "{}\n\nCRITICAL CONTEXT FROM SEMANTIC INDEX:\n{}\n",
+            forensic_manifest,
+            fragments.join("\n---\n")
+        );
+
+        // 3. OPTIMIZED INPUT TEXT
+        // Provide the document summary (if exists) and the core RAG context.
+        let processed_text = if text_owned.len() > 5000 {
             format!(
-                "{}\n\n[... TRUNCATED MIDDLE - REFER TO CONTEXT FRAGMENTS ...]\n\n{}",
-                head, tail
+                "SOURCE DATA EXCERPT (Refer to Semantic Index below for full context):\n{}\n",
+                &text_owned.chars().take(2000).collect::<String>()
             )
         } else {
             text_owned
         };
 
         // 4. Inference Orchestration (spawn_blocking)
-        debug!("[Extraction] Spawning inference task...");
+        debug!("[Extraction] Spawning multimodal-aware inference task...");
         let result = tokio::task::spawn_blocking(move || {
             Self::run_inference(
                 handle,

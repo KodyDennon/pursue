@@ -5,7 +5,6 @@
 	import {
 		AlertCircle,
 		Brain,
-		Loader2,
 		FileText,
 		ImageIcon,
 		ChevronLeft,
@@ -15,7 +14,12 @@
 		ShieldCheck,
 		Activity,
 		Terminal,
-		Maximize2
+		Maximize2,
+		Fingerprint,
+		Database,
+		Layers,
+		Search,
+		Clock
 	} from 'lucide-svelte';
 	import MediaViewer from './MediaViewer.svelte';
 	import ForensicAuditViewer from './ForensicAuditViewer.svelte';
@@ -25,15 +29,19 @@
 		AnalysisReport,
 		CaseSummary,
 		DownloadResult,
+		ExportResult,
 		RecordSummary,
 		RecordAsset,
 		RecordForensics,
-		IntelligenceLog
+		IntelligenceLog,
+		AnalysisChunk
 	} from '$lib/types';
 
 	let {
 		record,
 		libraryPath = null,
+		cases = [],
+		selectedCaseId = null,
 		onBack,
 		onChanged,
 		onAnalyze
@@ -54,23 +62,40 @@
 		return convertFileSrc(cleanLib + rel);
 	}
 
-	let activeTab = $state<'intelligence' | 'forensics' | 'raw' | 'media' | 'case' | 'thoughts'>(
-		'intelligence'
-	);
+	let activeDomain = $state<'intelligence' | 'foundation'>('intelligence');
+	let activeTab = $state<string>('synthesis');
 	let analysis = $state<AnalysisReport | null>(null);
 	let forensics = $state<RecordForensics[]>([]);
 	let intelLogs = $state<IntelligenceLog[]>([]);
+	let chunks = $state<AnalysisChunk[]>([]);
 	let busy = $state<string | null>(null);
 	let error = $state<string | null>(null);
+	let noteBody = $state('');
+	let exportPath = $state<string | null>(null);
 	let viewerOpen = $state(false);
 
 	// Real-time analysis status
 	let analysisStatus = $state<string | null>(null);
 	let analysisProgress = $state(0);
 
+	const selectedCase = $derived(
+		cases.find((item: CaseSummary) => item.id === selectedCaseId) ?? null
+	);
+
 	const images = $derived(
 		(analysis?.assets ?? []).filter((a: RecordAsset) => a.asset_type === 'image')
 	);
+
+	const isSynthesisOutdated = $derived.by(() => {
+		if (!record.intelligence_json || intelLogs.length === 0) return false;
+		// Simple heuristic: if processed_at (OCR) is newer than the latest synthesis log
+		if (analysis?.ocr_text && intelLogs[0]) {
+			const ocrTime = new Date(record.updated_at || 0).getTime();
+			const intelTime = new Date(intelLogs[0].created_at).getTime();
+			return ocrTime > intelTime + 5000; // 5s buffer
+		}
+		return false;
+	});
 
 	async function loadAnalysis() {
 		if (!record) return;
@@ -79,7 +104,7 @@
 			analysis = await invoke<AnalysisReport | null>('get_analysis_result', { id: record.id });
 
 			if (record.analysis_status === 'completed' || record.analysis_status === 'indexed') {
-				loadForensics();
+				await Promise.all([loadForensics(), loadChunks()]);
 			}
 		} catch (e) {
 			error = String(e);
@@ -95,12 +120,20 @@
 		}
 	}
 
+	async function loadChunks() {
+		try {
+			chunks = await invoke<AnalysisChunk[]>('get_record_chunks', { id: record.id });
+		} catch (e) {
+			console.error('Chunk load failed:', e);
+		}
+	}
+
 	async function download() {
 		busy = 'download';
 		error = null;
 		try {
 			await invoke<DownloadResult>('download_record', { id: record.id });
-			await onChanged();
+			if (onChanged) await onChanged();
 			await loadAnalysis();
 		} catch (e) {
 			error = String(e);
@@ -109,34 +142,36 @@
 		}
 	}
 
-	// The Overhauled Decoupled Analysis Flow
-	async function runFullAnalysis() {
-		busy = 'analysis';
+	async function runFoundationIndexing(forceOcr = false) {
+		busy = 'indexing';
 		error = null;
-		analysisStatus = 'Initializing foundation...';
 		try {
 			if (onAnalyze) onAnalyze();
-
-			// Step 1: Indexing (Foundation - OCR/Vectors)
-			analysisStatus = 'Executing OCR & Vectoring...';
-			const foundation = await invoke<AnalysisReport>('index_record', { id: record.id });
-			analysis = foundation;
+			await invoke('index_record', { id: record.id, forceOcr, current: 1, total: 1 });
 			if (onChanged) await onChanged();
-			addToast({ type: 'success', message: 'Foundation Indexed - Search Ready', duration: 2000 });
+			await loadAnalysis();
+			addToast({ type: 'success', message: 'Foundation Indexed Successfully', duration: 2000 });
+		} catch (e) {
+			error = String(e);
+		} finally {
+			busy = null;
+		}
+	}
 
-			// Step 2: Synthesis (Deep Intelligence)
-			analysisStatus = 'Gemma 4: Synthesizing Intelligence...';
-			const synthesis = await invoke<AnalysisReport>('synthesize_intelligence', { id: record.id });
-			analysis = synthesis;
+	async function runDeepSynthesis() {
+		busy = 'synthesis';
+		error = null;
+		try {
+			if (onAnalyze) onAnalyze();
+			const report = await invoke<AnalysisReport>('synthesize_intelligence', { id: record.id });
+			analysis = report;
 			if (onChanged) await onChanged();
-			loadForensics();
+			await loadForensics();
 			addToast({ type: 'success', message: 'Intelligence Synthesis Complete', duration: 3000 });
 		} catch (e) {
 			error = String(e);
-			addToast({ type: 'error', message: `Neural Engine Error: ${e}`, duration: 5000 });
 		} finally {
 			busy = null;
-			analysisStatus = null;
 		}
 	}
 
@@ -157,7 +192,56 @@
 			await openPath(path);
 		} catch (e) {
 			error = String(e);
-			addToast({ type: 'error', message: `System Denied Access: ${e}` });
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function addToCase() {
+		if (!selectedCaseId) return;
+		busy = 'case-add';
+		error = null;
+		try {
+			await invoke('add_record_to_case', {
+				request: { case_id: selectedCaseId, record_id: record.id, notes: noteBody.trim() || null }
+			});
+			if (onChanged) await onChanged();
+		} catch (e) {
+			error = String(e);
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function addNote() {
+		if (!selectedCaseId || !noteBody.trim()) return;
+		busy = 'case-note';
+		error = null;
+		try {
+			await invoke('update_case_notes', {
+				request: { case_id: selectedCaseId, record_id: record.id, body: noteBody.trim() }
+			});
+			noteBody = '';
+			if (onChanged) await onChanged();
+		} catch (e) {
+			error = String(e);
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function exportCase(format: 'markdown' | 'html') {
+		if (!selectedCaseId) return;
+		busy = `export-${format}`;
+		error = null;
+		try {
+			const result = await invoke<ExportResult>('export_case', {
+				request: { case_id: selectedCaseId, format }
+			});
+			exportPath = result.absolute_path;
+			if (onChanged) await onChanged();
+		} catch (e) {
+			error = String(e);
 		} finally {
 			busy = null;
 		}
@@ -166,22 +250,25 @@
 	onMount(() => {
 		loadAnalysis();
 
-		// Listen for neural progress
 		let unlisten: UnlistenFn;
 		listen<{
 			record_id: string;
 			status: string;
-			current?: number;
+			token_index?: number;
+			token_text?: string;
 		}>('analysis-progress', (event) => {
 			const payload = event.payload;
 			if (payload.record_id === record.id) {
-				if (payload.status === 'extracting' || payload.status === 'synthesizing') {
-					analysisStatus = `Gemma 4: ${payload.status === 'extracting' ? 'Auditing' : 'Synthesizing'}...`;
-					if (payload.current) {
-						analysisProgress = Math.round((payload.current / 2048) * 100);
+				if (payload.status === 'synthesizing' || payload.status === 'synthesizing-start') {
+					analysisStatus = 'Neural Synthesis In Progress...';
+					if (payload.token_index) {
+						analysisProgress = Math.round((payload.token_index / 2048) * 100);
 					}
 				} else if (payload.status === 'loading-model') {
-					analysisStatus = 'Waking Neural Engine (15GB)...';
+					analysisStatus = 'Waking Neural Engine...';
+				} else if (payload.status === 'extracting-foundation') {
+					analysisStatus = 'Foundation OCR In Progress...';
+					analysisProgress = 20;
 				}
 			}
 		}).then((u) => (unlisten = u));
@@ -190,65 +277,96 @@
 			if (unlisten) unlisten();
 		};
 	});
+
+	// Ensure tab resets when domain changes if needed
+	$effect(() => {
+		if (activeDomain === 'foundation' && activeTab === 'synthesis') {
+			activeTab = 'artifact';
+		} else if (activeDomain === 'intelligence' && activeTab === 'artifact') {
+			activeTab = 'synthesis';
+		}
+	});
 </script>
 
 <div class="intelligence-dossier glass-panel">
 	<header class="dossier-header">
-		<button class="back-btn" onclick={onBack}>
-			<ChevronLeft size={20} /> Back
-		</button>
+		<div class="h-nav">
+			<button class="back-btn" onclick={onBack}>
+				<ChevronLeft size={20} /> Back to Archive
+			</button>
+
+			<div class="domain-selector">
+				<button class:active={activeDomain === 'intelligence'} onclick={() => activeDomain = 'intelligence'}>
+					<Brain size={14} /> INTELLIGENCE
+				</button>
+				<button class:active={activeDomain === 'foundation'} onclick={() => activeDomain = 'foundation'}>
+					<Layers size={14} /> FOUNDATION
+				</button>
+			</div>
+		</div>
 
 		<div class="header-main">
 			<div class="h-top">
 				<span class="source-tag">{record.source_type.toUpperCase()} SOURCE</span>
+				<span class="engine-tag">{analysis?.engine?.toUpperCase() || 'CORE_SYSTEM'}</span>
 				{#if record.local_path}
-					<span class="status-tag">DOWNLOADED</span>
+					<span class="status-tag success">VERIFIED LOCAL</span>
 				{:else}
-					<span class="status-tag cloud">REMOTE ASSET</span>
+					<span class="status-tag cloud">REMOTE TARGET</span>
 				{/if}
 			</div>
 			<h2>{record.title}</h2>
 			<div class="header-meta">
-				<span class="agency">{record.agency || 'AARO'}</span>
-				<span class="sep">•</span>
-				<span class="type">{record.file_type || 'PDF DOCUMENT'}</span>
-				<span class="sep">•</span>
-				<span
-					class="status"
-					class:completed={record.analysis_status === 'completed'}
-					class:indexed={record.analysis_status === 'indexed'}
-				>
+				<div class="m-item"><Fingerprint size={12} /> {record.id.substring(0, 12)}</div>
+				<div class="m-item"><Database size={12} /> {record.agency || 'UNKNOWN'}</div>
+				<div class="m-item"><Clock size={12} /> {record.release_date || 'UNDATED'}</div>
+				<div class="m-item status" class:completed={record.analysis_status === 'completed'}>
 					{record.analysis_status?.toUpperCase() || 'PENDING'}
-				</span>
+				</div>
 			</div>
 		</div>
 
 		<div class="header-actions">
 			{#if record.document_url}
-				<button class="action-btn" onclick={openSource} title="Open original remote source">
-					<ExternalLink size={16} /> Source
+				<button class="action-btn" onclick={openSource}>
+					<ExternalLink size={14} /> Source
 				</button>
 			{/if}
 			{#if record.local_path}
 				<button class="action-btn" onclick={revealLocal} disabled={busy === 'open-path'}>
-					<HardDrive size={16} /> Local File
+					<HardDrive size={14} /> Local Artifact
 				</button>
-				<button class="action-btn" onclick={runFullAnalysis} disabled={!!busy}>
-					{#if busy === 'analysis'}
-						<Loader2 size={16} class="spin" />
-					{:else}
-						<Brain size={16} /> Analysis
-					{/if}
-				</button>
-				<button class="action-btn primary" onclick={() => (viewerOpen = true)}>
-					<Maximize2 size={16} /> View Evidence
+				
+				{#if record.analysis_status !== 'completed' && record.analysis_status !== 'indexed'}
+					<button class="action-btn primary" onclick={() => runFoundationIndexing()} disabled={!!busy}>
+						<Search size={14} /> Index Foundation
+					</button>
+				{:else}
+					<button class="action-btn" onclick={() => runFoundationIndexing(true)} disabled={!!busy}>
+						<Layers size={14} /> Force Pixel OCR
+					</button>
+					<button class="action-btn primary" onclick={runDeepSynthesis} disabled={!!busy}>
+						<Brain size={14} /> Neural Synthesis
+					</button>
+				{/if}
+				
+				<button class="action-btn" onclick={() => (viewerOpen = true)}>
+					<Maximize2 size={14} /> View Media
 				</button>
 			{:else}
 				<button class="action-btn primary" onclick={download} disabled={!!busy}>
-					<Download size={16} /> Download Evidence
+					<Download size={14} /> Download Evidence
 				</button>
 			{/if}
 		</div>
+
+		{#if isSynthesisOutdated}
+			<div class="alert-banner warning">
+				<AlertCircle size={14} />
+				<span>FOUNDATION UPDATED: New OCR data available. Re-run Neural Synthesis to align intelligence.</span>
+				<button onclick={runDeepSynthesis}>SYNTHESIZE NOW</button>
+			</div>
+		{/if}
 
 		{#if analysisStatus}
 			<div class="analysis-hud">
@@ -265,231 +383,196 @@
 	</header>
 
 	<nav class="dossier-tabs">
-		<button
-			class:active={activeTab === 'intelligence'}
-			onclick={() => (activeTab = 'intelligence')}
-		>
-			<Brain size={16} /> Executive Intel
-		</button>
-		<button class:active={activeTab === 'forensics'} onclick={() => (activeTab = 'forensics')}>
-			<ShieldCheck size={16} /> Forensic Audit
-		</button>
-		<button class:active={activeTab === 'thoughts'} onclick={() => (activeTab = 'thoughts')}>
-			<Terminal size={16} /> Neural Thoughts
-		</button>
-		<button class:active={activeTab === 'raw'} onclick={() => (activeTab = 'raw')}>
-			<FileText size={16} /> Raw Foundation
-		</button>
-		<button class:active={activeTab === 'media'} onclick={() => (activeTab = 'media')}>
-			<ImageIcon size={16} /> Media Assets
-		</button>
+		{#if activeDomain === 'intelligence'}
+			<button class:active={activeTab === 'synthesis'} onclick={() => activeTab = 'synthesis'}>
+				<Brain size={14} /> Synthesis
+			</button>
+			<button class:active={activeTab === 'forensics'} onclick={() => activeTab = 'forensics'}>
+				<ShieldCheck size={14} /> Forensic Audit
+			</button>
+			<button class:active={activeTab === 'thoughts'} onclick={() => activeTab = 'thoughts'}>
+				<Terminal size={14} /> Thought Stream
+			</button>
+			<button class:active={activeTab === 'case'} onclick={() => activeTab = 'case'}>
+				<Database size={14} /> Case Work
+			</button>
+		{:else}
+			<button class:active={activeTab === 'artifact'} onclick={() => activeTab = 'artifact'}>
+				<ImageIcon size={14} /> Evidence Artifact
+			</button>
+			<button class:active={activeTab === 'raw'} onclick={() => activeTab = 'raw'}>
+				<FileText size={14} /> Raw OCR Text
+			</button>
+			<button class:active={activeTab === 'chunks'} onclick={() => activeTab = 'chunks'}>
+				<Layers size={14} /> Semantic Inspector
+			</button>
+		{/if}
 	</nav>
 
 	<div class="dossier-body">
 		{#if error}
 			<div class="error-msg">
 				<AlertCircle size={18} />
-				<span>Neural Failure: {error}</span>
-				<button onclick={() => (error = null)}>Reset</button>
+				<span>System Failure: {error}</span>
+				<button onclick={() => (error = null)}>Clear Error</button>
 			</div>
 		{/if}
 
-		<div class="tab-content">
-			{#if activeTab === 'intelligence'}
-				<div class="intel-view custom-scrollbar">
+		<div class="tab-content custom-scrollbar">
+			{#if activeTab === 'synthesis'}
+				<div class="view-padding">
 					{#if record.intelligence_json}
 						{@const intel = JSON.parse(record.intelligence_json)}
 						<div class="intel-grid">
-							<div class="intel-main-flow">
-								<div class="intel-card-section">
-									<header class="section-head">
-										<span class="prefix">EXECUTIVE SUMMARY</span>
-									</header>
-									<p class="summary-para">
-										{intel.object_description ||
-											'Intelligence fragment: Unstructured extraction required.'}
-									</p>
-								</div>
+							<div class="intel-main">
+								<section class="intel-card-section">
+									<header class="section-head"><span class="prefix">EXECUTIVE SUMMARY</span></header>
+									<p class="para">{intel.object_description || 'No summary available.'}</p>
+								</section>
 
-								<div class="forensic-data-grid">
-									<div class="f-data-card">
-										<span class="f-label">INCIDENT DATE</span>
-										<span class="f-val"
-											>{intel.incident_date || record.incident_date || 'UNDEFINED'}</span
-										>
+								<div class="data-grid-tactical">
+									<div class="t-card">
+										<span class="t-label">TARGET DATE</span>
+										<span class="t-val">{intel.incident_date || record.incident_date || 'UNDISCLOSED'}</span>
 									</div>
-									<div class="f-data-card">
-										<span class="f-label">TARGET LOCATION</span>
-										<span class="f-val"
-											>{intel.location || record.incident_location || 'GLOBAL'}</span
-										>
+									<div class="t-card">
+										<span class="t-label">GEOSPATIAL TAG</span>
+										<span class="t-val">{intel.location || record.incident_location || 'GLOBAL'}</span>
 									</div>
-									<div class="f-data-card full">
-										<span class="f-label">AGENCY ASSOCIATIONS</span>
-										<div class="f-tags">
+									<div class="t-card full">
+										<span class="t-label">AGENCY ASSOCIATIONS</span>
+										<div class="t-tags">
 											{#each intel.agencies || [] as agency (agency)}
 												<span class="f-tag">{agency}</span>
 											{/each}
-											{#if !intel.agencies?.length}
-												<span class="f-val-muted">None Logged</span>
-											{/if}
 										</div>
 									</div>
 								</div>
-
-								<div class="intel-card-section">
-									<header class="section-head">
-										<span class="prefix">NEURAL OBSERVATIONS</span>
-									</header>
-									<p class="observations-para">
-										{intel.pilot_observations || 'No qualitative sensor observations resolved.'}
-									</p>
-								</div>
+								
+								<section class="intel-card-section">
+									<header class="section-head"><span class="prefix">QUALITATIVE OBSERVATIONS</span></header>
+									<p class="para">{intel.pilot_observations || 'No observational data resolved.'}</p>
+								</section>
 							</div>
 
-							<aside class="intel-meta-sidebar">
-								<div class="fidelity-card">
-									<span class="f-label">SYNTHESIS FIDELITY</span>
-									<div class="fidelity-dial">
-										<svg viewBox="0 0 100 100">
-											<circle
-												cx="50"
-												cy="50"
-												r="45"
-												fill="none"
-												stroke="rgba(255,255,255,0.05)"
-												stroke-width="4"
-											/>
-											<circle
-												cx="50"
-												cy="50"
-												r="45"
-												fill="none"
-												stroke="var(--accent-primary)"
-												stroke-width="4"
-												stroke-dasharray="{Math.round((intel.intelligence_score || 0.6) * 283)} 283"
-												stroke-linecap="round"
-											/>
-										</svg>
-										<span class="f-percent"
-											>{Math.round((intel.intelligence_score || 0.6) * 100)}%</span
-										>
+							<aside class="intel-sidebar">
+								<div class="fidelity-dial-wrap">
+									<span class="t-label">SYNTHESIS FIDELITY</span>
+									<div class="dial">
+										{Math.round((intel.intelligence_score || 0.6) * 100)}%
 									</div>
 								</div>
-
 								{#if images.length > 0}
-									<div class="multimodal-reference">
-										<span class="f-label">MULTIMODAL REF</span>
-										<div class="m-grid">
+									<div class="mini-gallery">
+										<span class="t-label">VISUAL EVIDENCE</span>
+										<div class="g-grid">
 											{#each images.slice(0, 4) as img (img.id)}
-												<div class="m-thumb">
-													<img src={convertFileSrc(img.local_path)} alt="Visual Intelligence" />
-												</div>
+												<img src={convertFileSrc(img.local_path)} alt="Evidence" />
 											{/each}
 										</div>
-										<p class="m-caption">Cross-referencing {images.length} visual pattern(s).</p>
 									</div>
 								{/if}
 							</aside>
 						</div>
-					{:else if record.analysis_status === 'indexed'}
-						<div class="pending-intel">
-							<Activity size={48} class="accent-icon pulse" />
-							<h3>Foundation Indexed</h3>
-							<p>Keyword search and metadata foundation is ready. Synthesis is pending.</p>
-							<button class="analyze-btn" onclick={runFullAnalysis} disabled={busy === 'analysis'}>
-								Synthesize Deep Intelligence
-							</button>
-						</div>
 					{:else}
-						<div class="pending-intel">
+						<div class="pending-state">
 							<Brain size={48} class="accent-icon" />
-							<h3>Intelligence Extraction Pending</h3>
-							<p>Initiate Gemma 4 deep analysis to populate this dossier.</p>
-							<button class="analyze-btn" onclick={runFullAnalysis} disabled={busy === 'analysis'}>
-								{#if busy === 'analysis'}
-									<Loader2 size={16} class="spin" /> Initializing...
-								{:else}
-									Run Full Tactical Analysis
-								{/if}
+							<h3>Deep Intelligence Synthesis Pending</h3>
+							<p>Gemma 4 must perform a semantic audit to generate executive intelligence.</p>
+							<button class="primary-btn" onclick={runDeepSynthesis} disabled={busy === 'synthesis'}>
+								RUN NEURAL SYNTHESIS
 							</button>
 						</div>
 					{/if}
 				</div>
 			{:else if activeTab === 'forensics'}
-				<div class="forensic-view-container">
-					<ForensicAuditViewer recordId={record.id} {forensics} {images} />
-				</div>
+				<ForensicAuditViewer recordId={record.id} {forensics} {images} />
 			{:else if activeTab === 'thoughts'}
-				<div class="thoughts-view custom-scrollbar">
-					<header class="section-head">
-						<span class="prefix">NEURAL THOUGHT LOGS</span>
-					</header>
-					{#if intelLogs.length > 0}
-						<div class="thoughts-stack">
-							{#each intelLogs as log (log.id)}
-								<div class="thought-entry">
-									<div class="thought-meta">
-										<span class="t-model">{log.model_id.split('/').pop()}</span>
-										<span class="t-date">{new Date(log.created_at).toLocaleString()}</span>
-									</div>
-									<div class="thought-block">
-										<span class="t-label">SYSTEM_PROMPT:</span>
-										<pre>{log.system_prompt}</pre>
-										<span class="t-label">RAW_SYNTHESIS:</span>
-										<pre>{log.response_json}</pre>
-									</div>
-								</div>
-							{/each}
+				<div class="view-padding">
+					<header class="section-head"><span class="prefix">NEURAL LOGSTACK</span></header>
+					<div class="log-stack">
+						{#each intelLogs as log (log.id)}
+							<div class="log-entry-item">
+								<header>{log.model_id} @ {new Date(log.created_at).toLocaleTimeString()}</header>
+								<pre>{log.response_json}</pre>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{:else if activeTab === 'artifact'}
+				<div class="view-padding">
+					{#if record.local_path}
+						<div class="artifact-preview">
+							<iframe src={resolvePath(record.local_path)} title="Evidence Document"></iframe>
 						</div>
 					{:else}
-						<div class="pending-intel">
-							<Terminal size={48} class="accent-icon" />
-							<h3>No Thought Logs</h3>
-							<p>Neural monologues are captured during deep synthesis.</p>
+						<div class="pending-state">
+							<Download size={48} />
+							<h3>Local Artifact Missing</h3>
+							<button onclick={download}>Download Source</button>
 						</div>
 					{/if}
 				</div>
 			{:else if activeTab === 'raw'}
-				<div class="raw-view custom-scrollbar">
+				<div class="view-padding">
 					{#if analysis?.ocr_text}
-						<div class="ocr-content">
-							<header class="section-head">
-								<span class="prefix">FOUNDATION OCR LOG</span>
-							</header>
-							<div class="text-blob">
-								{analysis.ocr_text}
-							</div>
-						</div>
+						<header class="section-head"><span class="prefix">FOUNDATION OCR LOG</span></header>
+						<pre class="raw-text-block">{analysis.ocr_text}</pre>
 					{:else}
-						<div class="pending-intel">
-							<FileText size={48} class="accent-icon" />
-							<h3>No Foundation Data</h3>
-							<p>Run Tactical Analysis to initiate indexing.</p>
+						<div class="pending-state">
+							<FileText size={48} />
+							<h3>No Foundation Index</h3>
+							<button onclick={() => runFoundationIndexing()}>Initialize Foundation</button>
 						</div>
 					{/if}
 				</div>
-			{:else if activeTab === 'media'}
-				<div class="media-view custom-scrollbar">
-					{#if images.length > 0}
-						<div class="asset-grid">
-							{#each images as asset (asset.id)}
-								<div class="asset-card">
-									<img src={resolvePath(asset.local_path)} alt="Evidence" />
-									<div class="asset-info">
-										<span class="a-name">{asset.local_path.split('/').pop()}</span>
-										<span class="a-type">{asset.mime_type || 'image/png'}</span>
-									</div>
-								</div>
-							{/each}
+			{:else if activeTab === 'chunks'}
+				<div class="view-padding">
+					<header class="section-head"><span class="prefix">SEMANTIC CHUNK MANIFEST</span></header>
+					<div class="chunk-list">
+						{#each chunks as chunk (chunk.id)}
+							<div class="chunk-card">
+								<span class="c-idx">CHUNK_{chunk.chunk_index.toString().padStart(3, '0')}</span>
+								<p>{chunk.text}</p>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{:else if activeTab === 'case'}
+				<div class="view-padding">
+					<header class="section-head"><span class="prefix">TACTICAL CASE INTEGRATION</span></header>
+					<section class="case-work-section">
+						<p class="case-status">
+							{selectedCase
+								? `Target Case: ${selectedCase.title}`
+								: 'No primary case active. Select a case from the Tactical Dashboard.'}
+						</p>
+						<textarea bind:value={noteBody} rows="5" placeholder="Append forensic observations to case log..."
+						></textarea>
+						<div class="case-actions">
+							<button class="action-btn" onclick={addToCase} disabled={!selectedCaseId || busy === 'case-add'}
+								>Add to Case</button
+							>
+							<button
+								class="action-btn"
+								onclick={addNote}
+								disabled={!selectedCaseId || !noteBody.trim() || busy === 'case-note'}>Post Note</button
+							>
+							<button
+								class="action-btn"
+								onclick={() => exportCase('markdown')}
+								disabled={!selectedCaseId || busy === 'export-markdown'}>Export MD</button
+							>
+							<button
+								class="action-btn"
+								onclick={() => exportCase('html')}
+								disabled={!selectedCaseId || busy === 'export-html'}>Export HTML</button
+							>
 						</div>
-					{:else}
-						<div class="pending-intel">
-							<ImageIcon size={48} class="accent-icon" />
-							<h3>No Extracted Assets</h3>
-							<p>Segment media from source documents during analysis.</p>
-						</div>
-					{/if}
+						{#if exportPath}
+							<p class="path-line">Dossier exported to: {exportPath}</p>
+						{/if}
+					</section>
 				</div>
 			{/if}
 		</div>
@@ -503,13 +586,21 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		background: #0a0b0d;
+		background: #050608;
+		color: #fff;
 	}
 
 	.dossier-header {
-		padding: 32px;
+		padding: 24px 32px;
 		border-bottom: 1px solid var(--border-subtle);
-		position: relative;
+		background: linear-gradient(to bottom, rgba(231, 196, 107, 0.05), transparent);
+	}
+
+	.h-nav {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 24px;
 	}
 
 	.back-btn {
@@ -519,51 +610,82 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		font-size: 13px;
-		font-weight: 700;
-		margin-bottom: 24px;
+		font-size: 11px;
+		font-weight: 800;
+		text-transform: uppercase;
 		cursor: pointer;
 	}
 
+	.domain-selector {
+		display: flex;
+		background: #000;
+		padding: 4px;
+		border-radius: 6px;
+		border: 1px solid var(--border-subtle);
+		gap: 4px;
+	}
+
+	.domain-selector button {
+		padding: 6px 12px;
+		font-size: 10px;
+		font-weight: 800;
+		border-radius: 4px;
+		color: var(--text-tertiary);
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		border: none;
+		background: none;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.domain-selector button.active {
+		background: rgba(255, 255, 255, 0.05);
+		color: var(--accent-primary);
+	}
+
 	.header-main h2 {
-		font-size: 24px;
-		margin: 12px 0;
-		color: var(--text-primary);
+		font-size: 22px;
+		margin: 8px 0;
+		letter-spacing: -0.01em;
 	}
 
 	.h-top {
 		display: flex;
 		gap: 12px;
+		align-items: center;
 	}
-	.source-tag {
-		font-size: 10px;
+	.source-tag, .engine-tag {
+		font-size: 9px;
 		font-weight: 900;
-		letter-spacing: 0.1em;
-		color: var(--accent-primary);
+		padding: 2px 6px;
+		border-radius: 3px;
+		background: rgba(255, 255, 255, 0.05);
+		color: var(--text-tertiary);
 	}
 	.status-tag {
-		font-size: 10px;
+		font-size: 9px;
 		font-weight: 900;
-		color: var(--accent-success);
 	}
-	.status-tag.cloud {
-		color: #3296ff;
-	}
+	.status-tag.success { color: var(--accent-success); }
+	.status-tag.cloud { color: #3296ff; }
 
 	.header-meta {
 		display: flex;
-		align-items: center;
-		gap: 12px;
-		font-size: 12px;
+		gap: 20px;
+		font-size: 11px;
 		color: var(--text-tertiary);
+		margin-top: 4px;
+	}
+	.m-item {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 	.status.completed {
 		color: var(--accent-success);
-		font-weight: 800;
-	}
-	.status.indexed {
-		color: #3296ff;
-		font-weight: 800;
+		font-weight: 900;
 	}
 
 	.header-actions {
@@ -572,22 +694,238 @@
 		margin-top: 24px;
 	}
 	.action-btn {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 16px;
 		background: rgba(255, 255, 255, 0.03);
 		border: 1px solid var(--border-subtle);
-		border-radius: 6px;
 		color: var(--text-secondary);
-		font-size: 13px;
-		font-weight: 600;
+		padding: 8px 16px;
+		border-radius: 6px;
+		font-size: 12px;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		gap: 10px;
 		cursor: pointer;
 	}
 	.action-btn.primary {
 		background: var(--accent-primary);
 		color: #000;
 		border: none;
+	}
+
+	.alert-banner {
+		margin-top: 20px;
+		padding: 10px 16px;
+		border-radius: 6px;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		font-size: 11px;
+		font-weight: 700;
+	}
+	.alert-banner.warning {
+		background: rgba(231, 196, 107, 0.1);
+		border: 1px solid rgba(231, 196, 107, 0.2);
+		color: var(--accent-primary);
+	}
+	.alert-banner button {
+		margin-left: auto;
+		background: var(--accent-primary);
+		color: #000;
+		border: none;
+		padding: 4px 10px;
+		border-radius: 4px;
+		font-size: 10px;
+		font-weight: 900;
+		cursor: pointer;
+	}
+
+	.dossier-tabs {
+		display: flex;
+		padding: 0 32px;
+		gap: 32px;
+		border-bottom: 1px solid var(--border-subtle);
+	}
+	.dossier-tabs button {
+		background: none;
+		border: none;
+		padding: 16px 0;
+		font-size: 12px;
+		font-weight: 700;
+		color: var(--text-tertiary);
+		border-bottom: 2px solid transparent;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+	.dossier-tabs button.active {
+		color: var(--accent-primary);
+		border-bottom-color: var(--accent-primary);
+	}
+
+	.tab-content {
+		flex: 1;
+		overflow-y: auto;
+	}
+	.view-padding {
+		padding: 32px;
+	}
+
+	.section-head {
+		margin-bottom: 20px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+		padding-bottom: 8px;
+	}
+	.prefix {
+		font-size: 9px;
+		font-weight: 900;
+		letter-spacing: 0.15em;
+		color: var(--text-tertiary);
+	}
+
+	.para {
+		font-size: 14px;
+		line-height: 1.7;
+		color: var(--text-primary);
+	}
+
+	.data-grid-tactical {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 16px;
+		margin: 32px 0;
+	}
+	.t-card {
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid var(--border-subtle);
+		padding: 16px;
+		border-radius: 8px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.t-card.full { grid-column: span 2; }
+	.t-label {
+		font-size: 9px;
+		font-weight: 900;
+		color: var(--text-tertiary);
+	}
+	.t-val {
+		font-size: 14px;
+		font-weight: 600;
+	}
+	.t-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 8px;
+	}
+
+	.fidelity-dial-wrap {
+		background: #000;
+		border: 1px solid var(--border-subtle);
+		padding: 20px;
+		border-radius: 12px;
+		text-align: center;
+	}
+	.dial {
+		font-size: 32px;
+		font-weight: 800;
+		margin-top: 12px;
+		color: var(--accent-primary);
+	}
+
+	.case-work-section {
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+	}
+	.case-status {
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--accent-primary);
+	}
+	.case-work-section textarea {
+		background: rgba(0, 0, 0, 0.3);
+		border: 1px solid var(--border-subtle);
+		border-radius: 8px;
+		padding: 16px;
+		color: #fff;
+		font-family: var(--font-display);
+		resize: none;
+	}
+	.case-actions {
+		display: flex;
+		gap: 12px;
+	}
+	.path-line {
+		font-size: 11px;
+		color: var(--text-tertiary);
+		font-family: var(--font-mono);
+	}
+
+	.artifact-preview {
+		height: 600px;
+		background: #000;
+		border-radius: 12px;
+		overflow: hidden;
+		border: 1px solid var(--border-subtle);
+	}
+	.artifact-preview iframe {
+		width: 100%;
+		height: 100%;
+		border: none;
+	}
+
+	.raw-text-block {
+		background: #000;
+		padding: 24px;
+		border-radius: 12px;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		line-height: 1.8;
+		white-space: pre-wrap;
+		color: var(--text-secondary);
+		border: 1px solid var(--border-subtle);
+	}
+
+	.chunk-list {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+	.chunk-card {
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid var(--border-subtle);
+		padding: 16px;
+		border-radius: 8px;
+	}
+	.c-idx {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--accent-primary);
+		margin-bottom: 8px;
+		display: block;
+	}
+
+	.pending-state {
+		height: 400px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		gap: 16px;
+		color: var(--text-tertiary);
+	}
+	.primary-btn {
+		background: var(--accent-primary);
+		color: #000;
+		border: none;
+		padding: 12px 24px;
+		border-radius: 8px;
+		font-weight: 800;
+		cursor: pointer;
 	}
 
 	.analysis-hud {
@@ -617,300 +955,5 @@
 		font-weight: 900;
 		color: var(--accent-primary);
 		letter-spacing: 0.1em;
-	}
-	.hud-label .pct {
-		margin-left: auto;
-		color: var(--text-tertiary);
-	}
-
-	.dossier-tabs {
-		display: flex;
-		padding: 0 32px;
-		gap: 24px;
-		border-bottom: 1px solid var(--border-subtle);
-		overflow-x: auto;
-	}
-
-	.dossier-tabs button {
-		padding: 16px 0;
-		background: none;
-		border: none;
-		border-bottom: 2px solid transparent;
-		color: var(--text-tertiary);
-		font-size: 12px;
-		font-weight: 600;
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		cursor: pointer;
-		white-space: nowrap;
-	}
-
-	.dossier-tabs button.active {
-		color: var(--accent-primary);
-		border-bottom-color: var(--accent-primary);
-	}
-
-	.dossier-body {
-		flex: 1;
-		overflow: hidden;
-		position: relative;
-	}
-	.tab-content {
-		height: 100%;
-	}
-
-	.intel-view {
-		padding: 32px;
-		height: 100%;
-	}
-	.intel-grid {
-		display: grid;
-		grid-template-columns: 1fr 220px;
-		gap: 40px;
-	}
-	.section-head {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		margin-bottom: 16px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-		padding-bottom: 8px;
-	}
-	.prefix {
-		font-size: 10px;
-		font-weight: 900;
-		letter-spacing: 0.2em;
-		color: var(--text-tertiary);
-	}
-	.summary-para,
-	.observations-para {
-		font-size: 14px;
-		line-height: 1.6;
-		color: var(--text-primary);
-		margin: 0;
-	}
-
-	.forensic-data-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 16px;
-		margin: 32px 0;
-	}
-	.f-data-card {
-		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
-		padding: 16px;
-		border-radius: 8px;
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-	.f-data-card.full {
-		grid-column: span 2;
-	}
-	.f-label {
-		font-size: 9px;
-		font-weight: 800;
-		color: var(--text-tertiary);
-		letter-spacing: 0.1em;
-	}
-	.f-val {
-		font-size: 14px;
-		font-weight: 600;
-		color: var(--text-primary);
-	}
-	.f-val-muted {
-		font-size: 12px;
-		font-style: italic;
-		color: var(--text-tertiary);
-	}
-	.f-tags {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
-		margin-top: 8px;
-	}
-	.f-tag {
-		background: var(--accent-primary);
-		color: #000;
-		font-size: 9px;
-		font-weight: 900;
-		padding: 2px 8px;
-		border-radius: 4px;
-	}
-
-	.fidelity-card {
-		text-align: center;
-		margin-bottom: 40px;
-	}
-	.fidelity-dial {
-		position: relative;
-		width: 100px;
-		height: 100px;
-		margin: 20px auto;
-	}
-	.forensic-view-container {
-		height: 100%;
-		overflow: hidden;
-	}
-
-	.thoughts-view {
-		padding: 32px;
-		height: 100%;
-		overflow-y: auto;
-	}
-	.thoughts-stack {
-		display: flex;
-		flex-direction: column;
-		gap: 24px;
-	}
-	.thought-entry {
-		background: rgba(0, 0, 0, 0.3);
-		border: 1px solid var(--border-subtle);
-		border-radius: 8px;
-		overflow: hidden;
-	}
-	.thought-meta {
-		padding: 8px 16px;
-		background: rgba(255, 255, 255, 0.03);
-		border-bottom: 1px solid var(--border-subtle);
-		display: flex;
-		justify-content: space-between;
-		font-size: 10px;
-		font-family: var(--font-mono);
-	}
-	.thought-block {
-		padding: 16px;
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-	.t-label {
-		font-size: 9px;
-		font-weight: 900;
-		color: var(--accent-primary);
-	}
-	.thought-block pre {
-		font-family: var(--font-mono);
-		font-size: 11px;
-		color: var(--text-secondary);
-		white-space: pre-wrap;
-		margin: 0;
-		background: rgba(255, 255, 255, 0.02);
-		padding: 12px;
-		border-radius: 4px;
-	}
-
-	.raw-view {
-		padding: 32px;
-		height: 100%;
-		overflow-y: auto;
-	}
-	.text-blob {
-		font-family: var(--font-mono);
-		font-size: 12px;
-		line-height: 1.8;
-		color: var(--text-secondary);
-		white-space: pre-wrap;
-	}
-
-	.media-view {
-		padding: 32px;
-		height: 100%;
-	}
-	.asset-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-		gap: 16px;
-	}
-	.asset-card {
-		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
-		border-radius: 8px;
-		overflow: hidden;
-	}
-	.asset-card img {
-		width: 100%;
-		aspect-ratio: 16/9;
-		object-fit: cover;
-	}
-	.asset-info {
-		padding: 12px;
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-	.a-name {
-		font-size: 12px;
-		font-weight: 600;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	.a-type {
-		font-size: 10px;
-		color: var(--text-tertiary);
-	}
-
-	.pending-intel {
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		text-align: center;
-		gap: 16px;
-	}
-	.analyze-btn {
-		background: var(--accent-primary);
-		color: #000;
-		border: none;
-		padding: 12px 24px;
-		border-radius: 8px;
-		font-weight: 800;
-		cursor: pointer;
-	}
-
-	.error-msg {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		background: rgba(243, 77, 77, 0.1);
-		border: 1px solid rgba(243, 77, 77, 0.2);
-		padding: 12px 24px;
-		color: #ff4d4d;
-		font-size: 13px;
-	}
-	.error-msg button {
-		background: none;
-		border: none;
-		color: #fff;
-		text-decoration: underline;
-		cursor: pointer;
-	}
-
-	:global(.pulse) {
-		animation: pulse 2s ease-in-out infinite;
-	}
-	@keyframes pulse {
-		0%,
-		100% {
-			opacity: 0.5;
-		}
-		50% {
-			opacity: 1;
-		}
-	}
-	:global(.spin) {
-		animation: spin 1s linear infinite;
-	}
-	@keyframes spin {
-		from {
-			transform: rotate(0deg);
-		}
-		to {
-			transform: rotate(360deg);
-		}
 	}
 </style>

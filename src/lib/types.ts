@@ -214,6 +214,16 @@ export interface RecordForensics {
 	created_at: string;
 }
 
+export interface AnalysisChunk {
+	id: string;
+	record_id: string;
+	chunk_index: number;
+	text: string;
+	engine_name: string | null;
+	model_version: string | null;
+	created_at: string;
+}
+
 export interface IntelligenceLog {
 	id: string;
 	record_id: string | null;

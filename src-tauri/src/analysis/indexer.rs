@@ -33,12 +33,12 @@ impl TextExtractor {
         }
     }
 
-    async fn extract_pdf(&self, path: &Path, force_ocr: bool) -> Result<(String, String)> {
+    async fn extract_pdf(&self, path: &Path, _force_ocr: bool) -> Result<(String, String)> {
         // Always-On Pixel OCR: We prioritize high-resolution Vision OCR over digital text layers
         // to ensure we capture graphic overlays, improper redactions, and visual evidence.
-        
+
         info!("Initiating high-resolution Pixel OCR for foundation indexing...");
-        
+
         #[cfg(target_os = "macos")]
         {
             if let Ok(text) = crate::analysis::native_macos::extract_text_macos(path).await {
@@ -56,7 +56,7 @@ impl TextExtractor {
         // Fallback to digital text only if vision OCR fails completely
         let digital = self.pdf.extract_text(path).await?;
         if digital.trim().len() > 10 {
-             return Ok((digital, "pdf-digital-fallback".to_string()));
+            return Ok((digital, "pdf-digital-fallback".to_string()));
         }
 
         let text = self.ocr.extract_text_fallback(path).await?;

@@ -175,9 +175,20 @@ impl AnalysisManager {
         );
         let (text, engine) = self.indexer.extract(&full_path, force_ocr).await?;
 
-        sqlx::query("INSERT INTO analysis_results (record_id, ocr_text, status, processed_at) VALUES (?, ?, 'indexed', ?) ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'indexed'")
-            .bind(record_id).bind(&text).bind(crate::common::now()).execute(&self.db).await?;
+        // ENGINE TRANSPARENCY: Report the specific OCR implementation used
+        let _ = _app.emit(
+            "analysis-progress",
+            serde_json::json!({
+                "status": "foundation-indexed",
+                "record_id": record_id,
+                "engine": engine,
+                "current": current,
+                "total": total
+            }),
+        );
 
+        sqlx::query("INSERT INTO analysis_results (record_id, ocr_text, status, processed_at) VALUES (?, ?, 'indexed', ?) ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'indexed', processed_at = excluded.processed_at")
+            .bind(record_id).bind(&text).bind(crate::common::now()).execute(&self.db).await?;
         // 2. Asset Extraction
         let asset_dir = self.library.get_full_path(&format!("assets/{}", record_id));
         fs::create_dir_all(&asset_dir).await?;

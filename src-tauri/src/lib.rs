@@ -107,6 +107,7 @@ pub fn run() {
             get_system_stats,
             analyze_all_records,
             index_all_records,
+            get_record_chunks,
             get_model_registry,
             get_evidence_stats,
             verify_vault_integrity,

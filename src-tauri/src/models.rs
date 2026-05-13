@@ -196,6 +196,17 @@ pub struct EntityHit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AnalysisChunk {
+    pub id: String,
+    pub record_id: String,
+    pub chunk_index: i64,
+    pub text: String,
+    pub engine_name: Option<String>,
+    pub model_version: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RecordAsset {
     pub id: String,
     pub record_id: String,

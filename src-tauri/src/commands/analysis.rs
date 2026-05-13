@@ -165,6 +165,15 @@ pub async fn analyze_all_records(
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<usize, String> {
+    // WARMUP PHASE: Notify UI that we are querying the database
+    let _ = app_handle.emit(
+        "analysis-progress",
+        serde_json::json!({
+            "status": "initializing-batch",
+            "msg": "Calculating foundation targets..."
+        }),
+    );
+
     let pool = state.db.clone();
     let records = sqlx::query("SELECT id FROM records WHERE (analysis_status IS NULL OR analysis_status != 'completed') AND local_path IS NOT NULL")
         .fetch_all(&pool)
@@ -256,6 +265,15 @@ pub async fn reprocess_all_records(
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<usize, String> {
+    // WARMUP PHASE
+    let _ = app_handle.emit(
+        "analysis-progress",
+        serde_json::json!({
+            "status": "initializing-batch",
+            "msg": "Purging foundation cache..."
+        }),
+    );
+
     let pool = state.db.clone();
 
     // Get all records that have local content
@@ -349,6 +367,20 @@ pub async fn reprocess_all_records(
     });
 
     Ok(count)
+}
+
+#[tauri::command]
+pub async fn get_record_chunks(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::models::AnalysisChunk>, String> {
+    sqlx::query_as::<_, crate::models::AnalysisChunk>(
+        "SELECT * FROM analysis_chunks WHERE record_id = ? ORDER BY chunk_index ASC",
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(to_error)
 }
 
 #[tauri::command]
