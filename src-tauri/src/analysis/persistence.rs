@@ -83,6 +83,8 @@ impl PersistenceManager {
             let vblob: &[u8] =
                 unsafe { std::slice::from_raw_parts(emb.as_ptr() as *const u8, emb.len() * 4) };
 
+            tauri_plugin_log::log::debug!("[Persistence] Saving chunk {}/{} for record {}", i + 1, chunks.len(), record_id);
+
             sqlx::query("INSERT INTO analysis_chunks (id, record_id, chunk_index, text, engine_name, model_version, created_at) VALUES (?, ?, ?, ?, 'bge-small', 'v1.5', ?)")
                 .bind(&cid).bind(record_id).bind(i as i64).bind(chunk).bind(now()).execute(&mut *tx).await?;
 

@@ -176,6 +176,8 @@ impl AnalysisManager {
         );
         let (text, engine) = self.indexer.extract(_app, &full_path, force_ocr).await?;
 
+        info!("Foundation captured for {}: used {}", record_id, engine);
+
         // ENGINE TRANSPARENCY: Report the specific OCR implementation used
         let _ = _app.emit(
             "analysis-progress",
@@ -238,20 +240,37 @@ impl AnalysisManager {
         }
 
         // 3. Persistence
+        info!("[Analysis] Persisting foundation for {}: entities and chunks...", record_id);
         let entities = extract_entities(&text);
         self.persistence
             .persist_entities(record_id, &entities)
             .await?;
+        
         let chunks_indexed = self
             .persistence
             .persist_chunks(record_id, &record.title, &text, &entities)
             .await?;
+
+        info!("[Analysis] Foundation secured for {}: {} semantic associations mapped.", record_id, chunks_indexed);
+
+        // Raw OCR storage for synthesis phase
+        sqlx::query(
+            "INSERT INTO analysis_results (record_id, ocr_text, status, processed_at) \
+             VALUES (?, ?, 'indexed', ?) \
+             ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'indexed', processed_at = excluded.processed_at"
+        )
+        .bind(record_id)
+        .bind(&text)
+        .bind(crate::common::now())
+        .execute(&self.db)
+        .await?;
 
         let redaction_score = self
             .indexer
             .ocr
             .analyze_redactions(&full_path)
             .unwrap_or(0.0);
+        
         sqlx::query(
             "UPDATE records SET analysis_status = 'indexed', redaction_score = ? WHERE id = ?",
         )
@@ -259,6 +278,8 @@ impl AnalysisManager {
         .bind(record_id)
         .execute(&self.db)
         .await?;
+
+        info!("[Analysis] Syncing intelligence graph for record {}... Done.", record_id);
 
         Ok(AnalysisReport {
             record_id: record_id.to_string(),

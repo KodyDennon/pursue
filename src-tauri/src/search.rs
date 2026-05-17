@@ -45,7 +45,7 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
         return Ok(session);
     }
 
-    // Initialize ORT with a higher log level and consistent execution provider
+    // Initialize ORT environment for full transparency
     let _ = ort::init()
         .with_name("pursue-embeddings")
         .with_execution_providers([ort::execution_providers::CPUExecutionProvider::default().build()])
