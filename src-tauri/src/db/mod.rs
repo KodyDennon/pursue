@@ -25,6 +25,25 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
     }
     let db_path = app_dir.join("pursue.db");
 
+    let pool = connect_db(&db_path).await?;
+
+    match initialize_schema(&pool).await {
+        Ok(()) => {}
+        Err(error) if is_incompatible_schema_error(&error) => {
+            pool.close().await;
+            quarantine_incompatible_database(&db_path)?;
+            let fresh_pool = connect_db(&db_path).await?;
+            initialize_schema(&fresh_pool).await?;
+            record_schema_reset_notice(&fresh_pool, &error.to_string()).await?;
+            return finish_db_startup(fresh_pool).await;
+        }
+        Err(error) => return Err(error),
+    }
+
+    finish_db_startup(pool).await
+}
+
+async fn connect_db(db_path: &std::path::Path) -> anyhow::Result<SqlitePool> {
     let options = SqliteConnectOptions::new()
         .filename(db_path)
         .create_if_missing(true)
@@ -32,20 +51,25 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
         .busy_timeout(std::time::Duration::from_secs(30));
 
-    let pool = SqlitePool::connect_with(options).await?;
+    Ok(SqlitePool::connect_with(options).await?)
+}
 
+async fn initialize_schema(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(&pool)
+        .execute(pool)
         .await?;
 
-    sqlx::migrate!("./migrations").run(&pool).await.map_err(|error| {
+    sqlx::migrate!("./migrations").run(pool).await.map_err(|error| {
         anyhow::anyhow!(
             "database schema is incompatible with this production baseline. Use Settings > Factory Reset to start with a fresh encrypted vault. Migration error: {error}"
         )
     })?;
 
-    validate_required_schema(&pool).await?;
+    validate_required_schema(pool).await?;
+    Ok(())
+}
 
+async fn finish_db_startup(pool: SqlitePool) -> anyhow::Result<SqlitePool> {
     // Cleanup stalled jobs from previous sessions
     let _ = sqlx::query("UPDATE download_jobs SET status = 'failed', summary_json = '{\"error\": \"Application interrupted\"}' WHERE status IN ('running', 'queued')")
         .execute(&pool)
@@ -68,6 +92,41 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
     });
 
     Ok(pool)
+}
+
+fn is_incompatible_schema_error(error: &anyhow::Error) -> bool {
+    let message = error.to_string();
+    message.contains("previously applied but has been modified")
+        || message.contains("migration") && message.contains("not found")
+        || message.contains("database schema is missing required table")
+}
+
+fn quarantine_incompatible_database(db_path: &std::path::Path) -> anyhow::Result<()> {
+    let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
+    for suffix in ["", "-wal", "-shm"] {
+        let path = std::path::PathBuf::from(format!("{}{}", db_path.display(), suffix));
+        if path.exists() {
+            let quarantined =
+                std::path::PathBuf::from(format!("{}.incompatible-{}{}", db_path.display(), timestamp, suffix));
+            fs::rename(&path, quarantined)?;
+        }
+    }
+    Ok(())
+}
+
+async fn record_schema_reset_notice(pool: &SqlitePool, reason: &str) -> anyhow::Result<()> {
+    let value = serde_json::json!({
+        "reset_at": chrono::Utc::now().to_rfc3339(),
+        "reason": reason,
+        "message": "An incompatible pre-production database was moved aside and a fresh encrypted production vault was created."
+    });
+    sqlx::query(
+        "INSERT INTO app_settings (key, value_json, updated_at) VALUES ('schema_reset_notice', ?, CURRENT_TIMESTAMP)",
+    )
+    .bind(value.to_string())
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 async fn validate_required_schema(pool: &SqlitePool) -> anyhow::Result<()> {
@@ -127,5 +186,13 @@ mod tests {
             !production_source.contains("DELETE FROM _sqlx_migrations"),
             "database init must not delete SQLx migration history"
         );
+    }
+
+    #[test]
+    fn detects_modified_baseline_as_incompatible_schema() {
+        let error = anyhow::anyhow!(
+            "database schema is incompatible with this production baseline. Migration error: migration 20260511000000 was previously applied but has been modified"
+        );
+        assert!(super::is_incompatible_schema_error(&error));
     }
 }

@@ -40,26 +40,19 @@ pub fn run() {
                     }),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
-                .level(log::LevelFilter::Debug)
+                .level(log::LevelFilter::Info)
                 .build(),
         )
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::block_on(async move {
-                let pool = db::init_db(&handle)
-                    .await
-                    .expect("failed to initialize database");
+                let pool = db::init_db(&handle).await?;
 
-                let library = Arc::new(
-                    LibraryManager::new(&handle).expect("failed to initialize library manager"),
-                );
+                let library = Arc::new(LibraryManager::new(&handle)?);
                 let analysis = Arc::new(AnalysisManager::new(pool.clone(), library.clone()));
 
-                library
-                    .init()
-                    .await
-                    .expect("failed to initialize evidence library");
+                library.init().await?;
 
                 // Initialize search engine with correct models path
                 crate::search::init_search_engine(library.app_data_dir().join("models"));
@@ -69,7 +62,8 @@ pub fn run() {
                     library,
                     analysis,
                 });
-            });
+                anyhow::Ok(())
+            })?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
