@@ -17,6 +17,7 @@
 	let verifyProgress = $state(0);
 	let verifyStatusText = $state('');
 	let agentSettings = $state({ auto_sync: true, auto_analyze: true });
+	let encryptionStatus = $state<{ enabled: boolean; algorithm: string } | null>(null);
 
 	async function loadSettings() {
 		try {
@@ -42,6 +43,7 @@
 				indexed_count?: number;
 				completed_count?: number;
 			}>('get_evidence_stats');
+			encryptionStatus = await invoke('get_vault_encryption_status');
 		} catch (e) {
 			console.error(e);
 		}
@@ -198,9 +200,13 @@
 			<div class="config-item">
 				<div class="text">
 					<strong>Encrypted Artifact Storage</strong>
-					<span>Vault files are stored with AES-256 at rest.</span>
+					<span
+						>{encryptionStatus?.enabled
+							? `Vault files are stored with ${encryptionStatus.algorithm} at rest.`
+							: 'Vault encryption status is unavailable.'}</span
+					>
 				</div>
-				<div class="status-tag">SECURE</div>
+				<div class="status-tag">{encryptionStatus?.enabled ? 'SECURE' : 'UNKNOWN'}</div>
 			</div>
 		</div>
 	</div>

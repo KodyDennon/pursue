@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use csv::ReaderBuilder;
-use rquest::{header, Client};
-use rquest_util::{Emulation, EmulationOption};
+use reqwest::{header, Client};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
@@ -41,13 +40,8 @@ pub async fn sync_official_source(
         header::HeaderValue::from_static("https://www.war.gov/"),
     );
 
-    let emulation = EmulationOption::builder()
-        .emulation(Emulation::Chrome124)
-        .skip_http2(true)
-        .build();
-
     let client = Client::builder()
-        .emulation(emulation)
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 PURSUE-Data-Analyzer/0.6.2")
         .default_headers(headers)
         .build()?;
 

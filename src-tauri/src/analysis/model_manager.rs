@@ -1,7 +1,7 @@
 use crate::library::LibraryManager;
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
-use rquest::Client;
+use reqwest::Client;
 use serde::Serialize;
 use sqlx::Row;
 use std::collections::HashSet;
@@ -35,7 +35,7 @@ impl ModelManager {
         let models_dir = library.app_data_dir().join("models");
         let client = Client::builder()
             .user_agent("PURSUE-Intelligence-OS/0.2.0")
-            .redirect(rquest::redirect::Policy::limited(20))
+            .redirect(reqwest::redirect::Policy::limited(20))
             .build()
             .unwrap_or_else(|_| Client::new());
 
@@ -359,7 +359,7 @@ impl ModelManager {
             }
         }
 
-        let (mut file, total_bytes) = if response.status() == rquest::StatusCode::PARTIAL_CONTENT {
+        let (mut file, total_bytes) = if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
             let file = fs::OpenOptions::new().append(true).open(&part_path).await?;
             let content_len = response.content_length().unwrap_or(0);
             (file, Some(content_len + downloaded))

@@ -9,9 +9,9 @@
 		HardDrive,
 		Brain,
 		Save,
-		RefreshCcw
+		ExternalLink
 	} from 'lucide-svelte';
-	import { checkForUpdates } from '$lib/updater';
+	import { openUrl } from '@tauri-apps/plugin-opener';
 	import { formatBytes } from '$lib/utils';
 	import { addToast } from '$lib/toastStore';
 	import type { DatabaseStatus } from '$lib/types';
@@ -23,10 +23,18 @@
 	let hfToken = $state('');
 	let personaModifier = $state('');
 	let appVersion = $state('...');
+	let encryptionStatus = $state<{
+		enabled: boolean;
+		algorithm: string;
+		encrypted_artifacts: boolean;
+		encrypted_exports: boolean;
+		integrity_layer: string;
+	} | null>(null);
 
 	async function loadStatus() {
 		try {
 			status = await invoke<DatabaseStatus>('get_database_status');
+			encryptionStatus = await invoke('get_vault_encryption_status');
 		} catch (e) {
 			console.error(e);
 		}
@@ -85,7 +93,14 @@
 			return;
 		busy = 'clear';
 		try {
-			addToast({ type: 'success', message: 'Intelligence cache cleared.' });
+			const report = await invoke<{ files_removed: number; bytes_removed: number }>(
+				'clear_evidence_cache'
+			);
+			addToast({
+				type: 'success',
+				message: `Evidence cache cleared: ${report.files_removed} files, ${formatBytes(report.bytes_removed)} removed.`,
+				duration: 4000
+			});
 			await loadStatus();
 		} catch (e) {
 			addToast({ type: 'error', message: `Clear failed: ${e}` });
@@ -208,6 +223,18 @@
 						>{formatBytes(status?.artifact_bytes || 0)} across {status?.artifact_count || 0} local assets</span
 					>
 				</div>
+				<div class="data-item">
+					<span class="d-label">Vault Encryption</span>
+					<span class="d-val"
+						>{encryptionStatus?.enabled
+							? `${encryptionStatus.algorithm} at rest`
+							: 'Disabled'}</span
+					>
+				</div>
+				<div class="data-item">
+					<span class="d-label">Integrity Layer</span>
+					<span class="d-val">{encryptionStatus?.integrity_layer || 'Loading...'}</span>
+				</div>
 			</div>
 			<footer class="s-footer">
 				<button class="s-btn danger" onclick={clearCache} disabled={busy === 'clear'}>
@@ -258,8 +285,8 @@
 
 		<section class="settings-section glass-panel">
 			<div class="s-header">
-				<RefreshCcw size={18} class="accent-icon" />
-				<h3>System Intelligence</h3>
+				<ExternalLink size={18} class="accent-icon" />
+				<h3>Release Channel</h3>
 			</div>
 			<div class="s-body">
 				<div class="data-item">
@@ -267,14 +294,17 @@
 					<span class="d-val">v{appVersion}</span>
 				</div>
 				<p class="section-desc">
-					Maintain forensic parity. Updates synchronize neural weights, extraction patterns, and
-					secure communication protocols.
+					Automatic updates are disabled until installer signing, notarization, and artifact trust
+					are complete. Install production releases manually from GitHub.
 				</p>
 			</div>
 			<footer class="s-footer">
-				<button class="s-btn primary" onclick={() => checkForUpdates(false)}>
-					<RefreshCcw size={14} />
-					Synchronize System Core
+				<button
+					class="s-btn primary"
+					onclick={() => openUrl('https://github.com/KodyDennon/pursue/releases')}
+				>
+					<ExternalLink size={14} />
+					Open GitHub Releases
 				</button>
 			</footer>
 		</section>

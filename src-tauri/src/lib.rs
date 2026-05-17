@@ -8,6 +8,7 @@ mod library;
 mod models;
 mod search;
 mod sources;
+mod vault;
 
 use std::sync::Arc;
 
@@ -42,7 +43,6 @@ pub fn run() {
                 .level(log::LevelFilter::Debug)
                 .build(),
         )
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let handle = app.handle().clone();
@@ -63,13 +63,6 @@ pub fn run() {
 
                 // Initialize search engine with correct models path
                 crate::search::init_search_engine(library.app_data_dir().join("models"));
-
-                // Background model provisioning
-                let analysis_clone = analysis.clone();
-                let handle_clone = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = analysis_clone.provision_models(&handle_clone).await;
-                });
 
                 handle.manage(AppState {
                     db: pool,
@@ -111,6 +104,8 @@ pub fn run() {
             get_model_registry,
             get_evidence_stats,
             verify_vault_integrity,
+            get_vault_encryption_status,
+            clear_evidence_cache,
             get_latest_download_job,
             get_app_settings,
             set_app_settings,

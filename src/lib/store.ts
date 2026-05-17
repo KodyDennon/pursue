@@ -12,3 +12,5 @@ export type ViewMode =
 export const activeView = writable<ViewMode>('dashboard');
 
 export const globalSearchOpen = writable<boolean>(false);
+
+export const selectedRecordId = writable<string | null>(null);

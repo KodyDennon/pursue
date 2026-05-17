@@ -74,7 +74,9 @@ pub async fn get_record_artifact_path(
         .ok_or_else(|| "record has no local artifact".to_string())?;
     Ok(state
         .library
-        .get_full_path(relative_path)
+        .get_readable_artifact_path(relative_path)
+        .await
+        .map_err(to_error)?
         .to_string_lossy()
         .into_owned())
 }

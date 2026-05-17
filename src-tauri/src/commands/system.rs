@@ -58,14 +58,43 @@ pub async fn check_model_status(
 #[tauri::command]
 pub async fn provision_model(
     id: String,
-    url: String,
-    name: String,
+    url: Option<String>,
+    name: Option<String>,
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
     let manager = ModelManager::new(&state.library).with_db(state.db.clone());
+    let registry = crate::analysis::registry::get_model_registry();
+    let definition = registry
+        .iter()
+        .find(|model| model.id == id)
+        .ok_or_else(|| format!("unknown model id: {id}"))?;
+
+    let (model_name, source_url) = match definition.filename.as_deref() {
+        Some("bge-small-en-v1.5.onnx") => (
+            "bge-small-en-v1.5.onnx".to_string(),
+            format!(
+                "https://huggingface.co/{}/resolve/main/onnx/model.onnx",
+                definition.repo_id
+            ),
+        ),
+        Some(filename) => (
+            filename.to_string(),
+            format!(
+                "https://huggingface.co/{}/resolve/main/{}",
+                definition.repo_id, filename
+            ),
+        ),
+        None => (definition.id.clone(), definition.repo_id.clone()),
+    };
+
     manager
-        .ensure_model(&app_handle, &id, &name, &url)
+        .ensure_model(
+            &app_handle,
+            &id,
+            name.as_deref().unwrap_or(&model_name),
+            url.as_deref().unwrap_or(&source_url),
+        )
         .await
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(to_error)
@@ -113,11 +142,7 @@ pub async fn verify_vault_integrity(
         }
 
         if let Some(expected) = expected_hash {
-            if let Ok(bytes) = tokio::fs::read(&full_path).await {
-                use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(&bytes);
-                let hash = hex::encode(hasher.finalize());
+            if let Ok(hash) = library.artifact_plaintext_sha256(&local_path).await {
                 if hash != expected {
                     corrupted += 1;
                 } else {
@@ -147,6 +172,61 @@ pub async fn verify_vault_integrity(
         "verified": verified,
         "corrupted": corrupted,
         "missing": missing
+    }))
+}
+
+#[tauri::command]
+pub async fn get_vault_encryption_status(
+    state: State<'_, AppState>,
+) -> Result<crate::vault::VaultEncryptionStatus, String> {
+    Ok(state.library.encryption_status())
+}
+
+#[tauri::command]
+pub async fn clear_evidence_cache(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let pool = state.db.clone();
+    let library = state.library.clone();
+
+    let rows = sqlx::query("SELECT relative_path FROM artifacts")
+        .fetch_all(&pool)
+        .await
+        .map_err(to_error)?;
+
+    let mut files_removed = 0_i64;
+    let mut bytes_removed = 0_i64;
+    for row in rows {
+        let relative_path: String = row.get("relative_path");
+        let full_path = library.get_full_path(&relative_path);
+        if let Ok(metadata) = tokio::fs::metadata(&full_path).await {
+            bytes_removed += i64::try_from(metadata.len()).unwrap_or(0);
+        }
+        if tokio::fs::remove_file(&full_path).await.is_ok() {
+            files_removed += 1;
+        }
+    }
+
+    let cache_path = library.app_data_dir().join("decrypted-cache");
+    if cache_path.exists() {
+        let _ = tokio::fs::remove_dir_all(&cache_path).await;
+    }
+    let _ = tokio::fs::create_dir_all(&cache_path).await;
+
+    sqlx::query("DELETE FROM artifacts")
+        .execute(&pool)
+        .await
+        .map_err(to_error)?;
+    sqlx::query("DELETE FROM record_assets")
+        .execute(&pool)
+        .await
+        .map_err(to_error)?;
+    sqlx::query("UPDATE records SET local_path = NULL, thumbnail_path = NULL, updated_at = CURRENT_TIMESTAMP")
+        .execute(&pool)
+        .await
+        .map_err(to_error)?;
+
+    Ok(serde_json::json!({
+        "files_removed": files_removed,
+        "bytes_removed": bytes_removed
     }))
 }
 

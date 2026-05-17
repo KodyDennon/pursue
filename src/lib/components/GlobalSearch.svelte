@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { Search } from 'lucide-svelte';
-	import { globalSearchOpen } from '$lib/store';
+	import { activeView, globalSearchOpen, selectedRecordId } from '$lib/store';
 	import type { SearchResults } from '$lib/types';
 	import { logger } from '$lib/logger';
 
@@ -87,7 +87,8 @@
 						<button
 							class="result-row"
 							onclick={() => {
-								// Select the record in the main view ideally, but for now just close
+								$selectedRecordId = result.id;
+								$activeView = 'dashboard';
 								$globalSearchOpen = false;
 							}}
 						>

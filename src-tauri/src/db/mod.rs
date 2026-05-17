@@ -34,33 +34,17 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
 
     let pool = SqlitePool::connect_with(options).await?;
 
-    // --- MIGRATION RECONCILIATION LAYER ---
-    // When squashing migrations into a baseline (v1.0), SQLx panics if previously applied
-    // migrations are missing from the folder. We reconcile this by removing archived
-    // references if the baseline migration is present.
-    let m_path = "./migrations";
-    let has_baseline = fs::read_dir(m_path)
-        .map(|d| {
-            d.filter_map(|e| e.ok())
-                .any(|e| e.file_name().to_str().unwrap_or("").contains("v1_baseline"))
-        })
-        .unwrap_or(false);
-
-    if has_baseline {
-        let _ = sqlx::query("CREATE TABLE IF NOT EXISTS _sqlx_migrations (version BIGINT PRIMARY KEY, success BOOLEAN NOT NULL)")
-            .execute(&pool).await;
-        // Remove versions before and INCLUDING the baseline to force alignment/checksum reset
-        let _ = sqlx::query("DELETE FROM _sqlx_migrations WHERE version <= 20260511000000")
-            .execute(&pool)
-            .await;
-    }
-    // --------------------------------------
-
     sqlx::query("PRAGMA foreign_keys = ON")
         .execute(&pool)
         .await?;
 
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    sqlx::migrate!("./migrations").run(&pool).await.map_err(|error| {
+        anyhow::anyhow!(
+            "database schema is incompatible with this production baseline. Use Settings > Factory Reset to start with a fresh encrypted vault. Migration error: {error}"
+        )
+    })?;
+
+    validate_required_schema(&pool).await?;
 
     // Cleanup stalled jobs from previous sessions
     let _ = sqlx::query("UPDATE download_jobs SET status = 'failed', summary_json = '{\"error\": \"Application interrupted\"}' WHERE status IN ('running', 'queued')")
@@ -84,4 +68,64 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
     });
 
     Ok(pool)
+}
+
+async fn validate_required_schema(pool: &SqlitePool) -> anyhow::Result<()> {
+    let required_tables = [
+        "records",
+        "artifacts",
+        "record_assets",
+        "download_jobs",
+        "analysis_results",
+        "analysis_chunks",
+        "app_settings",
+    ];
+
+    for table in required_tables {
+        let exists: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?")
+                .bind(table)
+                .fetch_one(pool)
+                .await?;
+        if exists == 0 {
+            return Err(anyhow::anyhow!(
+                "database schema is missing required table `{table}`. Use Settings > Factory Reset to start with a fresh encrypted vault."
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    const BASELINE_SCHEMA: &str = include_str!("../../migrations/20260511000000_v1_baseline.sql");
+
+    #[test]
+    fn baseline_schema_contains_every_table_used_by_code() {
+        for table in [
+            "records",
+            "artifacts",
+            "record_assets",
+            "download_jobs",
+            "analysis_results",
+            "analysis_chunks",
+            "app_settings",
+        ] {
+            assert!(
+                BASELINE_SCHEMA.contains(&format!("CREATE TABLE IF NOT EXISTS {table}")),
+                "baseline schema is missing table {table}"
+            );
+        }
+    }
+
+    #[test]
+    fn database_init_does_not_rewrite_sqlx_migration_history() {
+        let source = include_str!("mod.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            !production_source.contains("DELETE FROM _sqlx_migrations"),
+            "database init must not delete SQLx migration history"
+        );
+    }
 }

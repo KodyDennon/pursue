@@ -161,7 +161,8 @@ impl AnalysisManager {
             .ok_or_else(|| anyhow!("record not found"))?;
         let full_path = self
             .library
-            .get_full_path(record.local_path.as_ref().unwrap());
+            .get_readable_artifact_path(record.local_path.as_ref().unwrap())
+            .await?;
 
         // 1. OCR (Foundation)
         let _ = _app.emit(
@@ -202,6 +203,7 @@ impl AnalysisManager {
             .is_ok()
         {
             let rel_thumb_path = format!("assets/{}/{}", record_id, thumb_name);
+            let rel_thumb_path = self.library.encrypt_generated_asset(&rel_thumb_path).await?;
             let _ = sqlx::query("UPDATE records SET thumbnail_path = ? WHERE id = ?")
                 .bind(&rel_thumb_path)
                 .bind(record_id)
@@ -228,6 +230,7 @@ impl AnalysisManager {
                 for (filename, mime) in extracted {
                     let asset_id = Uuid::new_v4().to_string();
                     let rel_path = format!("assets/{}/{}", record_id, filename);
+                    let rel_path = self.library.encrypt_generated_asset(&rel_path).await?;
                     let _ = sqlx::query("INSERT INTO record_assets (id, record_id, asset_type, local_path, mime_type, created_at) VALUES (?, ?, 'image', ?, ?, ?)")
                         .bind(&asset_id).bind(record_id).bind(&rel_path).bind(&mime).bind(crate::common::now()).execute(&self.db).await;
                 }
@@ -293,11 +296,10 @@ impl AnalysisManager {
         };
         let model_path = self.models.models_dir().join(preferred_model);
 
-        let image_paths: Vec<_> = assets
-            .iter()
-            .filter(|a| a.asset_type == "image")
-            .map(|a| self.library.get_full_path(&a.local_path))
-            .collect();
+        let mut image_paths = Vec::new();
+        for asset in assets.iter().filter(|a| a.asset_type == "image") {
+            image_paths.push(self.library.get_readable_artifact_path(&asset.local_path).await?);
+        }
 
         let intelligence_json = self
             .extractor

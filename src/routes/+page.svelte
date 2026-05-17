@@ -16,7 +16,7 @@
 	import { MODELS } from '$lib/models';
 	import type { CaseSummary, DatabaseStatus, RecordSummary } from '$lib/types';
 	import { addToast, updateToast } from '$lib/toastStore';
-	import { activeView } from '$lib/store';
+	import { activeView, selectedRecordId } from '$lib/store';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { logger } from '$lib/logger';
 	import { formatBytes } from '$lib/utils';
@@ -85,6 +85,10 @@
 		});
 		try {
 			await invoke('sync_official_source');
+			const agentSettings = await invoke<{ auto_sync: boolean; auto_analyze: boolean }>(
+				'get_app_settings',
+				{ key: 'ingestion_agent' }
+			);
 			const removed = await invoke<number>('cleanup_duplicates');
 			if (removed > 0) {
 				addToast({
@@ -94,14 +98,22 @@
 				});
 			}
 			await loadInitialData();
-			updateToast(toastId, {
-				type: 'info',
-				message: 'Sync complete! Downloading missing records...',
-				duration: 3000
-			});
+			if (agentSettings?.auto_sync) {
+				updateToast(toastId, {
+					type: 'info',
+					message: 'Sync complete. Auto-retrieval is enabled; downloading missing records...',
+					duration: 3000
+				});
 
-			$activeView = 'agent';
-			await invoke('download_missing_records');
+				$activeView = 'agent';
+				await invoke('download_missing_records');
+			} else {
+				updateToast(toastId, {
+					type: 'success',
+					message: 'Sync complete. Auto-retrieval is disabled.',
+					duration: 3000
+				});
+			}
 			busy = null;
 		} catch (e) {
 			updateToast(toastId, { type: 'error', message: `Sync failed: ${e}`, duration: 5000 });
@@ -201,8 +213,30 @@
 	$effect(() => {
 		logger.debug('[App] Active view changed:', $state.snapshot($activeView));
 		// Clear selection when switching top-level modules
-		if ($activeView) {
+		if ($activeView && $activeView !== 'map') {
 			selectedRecord = null;
+		}
+	});
+
+	$effect(() => {
+		const id = $selectedRecordId;
+		if (!id || records.length === 0) return;
+		const match = records.find((record) => record.id === id);
+		if (match) {
+			selectedRecord = match;
+			$activeView = 'map';
+			$selectedRecordId = null;
+		} else {
+			invoke<RecordSummary | null>('get_record', { id })
+				.then((record) => {
+					if (record) {
+						selectedRecord = record;
+						$activeView = 'map';
+					}
+				})
+				.finally(() => {
+					$selectedRecordId = null;
+				});
 		}
 	});
 </script>

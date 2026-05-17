@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
-use rquest::{header, Client};
-use rquest_util::{Emulation, EmulationOption};
+use reqwest::{header, Client};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
@@ -12,6 +11,7 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::models::DownloadResult;
+use crate::vault::{decrypted_cache_path, VaultCrypto, VaultEncryptionStatus};
 
 #[derive(Clone)]
 pub struct LibraryManager {
@@ -19,6 +19,7 @@ pub struct LibraryManager {
     library_path: PathBuf,
     snapshot_path: PathBuf,
     export_path: PathBuf,
+    vault: VaultCrypto,
     client: Client,
 }
 
@@ -40,6 +41,7 @@ impl LibraryManager {
         let library_path = app_data_dir.join("library");
         let snapshot_path = app_data_dir.join("snapshots");
         let export_path = app_data_dir.join("exports");
+        let vault = VaultCrypto::new(&app_data_dir);
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::ACCEPT,
@@ -56,13 +58,7 @@ impl LibraryManager {
             header::HeaderValue::from_static("https://www.war.gov/"),
         );
 
-        let emulation = EmulationOption::builder()
-            .emulation(Emulation::Chrome124)
-            .skip_http2(true)
-            .build();
-
         let client = Client::builder()
-            .emulation(emulation)
             .default_headers(headers)
             .build()?;
 
@@ -71,6 +67,7 @@ impl LibraryManager {
             library_path,
             snapshot_path,
             export_path,
+            vault,
             client,
         })
     }
@@ -80,6 +77,7 @@ impl LibraryManager {
         fs::create_dir_all(&self.library_path).await?;
         fs::create_dir_all(&self.snapshot_path).await?;
         fs::create_dir_all(&self.export_path).await?;
+        fs::create_dir_all(self.app_data_dir.join("decrypted-cache")).await?;
         Ok(())
     }
 
@@ -99,8 +97,49 @@ impl LibraryManager {
         &self.export_path
     }
 
+    pub fn encryption_status(&self) -> VaultEncryptionStatus {
+        self.vault.status()
+    }
+
     pub fn get_full_path(&self, relative_path: &str) -> PathBuf {
         self.library_path.join(relative_path)
+    }
+
+    pub async fn get_readable_artifact_path(&self, relative_path: &str) -> Result<PathBuf> {
+        let encrypted_path = self.get_full_path(relative_path);
+        if !VaultCrypto::is_encrypted_path(&encrypted_path) {
+            return Ok(encrypted_path);
+        }
+
+        let cache_path = decrypted_cache_path(&self.app_data_dir, relative_path);
+        let should_refresh = match (fs::metadata(&encrypted_path).await, fs::metadata(&cache_path).await) {
+            (Ok(encrypted), Ok(cache)) => encrypted.modified().ok() > cache.modified().ok(),
+            (Ok(_), Err(_)) => true,
+            _ => true,
+        };
+        if should_refresh {
+            self.vault.decrypt_file(&encrypted_path, &cache_path).await?;
+        }
+        Ok(cache_path)
+    }
+
+    pub async fn encrypt_generated_asset(&self, relative_path: &str) -> Result<String> {
+        let source_path = self.get_full_path(relative_path);
+        if VaultCrypto::is_encrypted_path(&source_path) {
+            return Ok(relative_path.to_string());
+        }
+
+        let target_relative = format!("{relative_path}.vault");
+        let target_path = self.get_full_path(&target_relative);
+        self.vault.encrypt_file(&source_path, &target_path).await?;
+        let _ = fs::remove_file(source_path).await;
+        Ok(target_relative)
+    }
+
+    pub async fn artifact_plaintext_sha256(&self, relative_path: &str) -> Result<String> {
+        self.vault
+            .sha256_plaintext(&self.get_full_path(relative_path))
+            .await
     }
 
     pub fn get_relative_path(&self, absolute_path: &Path) -> Option<String> {
@@ -273,7 +312,7 @@ impl LibraryManager {
             .await
             .with_context(|| format!("failed to request {url}"))?;
 
-        let (mut temp_file, byte_size) = if response.status() == rquest::StatusCode::PARTIAL_CONTENT
+        let (mut temp_file, byte_size) = if response.status() == reqwest::StatusCode::PARTIAL_CONTENT
         {
             let file = fs::OpenOptions::new().append(true).open(&part_path).await?;
             (file, downloaded_bytes as i64)
@@ -286,7 +325,7 @@ impl LibraryManager {
 
         let media_type = response
             .headers()
-            .get(rquest::header::CONTENT_TYPE)
+            .get(reqwest::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
         let original_filename = filename_from_url(url);
@@ -379,7 +418,8 @@ impl LibraryManager {
         if skipped_existing {
             fs::remove_file(&temp_path).await?;
         } else {
-            fs::rename(&temp_path, &final_path).await?;
+            self.vault.encrypt_file(&temp_path, &final_path).await?;
+            fs::remove_file(&temp_path).await?;
         }
 
         let relative_path = self
@@ -401,8 +441,8 @@ impl LibraryManager {
     fn path_for_hash(&self, hash: &str, extension: Option<&str>) -> PathBuf {
         let prefix = &hash[0..2];
         let filename = match extension {
-            Some(ext) if !ext.is_empty() => format!("{hash}.{ext}"),
-            _ => hash.to_string(),
+            Some(ext) if !ext.is_empty() => format!("{hash}.{ext}.vault"),
+            _ => format!("{hash}.vault"),
         };
         self.library_path.join(prefix).join(filename)
     }

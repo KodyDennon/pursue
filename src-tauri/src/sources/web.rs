@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rquest::Client;
+use reqwest::Client;
 use scraper::Html;
 use std::path::Path;
 use tokio::fs;

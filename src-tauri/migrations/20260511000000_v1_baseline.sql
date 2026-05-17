@@ -115,6 +115,20 @@ CREATE TABLE IF NOT EXISTS artifacts (
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_record ON artifacts(record_id);
 
+CREATE TABLE IF NOT EXISTS record_assets (
+  id TEXT PRIMARY KEY,
+  record_id TEXT NOT NULL,
+  asset_type TEXT NOT NULL,
+  local_path TEXT NOT NULL,
+  mime_type TEXT,
+  file_size INTEGER,
+  metadata_json TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (record_id) REFERENCES records(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_assets_record ON record_assets(record_id);
+
 CREATE TABLE IF NOT EXISTS download_jobs (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL,

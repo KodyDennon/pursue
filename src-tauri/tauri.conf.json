@@ -36,11 +36,5 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		]
-	},
-	"plugins": {
-		"updater": {
-			"pubkey": "dW5zaWduIHB1YmxpYyBrZXk6IEJCOTUzNDFGMjQ5NjRCNzUKUldSMVM1WWtIelNWdTlHTEIxT1p6Q2QvWWNuY1RVTnp1RXArZ085NmgzNkNwd2libHNtSWFJMy8K",
-			"endpoints": ["https://github.com/KodyDennon/pursue/releases/latest/download/latest.json"]
-		}
 	}
 }
