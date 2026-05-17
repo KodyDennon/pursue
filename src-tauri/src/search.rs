@@ -45,6 +45,12 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
         return Ok(session);
     }
 
+    // Initialize ORT with a higher log level and consistent execution provider
+    let _ = ort::init()
+        .with_name("pursue-embeddings")
+        .with_execution_providers([ort::execution_providers::CPUExecutionProvider::default().build()])
+        .commit();
+
     let path = get_models_dir().join("bge-small-en-v1.5.onnx");
     if !path.exists() {
         anyhow::bail!("Embedding model not found at {}", path.display());
@@ -128,11 +134,15 @@ pub async fn vector_search(pool: &SqlitePool, request: SearchRequest) -> Result<
 }
 
 pub async fn vectorize_text(text: &str) -> Result<Vec<f32>> {
-    if let Ok(vector) = vectorize_text_with_model(text).await {
-        return Ok(vector);
+    match vectorize_text_with_model(text).await {
+        Ok(vector) => Ok(vector),
+        Err(e) => {
+            // Silently fall back to deterministic hash to keep the pipeline moving,
+            // but log to internal system logs for debugging.
+            tauri_plugin_log::log::warn!("Neural embedding failed, using fallback: {}", e);
+            Ok(deterministic_embedding(text))
+        }
     }
-
-    Ok(deterministic_embedding(text))
 }
 
 async fn vectorize_text_with_model(text: &str) -> Result<Vec<f32>> {
@@ -140,34 +150,59 @@ async fn vectorize_text_with_model(text: &str) -> Result<Vec<f32>> {
     let encoding = tokenizer
         .encode(text, true)
         .map_err(|e| anyhow::anyhow!("Tokenization failed: {}", e))?;
-    let input_ids = encoding.get_ids();
-    let attention_mask = encoding.get_attention_mask();
+    
+    let mut input_ids = encoding.get_ids();
+    let mut attention_mask = encoding.get_attention_mask();
+
+    // BGE-Small-EN-v1.5 has a hard sequence limit of 512 tokens.
+    // Exceeding this causes the positional embedding 'Add' nodes to fail with dimension mismatches.
+    if input_ids.len() > 512 {
+        input_ids = &input_ids[..512];
+        attention_mask = &attention_mask[..512];
+    }
+
+    let seq_len = input_ids.len();
 
     let input_ids_tensor = Value::from_array((
-        vec![1, input_ids.len()],
+        vec![1, seq_len],
         input_ids.iter().map(|&x| x as i64).collect::<Vec<i64>>(),
     ))?;
 
     let attention_mask_tensor = Value::from_array((
-        vec![1, attention_mask.len()],
+        vec![1, seq_len],
         attention_mask
             .iter()
             .map(|&x| x as i64)
             .collect::<Vec<i64>>(),
     ))?;
 
+    let token_type_ids_tensor = Value::from_array((
+        vec![1, seq_len],
+        vec![0i64; seq_len],
+    ))?;
+
     let session_mutex = get_embedding_session()?;
     let mut session = session_mutex
         .lock()
         .map_err(|e| anyhow::anyhow!("Mutex lock failed: {}", e))?;
+
+    // Capture first output name to allow fallback without borrow conflicts
+    let first_output_name = session.outputs().first().map(|o| o.name().to_string());
+
+    // Use explicit input providing while including token_type_ids
     let outputs = session.run(ort::inputs![
         "input_ids" => input_ids_tensor,
         "attention_mask" => attention_mask_tensor,
+        "token_type_ids" => token_type_ids_tensor,
     ])?;
 
     let output = outputs
         .get("last_hidden_state")
-        .ok_or_else(|| anyhow::anyhow!("failed to get last_hidden_state"))?;
+        .or_else(|| {
+            // Fallback: Attempt to use the first output if last_hidden_state is missing
+            first_output_name.and_then(|name| outputs.get(name.as_str()))
+        })
+        .ok_or_else(|| anyhow::anyhow!("Model produced no usable outputs"))?;
 
     let (shape, data) = output.try_extract_tensor::<f32>()?;
 

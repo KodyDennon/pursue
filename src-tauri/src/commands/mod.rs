@@ -57,13 +57,15 @@ pub async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Resul
     .fetch_one(db)
     .await?;
 
+    let db_path = library.app_data_dir().join("pursue.db");
+    let database_bytes = std::fs::metadata(&db_path)
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
+
     Ok(DatabaseStatus {
         app_data_dir: library.app_data_dir().to_string_lossy().into_owned(),
-        database_path: library
-            .app_data_dir()
-            .join("pursue.db")
-            .to_string_lossy()
-            .into_owned(),
+        database_path: db_path.to_string_lossy().into_owned(),
+        database_bytes,
         library_path: library.library_dir().to_string_lossy().into_owned(),
         snapshots_path: library.snapshots_dir().to_string_lossy().into_owned(),
         exports_path: library.exports_dir().to_string_lossy().into_owned(),

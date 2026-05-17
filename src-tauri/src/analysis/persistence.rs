@@ -70,7 +70,7 @@ impl PersistenceManager {
             .execute(&mut *tx)
             .await?;
 
-        let chunks = chunk_text(text, 1800);
+        let chunks = chunk_text(text, 1200);
         let etext = entities
             .iter()
             .map(|e| e.name.as_str())

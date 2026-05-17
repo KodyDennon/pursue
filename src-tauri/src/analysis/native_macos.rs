@@ -1,5 +1,7 @@
 use anyhow::{anyhow, Result};
 use std::path::Path;
+use tauri::Emitter;
+use serde_json::json;
 
 #[cfg(target_os = "macos")]
 mod macos_impl {
@@ -13,7 +15,7 @@ mod macos_impl {
     use objc2_pdf_kit::{PDFDocument, PDFPage};
     use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest};
 
-    pub fn extract_text(path: &Path) -> Result<String> {
+    pub fn extract_text(app: &tauri::AppHandle, path: &Path) -> Result<String> {
         if !path.exists() {
             return Err(anyhow!("File does not exist: {}", path.display()));
         }
@@ -28,7 +30,7 @@ mod macos_impl {
                 .to_lowercase();
 
             if extension == "pdf" {
-                extract_pdf_text(&url)
+                extract_pdf_text(app, &url)
             } else {
                 extract_image_text(&url)
             }
@@ -47,7 +49,7 @@ mod macos_impl {
         }
     }
 
-    fn extract_pdf_text(url: &Retained<NSURL>) -> Result<String> {
+    fn extract_pdf_text(app: &tauri::AppHandle, url: &Retained<NSURL>) -> Result<String> {
         unsafe {
             let cls = objc2::runtime::AnyClass::get(c"PDFDocument").unwrap();
             let doc: *mut PDFDocument = msg_send![cls, alloc];
@@ -61,6 +63,11 @@ mod macos_impl {
             let mut full_text = String::new();
 
             for i in 0..count {
+                let _ = app.emit("analysis-progress", json!({
+                    "status": "extracting-foundation",
+                    "step": format!("Extracting page {}/{}", i + 1, count)
+                }));
+
                 objc2::rc::autoreleasepool(|_| {
                     let page: *mut PDFPage = msg_send![&*doc, pageAtIndex: i];
                     if let Some(p) = page.as_ref() {
@@ -148,14 +155,16 @@ mod macos_impl {
     }
 }
 
-pub async fn extract_text_macos<P: AsRef<Path>>(path: P) -> Result<String> {
+pub async fn extract_text_macos<P: AsRef<Path>>(app: &tauri::AppHandle, path: P) -> Result<String> {
     #[cfg(target_os = "macos")]
     {
+        let app = app.clone();
         let path = path.as_ref().to_path_buf();
-        tokio::task::spawn_blocking(move || macos_impl::extract_text(&path)).await?
+        tokio::task::spawn_blocking(move || macos_impl::extract_text(&app, &path)).await?
     }
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = app;
         Err(anyhow!("macOS Vision OCR is only available on macOS"))
     }
 }

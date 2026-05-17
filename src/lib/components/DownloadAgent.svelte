@@ -21,6 +21,7 @@
 	let activeJobId = $state<string | null>(null);
 	let report = $state<BulkDownloadReport | null>(null);
 	let polling = $state(false);
+	let downloading = $state(false);
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
 
 	let agentSettings = $state({ auto_sync: true, auto_analyze: true });
@@ -87,19 +88,80 @@
 		}
 	}
 
+	async function runDownloadWorker() {
+		if (downloading || !activeJobId || !report) return;
+		
+		const queued = report.items.filter(i => i.status === 'queued');
+		if (queued.length === 0) return;
+
+		downloading = true;
+		
+		for (const item of queued) {
+			if (report.job.status === 'cancelled' || report.job.cancel_requested) break;
+
+			try {
+				if (!item.url) {
+					await invoke('update_download_item_status', { 
+						itemId: item.id, 
+						status: 'failed',
+						error: 'No document URL available'
+					});
+					continue;
+				}
+
+				await invoke('update_download_item_status', { 
+					itemId: item.id, 
+					status: 'downloading' 
+				});
+
+				// Use the hardened backend proxy to bypass CORS and browser header restrictions
+				const bytes = await invoke<number[]>('proxy_fetch_url', {
+					url: item.url
+				});
+
+				await invoke('ingest_downloaded_bytes', {
+					jobId: activeJobId,
+					itemId: item.id,
+					recordId: item.record_id,
+					url: item.url,
+					bytes: bytes
+				});
+
+			} catch (e) {
+				console.error(`Failed to download ${item.title}:`, e);
+				await invoke('update_download_item_status', { 
+					itemId: item.id, 
+					status: 'failed',
+					error: String(e)
+				});
+			}
+
+			await new Promise(r => setTimeout(r, 500));
+			report = await invoke<BulkDownloadReport>('get_bulk_download_status', { id: activeJobId });
+		}
+
+		downloading = false;
+	}
+
 	async function fetchStatus() {
 		if (!activeJobId) return;
 		try {
 			report = await invoke<BulkDownloadReport>('get_bulk_download_status', { id: activeJobId });
+			
+			if (report.items.some(i => i.status === 'queued') && !downloading && report.job.status === 'running') {
+				runDownloadWorker();
+			}
+
 			if (
 				report.job.status === 'completed' ||
 				report.job.status === 'failed' ||
-				report.job.status === 'cancelled'
+				report.job.status === 'cancelled' ||
+				report.job.status === 'completed_with_errors'
 			) {
 				stopPolling();
 				loadStats();
 				if (onComplete) onComplete();
-				if (report.job.status === 'completed' && agentSettings.auto_analyze) {
+				if ((report.job.status === 'completed' || report.job.status === 'completed_with_errors') && agentSettings.auto_analyze) {
 					addToast({
 						type: 'info',
 						message: 'Downloads complete. Auto-starting neural extraction...',

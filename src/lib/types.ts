@@ -97,6 +97,7 @@ export interface BulkDownloadReport {
 export interface DatabaseStatus {
 	app_data_dir: string;
 	database_path: string;
+	database_bytes: number;
 	library_path: string;
 	snapshots_path: string;
 	exports_path: string;

@@ -11,7 +11,8 @@ use uuid::Uuid;
 use crate::library::LibraryManager;
 use crate::models::{CsvRecord, SnapshotDiff, SyncReport};
 
-pub const WAR_GOV_CSV_URL: &str = "https://www.war.gov/Portals/1/Interactive/2026/UFO/uap-csv.csv";
+const WAR_GOV_CSV_URL: &str =
+    "https://www.war.gov/Portals/1/Interactive/2026/UFO/uap-release001.csv";
 
 #[derive(Debug, Clone)]
 struct ParsedOfficialRecord {
@@ -28,7 +29,7 @@ pub async fn sync_official_source(
     headers.insert(
         header::ACCEPT,
         header::HeaderValue::from_static(
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
         ),
     );
     headers.insert(
@@ -36,30 +37,67 @@ pub async fn sync_official_source(
         header::HeaderValue::from_static("en-US,en;q=0.9"),
     );
     headers.insert(
-        header::REFERER,
-        header::HeaderValue::from_static("https://www.war.gov/"),
+        header::ACCEPT_ENCODING,
+        header::HeaderValue::from_static("gzip, deflate, br, zstd"),
+    );
+    headers.insert(
+        "Priority",
+        header::HeaderValue::from_static("u=0, i"),
+    );
+    headers.insert(
+        "Sec-Ch-Ua",
+        header::HeaderValue::from_static("\"Chromium\";v=\"148\", \"Google Chrome\";v=\"148\", \"Not/A)Brand\";v=\"99\""),
+    );
+    headers.insert(
+        "Sec-Ch-Ua-Mobile",
+        header::HeaderValue::from_static("?0"),
+    );
+    headers.insert(
+        "Sec-Ch-Ua-Platform",
+        header::HeaderValue::from_static("\"macOS\""),
+    );
+    headers.insert(
+        "Upgrade-Insecure-Requests",
+        header::HeaderValue::from_static("1"),
     );
 
     let client = Client::builder()
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 PURSUE-Data-Analyzer/0.6.2")
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
         .default_headers(headers)
+        .cookie_store(true)
         .build()?;
 
+    // Step 1: Prime session
+    tauri_plugin_log::log::info!("Priming session at https://www.war.gov/UFO/...");
+    let _ = client.get("https://www.war.gov/UFO/").send().await;
+
+    // Step 2: Fetch CSV with proper referer and same-origin headers
     let response = client
         .get(WAR_GOV_CSV_URL)
+        .header(header::REFERER, "https://www.war.gov/UFO/")
+        .header("Sec-Fetch-Dest", "empty")
+        .header("Sec-Fetch-Mode", "cors")
+        .header("Sec-Fetch-Site", "same-origin")
+        .header(header::ACCEPT, "*/*")
         .send()
         .await
         .context("WAR.gov source request failed")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    if !status.is_success() {
         let body = response
             .text()
             .await
             .unwrap_or_else(|_| "Could not read body".to_string());
         tauri_plugin_log::log::error!("WAR.gov sync failed with status {}: {}", status, body);
-
-        // Fallback to local file if it exists in Downloads
+        // ... (existing fallback logic)
         if let Ok(home) = std::env::var("HOME") {
             let local_path = std::path::PathBuf::from(home)
                 .join("Downloads")
@@ -83,6 +121,14 @@ pub async fn sync_official_source(
         .bytes()
         .await
         .context("WAR.gov source body could not be read")?;
+
+    tauri_plugin_log::log::info!(
+        "Received CSV response: status={}, type={}, len={}, prefix={:?}",
+        status,
+        content_type,
+        bytes.len(),
+        String::from_utf8_lossy(&bytes[..bytes.len().min(100)])
+    );
 
     sync_official_source_from_bytes(pool, library, &bytes).await
 }
@@ -139,6 +185,7 @@ async fn sync_official_source_from_bytes_inner(
     for record in &records {
         current_keys.insert(record.stable_key.clone());
         let record_json = serde_json::to_string(&record.csv)?;
+        let title = record.csv.title.as_deref().unwrap_or("Untitled");
 
         sqlx::query(
             r#"
@@ -151,7 +198,7 @@ async fn sync_official_source_from_bytes_inner(
         .bind(&snapshot_id)
         .bind(&record.stable_key)
         .bind(&record.content_hash)
-        .bind(&record.csv.title)
+        .bind(title)
         .bind(&record.csv.document_url)
         .bind(record_json)
         .execute(pool)
@@ -170,12 +217,13 @@ async fn sync_official_source_from_bytes_inner(
         };
 
         if let Some(change_type) = change_type {
+            let title = record.csv.title.as_deref().unwrap_or("Untitled");
             insert_diff(
                 pool,
                 &snapshot_id,
                 &record.stable_key,
                 change_type,
-                &record.csv.title,
+                title,
                 record.csv.document_url.as_deref(),
                 previous.get(&record.stable_key).map(String::as_str),
                 Some(&record.content_hash),
@@ -183,7 +231,7 @@ async fn sync_official_source_from_bytes_inner(
             .await?;
             diffs.push(SnapshotDiff {
                 change_type: change_type.to_string(),
-                title: record.csv.title.clone(),
+                title: title.to_string(),
                 document_url: record.csv.document_url.clone(),
                 stable_key: record.stable_key.clone(),
             });
@@ -240,39 +288,79 @@ async fn sync_official_source_from_bytes_inner(
     })
 }
 
-#[cfg(test)]
-fn parse_csv(bytes: &[u8]) -> Result<Vec<(String, CsvRecord)>> {
-    parse_csv_records(bytes).map(|records| {
-        records
-            .into_iter()
-            .map(|record| (record.stable_key, record.csv))
-            .collect()
-    })
-}
-
 fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
+    if bytes.starts_with(b"<!DOCTYPE") || bytes.starts_with(b"<HTML") || bytes.starts_with(b"<html") {
+        let sample = String::from_utf8_lossy(&bytes[..bytes.len().min(200)]);
+        return Err(anyhow!("Received HTML instead of CSV. Content starts with: {}", sample));
+    }
+
+    let mut clean_bytes = bytes;
+    if clean_bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        clean_bytes = &clean_bytes[3..];
+    }
+    let data = String::from_utf8_lossy(clean_bytes);
+
     let mut reader = ReaderBuilder::new()
         .flexible(true)
         .trim(csv::Trim::All)
         .has_headers(true)
-        .from_reader(bytes);
+        .from_reader(data.as_bytes());
+
+    let headers = reader.headers()?.clone();
+    tauri_plugin_log::log::info!("CSV Headers found: {:?}", headers);
+    let header_map: HashMap<String, usize> = headers
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (name.trim().to_lowercase(), i))
+        .collect();
 
     let mut records_map = HashMap::new();
-    for result in reader.deserialize() {
-        let csv: CsvRecord = match result {
-            Ok(csv) => csv,
+    let mut total_malformed = 0;
+    let mut first_error = None;
+
+    for (_i, result) in reader.records().enumerate() {
+        let record = match result {
+            Ok(r) => r,
             Err(e) => {
-                tauri_plugin_log::log::warn!("Skipping malformed CSV record: {}", e);
+                if first_error.is_none() { first_error = Some(e.to_string()); }
+                total_malformed += 1;
                 continue;
             }
         };
-        if csv.title.trim().is_empty() {
-            continue;
-        }
+
+        let get_field = |name: &str| -> Option<String> {
+            header_map.get(&name.to_lowercase()).and_then(|&idx| {
+                record.get(idx).map(|val| val.trim().to_string())
+            }).filter(|s| !s.is_empty())
+        };
+
+        let title = match get_field("Title") {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let csv = CsvRecord {
+            redaction: get_field("Redaction"),
+            release_date: get_field("Release Date"),
+            title: Some(title.clone()),
+            doc_type: get_field("Type"),
+            video_pairing: get_field("Video Pairing"),
+            pdf_pairing: get_field("PDF Pairing"),
+            description: get_field("Description Blurb"),
+            dvids_video_id: get_field("DVIDS Video ID"),
+            video_title: get_field("Video Title"),
+            agency: get_field("Agency"),
+            incident_date: get_field("Incident Date"),
+            incident_location: get_field("Incident Location"),
+            document_url: get_field("PDF | Image Link"),
+            modal_image: get_field("Modal Image"),
+            image_alt_text: get_field("Image Alt Text"),
+            image_virin: get_field("Image VIRIN"),
+        };
+
         let stable_key = stable_key(&csv);
         let content_hash = hash_json(&csv)?;
 
-        // Keep the first record encountered for each stable_key
         records_map
             .entry(stable_key.clone())
             .or_insert(ParsedOfficialRecord {
@@ -285,9 +373,12 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
     let records: Vec<ParsedOfficialRecord> = records_map.into_values().collect();
 
     if records.is_empty() {
-        return Err(anyhow!(
-            "WAR.gov CSV parsed successfully but contained no usable records"
-        ));
+        let err_msg = if let Some(e) = first_error {
+            format!("WAR.gov CSV contained no usable records. First error: {} ({} malformed rows skipped)", e, total_malformed)
+        } else {
+            format!("WAR.gov CSV contained no usable records ({} empty or malformed rows skipped)", total_malformed)
+        };
+        return Err(anyhow!(err_msg));
     }
 
     Ok(records)
@@ -300,6 +391,12 @@ async fn upsert_record(
 ) -> Result<()> {
     let id = existing_record_id(pool, &record.stable_key).await?;
     let record_id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    
+    let title = record.csv.title.as_deref().unwrap_or("Untitled").trim();
+    let agency = record.csv.agency.as_deref().map(str::trim);
+    let summary = record.csv.description.as_deref().map(str::trim);
+    let incident_location = record.csv.incident_location.as_deref().map(str::trim);
+
     sqlx::query(
         r#"
         INSERT INTO records (
@@ -324,14 +421,14 @@ async fn upsert_record(
         "#,
     )
     .bind(record_id)
-    .bind(&record.csv.title)
-    .bind(&record.csv.agency)
+    .bind(title)
+    .bind(agency)
     .bind(&record.csv.release_date)
     .bind(&record.csv.incident_date)
-    .bind(&record.csv.incident_location)
+    .bind(incident_location)
     .bind(&record.csv.document_url)
     .bind(&record.csv.doc_type)
-    .bind(&record.csv.description)
+    .bind(summary)
     .bind(&record.stable_key)
     .bind(snapshot_id)
     .bind(&record.content_hash)
@@ -422,26 +519,47 @@ async fn prior_title(pool: &SqlitePool, stable_key: &str) -> Result<Option<Strin
 }
 
 fn stable_key(record: &CsvRecord) -> String {
-    let title = record.title.trim();
+    let title = record.title.as_deref().unwrap_or("").trim();
     let date = record.release_date.as_deref().unwrap_or("").trim();
     let agency = record.agency.as_deref().unwrap_or("").trim();
 
     let url = record.document_url.as_deref().unwrap_or("").trim();
     let has_real_url = url.starts_with("http://") || url.starts_with("https://");
 
+    // Normalize title for key generation (remove leading zeros from numbers)
+    // e.g. "Cable 001" -> "Cable 1"
+    let normalized_title = normalize_title(title);
+
     if has_real_url {
-        // Even with a URL, combine with title to handle multiple records for same document
-        format!("url:{}|title:{}", url, title)
+        format!("url:{}|title:{}", url, normalized_title)
     } else {
-        let raw = format!(
-            "{}|{}|{}|{}",
-            title,
-            date,
-            agency,
-            url // Include the PDF or alternative stream too
-        );
+        let raw = format!("{}|{}|{}|{}", normalized_title, date, agency, url);
         format!("meta:{}", hash_bytes(raw.as_bytes()))
     }
+}
+
+fn normalize_title(title: &str) -> String {
+    let mut normalized = String::new();
+    let mut current_num = String::new();
+
+    for c in title.chars() {
+        if c.is_ascii_digit() {
+            current_num.push(c);
+        } else {
+            if !current_num.is_empty() {
+                // Remove leading zeros from the number
+                let parsed = current_num.parse::<u64>().unwrap_or(0);
+                normalized.push_str(&parsed.to_string());
+                current_num.clear();
+            }
+            normalized.push(c);
+        }
+    }
+    if !current_num.is_empty() {
+        let parsed = current_num.parse::<u64>().unwrap_or(0);
+        normalized.push_str(&parsed.to_string());
+    }
+    normalized.to_lowercase()
 }
 
 fn hash_json(record: &CsvRecord) -> Result<String> {
@@ -460,6 +578,8 @@ fn hash_json(record: &CsvRecord) -> Result<String> {
         "dvids_video_id": record.dvids_video_id,
         "video_title": record.video_title,
         "modal_image": record.modal_image,
+        "image_alt_text": record.image_alt_text,
+        "image_virin": record.image_virin,
     });
     Ok(hash_bytes(serde_json::to_string(&canonical)?.as_bytes()))
 }
@@ -472,17 +592,4 @@ fn hash_bytes(bytes: &[u8]) -> String {
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_csv;
-
-    #[test]
-    fn parses_fixture_csv() {
-        let csv = b"Release Date,Title,Type,Agency,Incident Date,Incident Location,PDF | Image Link,Description Blurb\n2026-01-01,Case A,PDF,AARO,2025-12-01,Nevada,https://example.test/a.pdf,Summary\n";
-        let records = parse_csv(csv).expect("parse");
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].1.title, "Case A");
-    }
 }

@@ -90,10 +90,11 @@
 				{ key: 'ingestion_agent' }
 			);
 			const removed = await invoke<number>('cleanup_duplicates');
-			if (removed > 0) {
+			const poisoned = await invoke<number>('cleanup_poisoned_artifacts');
+			if (removed > 0 || poisoned > 0) {
 				addToast({
 					type: 'info',
-					message: `Data integrity: Merged ${removed} duplicate records.`,
+					message: `Data integrity: Cleaned up ${removed} duplicates and ${poisoned} broken files.`,
 					duration: 3000
 				});
 			}

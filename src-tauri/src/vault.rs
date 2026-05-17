@@ -27,9 +27,9 @@ pub struct VaultCrypto {
 }
 
 impl VaultCrypto {
-    pub fn new(app_data_dir: &Path) -> Self {
+    pub fn new(app_handle_dir: &Path) -> Self {
         Self {
-            key_path: app_data_dir.join("vault.key"),
+            key_path: app_handle_dir.join("vault.key"),
         }
     }
 
@@ -38,16 +38,18 @@ impl VaultCrypto {
             enabled: true,
             algorithm: "AES-256-GCM".to_string(),
             key_path: self.key_path.to_string_lossy().into_owned(),
-            encrypted_artifacts: true,
+            encrypted_artifacts: false,
             encrypted_exports: true,
-            integrity_layer: "SHA-256 plaintext digest before encryption".to_string(),
+            integrity_layer: "SHA-256 plaintext digest".to_string(),
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_encrypted_path(path: &Path) -> bool {
         path.extension().and_then(|ext| ext.to_str()) == Some("vault")
     }
 
+    #[allow(dead_code)]
     pub async fn encrypt_file(&self, source_path: &Path, target_path: &Path) -> Result<()> {
         let key = self.load_or_create_key().await?;
         let plaintext = fs::read(source_path)
@@ -79,6 +81,7 @@ impl VaultCrypto {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn decrypt_file(&self, source_path: &Path, target_path: &Path) -> Result<()> {
         let plaintext = self.decrypt_to_bytes(source_path).await?;
         if let Some(parent) = target_path.parent() {
@@ -88,6 +91,7 @@ impl VaultCrypto {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn decrypt_to_bytes(&self, source_path: &Path) -> Result<Vec<u8>> {
         let mut input = fs::File::open(source_path)
             .await
@@ -115,6 +119,7 @@ impl VaultCrypto {
             .map_err(|_| anyhow!("vault decryption failed"))
     }
 
+    #[allow(dead_code)]
     pub async fn sha256_plaintext(&self, source_path: &Path) -> Result<String> {
         let bytes = if Self::is_encrypted_path(source_path) {
             self.decrypt_to_bytes(source_path).await?
@@ -126,6 +131,7 @@ impl VaultCrypto {
         Ok(hex::encode(hasher.finalize()))
     }
 
+    #[allow(dead_code)]
     async fn load_or_create_key(&self) -> Result<[u8; KEY_LEN]> {
         if self.key_path.exists() {
             let bytes = fs::read(&self.key_path).await?;
@@ -152,12 +158,4 @@ impl VaultCrypto {
 
         Ok(key)
     }
-}
-
-pub fn decrypted_cache_path(app_data_dir: &Path, relative_path: &str) -> PathBuf {
-    let mut sanitized = relative_path.replace('\\', "/");
-    if let Some(stripped) = sanitized.strip_suffix(".vault") {
-        sanitized = stripped.to_string();
-    }
-    app_data_dir.join("decrypted-cache").join(sanitized)
 }

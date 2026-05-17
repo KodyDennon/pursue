@@ -19,7 +19,7 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-native-tls", "macros"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "cookies", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["native-tls", "stream", "cookies", "json", "gzip", "brotli", "zstd"] }
 aes-gcm = "0.10"
 tokio = { version = "1", features = ["full"] }
 sysinfo = "0.39"

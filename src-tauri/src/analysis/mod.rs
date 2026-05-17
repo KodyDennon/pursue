@@ -174,7 +174,7 @@ impl AnalysisManager {
                 "total": total
             }),
         );
-        let (text, engine) = self.indexer.extract(&full_path, force_ocr).await?;
+        let (text, engine) = self.indexer.extract(_app, &full_path, force_ocr).await?;
 
         // ENGINE TRANSPARENCY: Report the specific OCR implementation used
         let _ = _app.emit(

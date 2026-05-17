@@ -204,36 +204,26 @@
 			</div>
 			<div class="s-body">
 				<div class="data-item">
-					<span class="d-label">App Data Directory</span>
-					<code class="d-val">{status?.app_data_dir || 'Loading...'}</code>
-				</div>
-				<div class="data-item">
-					<span class="d-label">Database Path</span>
+					<span class="d-label">Intelligence Database (SQLite)</span>
 					<code class="d-val">{status?.database_path || 'Loading...'}</code>
+					<span class="d-val">{formatBytes(status?.database_bytes || 0)} total usage</span>
 				</div>
 				<div class="data-item">
-					<span class="d-label">Storage Usage</span>
+					<span class="d-label">Evidence Library Size</span>
 					<div class="usage-bar">
 						<div
 							class="usage-fill"
-							style="width: {Math.min(100, (status?.artifact_bytes || 0) / 1024 / 1024 / 10)}%"
+							style="width: {Math.min(100, (status?.artifact_bytes || 0) / 1024 / 1024 / 500) * 100}%"
 						></div>
 					</div>
 					<span class="d-val"
-						>{formatBytes(status?.artifact_bytes || 0)} across {status?.artifact_count || 0} local assets</span
+						>{formatBytes(status?.artifact_bytes || 0)} across {status?.artifact_count || 0} plaintext assets</span
 					>
 				</div>
 				<div class="data-item">
-					<span class="d-label">Vault Encryption</span>
-					<span class="d-val"
-						>{encryptionStatus?.enabled
-							? `${encryptionStatus.algorithm} at rest`
-							: 'Disabled'}</span
-					>
-				</div>
-				<div class="data-item">
-					<span class="d-label">Integrity Layer</span>
-					<span class="d-val">{encryptionStatus?.integrity_layer || 'Loading...'}</span>
+					<span class="d-label">Data Security Strategy</span>
+					<span class="d-val">Database & Graph: Protected Boundary</span>
+					<span class="d-val">Evidence Files: Native Plaintext</span>
 				</div>
 			</div>
 			<footer class="s-footer">

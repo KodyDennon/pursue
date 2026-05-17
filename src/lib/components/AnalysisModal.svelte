@@ -80,7 +80,7 @@
 		let unlisten: UnlistenFn;
 		logger.debug('[AnalysisModal] Mounted, listening for progress...');
 
-		listen<AnalysisProgress>('analysis-progress', (event) => {
+		listen<AnalysisProgress & { step?: string; engine?: string }>('analysis-progress', (event) => {
 			const payload = event.payload;
 			logger.debug('[AnalysisModal] Progress Event:', payload.status, payload);
 
@@ -140,10 +140,14 @@
 			} else if (payload.status === 'starting' || payload.status === 'processing') {
 				addLog(`Processing record: ${currentRecordId?.substring(0, 8)}...`, 'info');
 			} else if (payload.status === 'extracting-foundation') {
-				if (status !== 'extracting-foundation') {
+				if (payload.step) {
+					addLog(`OCR Trace: ${payload.step}`, 'info');
+				} else if (status !== 'extracting-foundation') {
 					addLog(`OCR Phase: Extracting foundation data...`, 'info');
 					status = 'extracting-foundation';
 				}
+			} else if (payload.status === 'foundation-indexed') {
+				addLog(`Foundation captured via ${payload.engine}.`, 'success');
 			} else if (payload.status === 'indexing-vector') {
 				if (status !== 'indexing-vector') {
 					const chunkCount = payload.chunk_count ? ` (${payload.chunk_count} chunks)` : '';

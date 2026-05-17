@@ -13,7 +13,11 @@ impl OcrEngine {
     }
 
     /// Pure Rust cross-platform OCR fallback using 'ocrs' crate
-    pub async fn extract_text_fallback<P: AsRef<Path>>(&self, image_path: P) -> Result<String> {
+    pub async fn extract_text_fallback<P: AsRef<Path>>(
+        &self,
+        _app: &tauri::AppHandle,
+        image_path: P,
+    ) -> Result<String> {
         let engine = self.get_or_init_engine()?;
 
         // Load image using 'image' crate

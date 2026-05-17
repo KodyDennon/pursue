@@ -301,10 +301,10 @@ pub async fn cleanup_duplicates(state: State<'_, AppState>) -> Result<usize, Str
 
     let duplicates = sqlx::query(
         r#"
-        SELECT document_url, COUNT(*) as c
+        SELECT title, document_url, COUNT(*) as c
         FROM records
         WHERE document_url IS NOT NULL AND source_type = 'official'
-        GROUP BY document_url
+        GROUP BY title, document_url
         HAVING c > 1
         "#,
     )
@@ -315,11 +315,13 @@ pub async fn cleanup_duplicates(state: State<'_, AppState>) -> Result<usize, Str
     let mut removed = 0;
     for dup in duplicates {
         use sqlx::Row;
+        let title: String = dup.get("title");
         let url: String = dup.get("document_url");
 
         let mut group = sqlx::query(
-            "SELECT id, analysis_status, stable_key FROM records WHERE document_url = ?",
+            "SELECT id, analysis_status, stable_key FROM records WHERE title = ? AND document_url = ?",
         )
+        .bind(&title)
         .bind(&url)
         .fetch_all(&pool)
         .await
@@ -354,6 +356,49 @@ pub async fn cleanup_duplicates(state: State<'_, AppState>) -> Result<usize, Str
                 .map_err(to_error)?;
             removed += 1;
         }
+    }
+
+    Ok(removed)
+}
+
+#[tauri::command]
+pub async fn cleanup_poisoned_artifacts(state: State<'_, AppState>) -> Result<usize, String> {
+    let pool = state.db.clone();
+    let library = state.library.clone();
+
+    // Identify artifacts < 1KB (likely 403 error pages)
+    let poisoned = sqlx::query(
+        "SELECT relative_path FROM artifacts WHERE byte_size < 1024 AND source_type = 'official'"
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(to_error)?;
+
+    let mut removed = 0;
+    for row in poisoned {
+        let path: String = row.get("relative_path");
+        let full_path = library.get_full_path(&path);
+        
+        // Reset record
+        sqlx::query("UPDATE records SET local_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE local_path = ?")
+            .bind(&path)
+            .execute(&pool)
+            .await
+            .map_err(to_error)?;
+
+        // Delete artifact record
+        sqlx::query("DELETE FROM artifacts WHERE relative_path = ?")
+            .bind(&path)
+            .execute(&pool)
+            .await
+            .map_err(to_error)?;
+
+        // Delete local file
+        if full_path.exists() {
+            let _ = tokio::fs::remove_file(&full_path).await;
+        }
+        
+        removed += 1;
     }
 
     Ok(removed)

@@ -132,11 +132,25 @@
 		busy = 'download';
 		error = null;
 		try {
-			await invoke<DownloadResult>('download_record', { id: record.id });
+			if (!record.document_url) throw new Error('No source URL available');
+
+			// Use the hardened backend proxy to bypass CORS and browser header restrictions
+			const bytes = await invoke<number[]>('proxy_fetch_url', {
+				url: record.document_url
+			});
+
+			await invoke('download_record_with_bytes', {
+				id: record.id,
+				url: record.document_url,
+				bytes: bytes
+			});
+
 			if (onChanged) await onChanged();
 			await loadAnalysis();
+			addToast({ type: 'success', message: 'Evidence retrieved and vaulted.', duration: 3000 });
 		} catch (e) {
 			error = String(e);
+			addToast({ type: 'error', message: `Download failed: ${e}` });
 		} finally {
 			busy = null;
 		}

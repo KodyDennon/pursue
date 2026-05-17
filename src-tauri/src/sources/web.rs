@@ -5,7 +5,9 @@ use std::path::Path;
 use tokio::fs;
 
 pub async fn scrape_and_save(url: &str, output_path: &Path) -> Result<()> {
-    let client = Client::new();
+    let client = Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 PURSUE-Data-Analyzer/0.6.2")
+        .build()?;
     let res = client.get(url).send().await?.text().await?;
     let text = {
         let document = Html::parse_document(&res);

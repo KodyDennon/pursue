@@ -2,8 +2,9 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 
 #[cfg(target_os = "windows")]
-pub async fn extract_text_windows<P: AsRef<Path>>(path: P) -> Result<String> {
+pub async fn extract_text_windows<P: AsRef<Path>>(app: &tauri::AppHandle, path: P) -> Result<String> {
     use anyhow::Context;
+    let _ = app;
     use tokio::process::Command;
 
     let path = path.as_ref().to_path_buf();

@@ -51,34 +51,38 @@ pub struct RecordFilter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CsvRecord {
-    #[serde(rename = "Redaction")]
+    #[serde(rename = "Redaction", default)]
     pub redaction: Option<String>,
-    #[serde(rename = "Release Date")]
+    #[serde(rename = "Release Date", default)]
     pub release_date: Option<String>,
-    #[serde(rename = "Title")]
-    pub title: String,
-    #[serde(rename = "Type")]
+    #[serde(rename = "Title", default)]
+    pub title: Option<String>,
+    #[serde(rename = "Type", default)]
     pub doc_type: Option<String>,
-    #[serde(rename = "Video Pairing")]
+    #[serde(rename = "Video Pairing", default)]
     pub video_pairing: Option<String>,
-    #[serde(rename = "PDF Pairing")]
+    #[serde(rename = "PDF Pairing", default)]
     pub pdf_pairing: Option<String>,
-    #[serde(rename = "Description Blurb")]
+    #[serde(rename = "Description Blurb", default)]
     pub description: Option<String>,
-    #[serde(rename = "DVIDS Video ID")]
+    #[serde(rename = "DVIDS Video ID", default)]
     pub dvids_video_id: Option<String>,
-    #[serde(rename = "Video Title")]
+    #[serde(rename = "Video Title", default)]
     pub video_title: Option<String>,
-    #[serde(rename = "Agency")]
+    #[serde(rename = "Agency", default)]
     pub agency: Option<String>,
-    #[serde(rename = "Incident Date")]
+    #[serde(rename = "Incident Date", default)]
     pub incident_date: Option<String>,
-    #[serde(rename = "Incident Location")]
+    #[serde(rename = "Incident Location", default)]
     pub incident_location: Option<String>,
-    #[serde(rename = "PDF | Image Link")]
+    #[serde(rename = "PDF | Image Link", default)]
     pub document_url: Option<String>,
-    #[serde(rename = "Modal Image")]
+    #[serde(rename = "Modal Image", default)]
     pub modal_image: Option<String>,
+    #[serde(rename = "Image Alt Text", default)]
+    pub image_alt_text: Option<String>,
+    #[serde(rename = "Image VIRIN", default)]
+    pub image_virin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,6 +157,7 @@ pub struct BulkDownloadReport {
 pub struct DatabaseStatus {
     pub app_data_dir: String,
     pub database_path: String,
+    pub database_bytes: i64,
     pub library_path: String,
     pub snapshots_path: String,
     pub exports_path: String,

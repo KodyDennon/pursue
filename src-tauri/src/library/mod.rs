@@ -11,7 +11,7 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::models::DownloadResult;
-use crate::vault::{decrypted_cache_path, VaultCrypto, VaultEncryptionStatus};
+use crate::vault::{VaultCrypto, VaultEncryptionStatus};
 
 #[derive(Clone)]
 pub struct LibraryManager {
@@ -42,11 +42,12 @@ impl LibraryManager {
         let snapshot_path = app_data_dir.join("snapshots");
         let export_path = app_data_dir.join("exports");
         let vault = VaultCrypto::new(&app_data_dir);
+        
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::ACCEPT,
             header::HeaderValue::from_static(
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
             ),
         );
         headers.insert(
@@ -54,12 +55,34 @@ impl LibraryManager {
             header::HeaderValue::from_static("en-US,en;q=0.9"),
         );
         headers.insert(
-            header::REFERER,
-            header::HeaderValue::from_static("https://www.war.gov/"),
+            header::ACCEPT_ENCODING,
+            header::HeaderValue::from_static("gzip, deflate, br, zstd"),
+        );
+        headers.insert(
+            "Priority",
+            header::HeaderValue::from_static("u=0, i"),
+        );
+        headers.insert(
+            "Sec-Ch-Ua",
+            header::HeaderValue::from_static("\"Chromium\";v=\"148\", \"Google Chrome\";v=\"148\", \"Not/A)Brand\";v=\"99\""),
+        );
+        headers.insert(
+            "Sec-Ch-Ua-Mobile",
+            header::HeaderValue::from_static("?0"),
+        );
+        headers.insert(
+            "Sec-Ch-Ua-Platform",
+            header::HeaderValue::from_static("\"macOS\""),
+        );
+        headers.insert(
+            "Upgrade-Insecure-Requests",
+            header::HeaderValue::from_static("1"),
         );
 
         let client = Client::builder()
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
             .default_headers(headers)
+            .cookie_store(true) // Crucial for Akamai sessions
             .build()?;
 
         Ok(Self {
@@ -70,6 +93,10 @@ impl LibraryManager {
             vault,
             client,
         })
+    }
+
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     pub async fn init(&self) -> Result<()> {
@@ -106,40 +133,27 @@ impl LibraryManager {
     }
 
     pub async fn get_readable_artifact_path(&self, relative_path: &str) -> Result<PathBuf> {
-        let encrypted_path = self.get_full_path(relative_path);
-        if !VaultCrypto::is_encrypted_path(&encrypted_path) {
-            return Ok(encrypted_path);
-        }
-
-        let cache_path = decrypted_cache_path(&self.app_data_dir, relative_path);
-        let should_refresh = match (fs::metadata(&encrypted_path).await, fs::metadata(&cache_path).await) {
-            (Ok(encrypted), Ok(cache)) => encrypted.modified().ok() > cache.modified().ok(),
-            (Ok(_), Err(_)) => true,
-            _ => true,
-        };
-        if should_refresh {
-            self.vault.decrypt_file(&encrypted_path, &cache_path).await?;
-        }
-        Ok(cache_path)
+        Ok(self.get_full_path(relative_path))
     }
 
     pub async fn encrypt_generated_asset(&self, relative_path: &str) -> Result<String> {
-        let source_path = self.get_full_path(relative_path);
-        if VaultCrypto::is_encrypted_path(&source_path) {
-            return Ok(relative_path.to_string());
-        }
-
-        let target_relative = format!("{relative_path}.vault");
-        let target_path = self.get_full_path(&target_relative);
-        self.vault.encrypt_file(&source_path, &target_path).await?;
-        let _ = fs::remove_file(source_path).await;
-        Ok(target_relative)
+        // Keeping this for potential future user-generated data, but currently artifacts are plaintext
+        Ok(relative_path.to_string())
     }
 
     pub async fn artifact_plaintext_sha256(&self, relative_path: &str) -> Result<String> {
-        self.vault
-            .sha256_plaintext(&self.get_full_path(relative_path))
-            .await
+        let path = self.get_full_path(relative_path);
+        let mut file = fs::File::open(&path).await?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let n = file.read(&mut buffer).await?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
+        }
+        Ok(hex::encode(hasher.finalize()))
     }
 
     pub fn get_relative_path(&self, absolute_path: &Path) -> Option<String> {
@@ -156,12 +170,12 @@ impl LibraryManager {
         url: &str,
     ) -> Result<DownloadResult> {
         let artifact = self.download_to_library(url).await?;
-        self.attach_artifact(pool, Some(record_id), &artifact, "official")
+        let actual_artifact_id = self.attach_artifact(pool, Some(record_id), &artifact, "official")
             .await?;
 
         Ok(DownloadResult {
             record_id: record_id.to_string(),
-            artifact_id: artifact.artifact_id,
+            artifact_id: actual_artifact_id,
             sha256: artifact.sha256,
             relative_path: artifact.relative_path,
             byte_size: artifact.byte_size,
@@ -198,12 +212,12 @@ impl LibraryManager {
             )
             .await?;
 
-        self.attach_artifact(pool, Some(record_id), &artifact, "official")
+        let actual_artifact_id = self.attach_artifact(pool, Some(record_id), &artifact, "official")
             .await?;
 
         Ok(DownloadResult {
             record_id: record_id.to_string(),
-            artifact_id: artifact.artifact_id,
+            artifact_id: actual_artifact_id,
             sha256: artifact.sha256,
             relative_path: artifact.relative_path,
             byte_size: artifact.byte_size,
@@ -218,7 +232,7 @@ impl LibraryManager {
         path: &Path,
     ) -> Result<IngestedArtifact> {
         let artifact = self.copy_file_to_library(path).await?;
-        self.attach_artifact(pool, Some(record_id), &artifact, "manual")
+        let _ = self.attach_artifact(pool, Some(record_id), &artifact, "manual")
             .await?;
         Ok(artifact)
     }
@@ -229,32 +243,54 @@ impl LibraryManager {
         record_id: Option<&str>,
         artifact: &IngestedArtifact,
         source_type: &str,
-    ) -> Result<()> {
-        sqlx::query(
-            r#"
-            INSERT INTO artifacts (
-                id, record_id, sha256, original_filename, media_type, byte_size,
-                source_url, relative_path, source_type, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(sha256) DO UPDATE SET
-                record_id = COALESCE(excluded.record_id, artifacts.record_id),
-                source_url = COALESCE(excluded.source_url, artifacts.source_url),
-                original_filename = COALESCE(excluded.original_filename, artifacts.original_filename)
-            "#,
+    ) -> Result<String> {
+        // Use a transaction or a careful sequence to handle the conflict and get the ID
+        // ON CONFLICT in SQLite with RETURNING doesn't return the existing row's ID on conflict.
+        // So we try to find it first or use a subquery.
+        
+        let existing_id: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM artifacts WHERE sha256 = ?"
         )
-        .bind(&artifact.artifact_id)
-        .bind(record_id)
         .bind(&artifact.sha256)
-        .bind(&artifact.original_filename)
-        .bind(&artifact.media_type)
-        .bind(artifact.byte_size)
-        .bind(&artifact.source_url)
-        .bind(&artifact.relative_path)
-        .bind(source_type)
-        .bind(now())
-        .execute(pool)
+        .fetch_optional(pool)
         .await?;
+
+        let artifact_id = if let Some(id) = existing_id {
+            // Update existing artifact to point to the new record (or maintain old one)
+            sqlx::query(
+                "UPDATE artifacts SET record_id = COALESCE(?, record_id), source_url = COALESCE(?, source_url) WHERE id = ?"
+            )
+            .bind(record_id)
+            .bind(&artifact.source_url)
+            .bind(&id)
+            .execute(pool)
+            .await?;
+            id
+        } else {
+            // Insert new artifact
+            sqlx::query(
+                r#"
+                INSERT INTO artifacts (
+                    id, record_id, sha256, original_filename, media_type, byte_size,
+                    source_url, relative_path, source_type, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(&artifact.artifact_id)
+            .bind(record_id)
+            .bind(&artifact.sha256)
+            .bind(&artifact.original_filename)
+            .bind(&artifact.media_type)
+            .bind(artifact.byte_size)
+            .bind(&artifact.source_url)
+            .bind(&artifact.relative_path)
+            .bind(source_type)
+            .bind(now())
+            .execute(pool)
+            .await?;
+            artifact.artifact_id.clone()
+        };
 
         if let Some(record_id) = record_id {
             sqlx::query(
@@ -266,7 +302,7 @@ impl LibraryManager {
             .await?;
         }
 
-        Ok(())
+        Ok(artifact_id)
     }
 
     async fn download_to_library(&self, url: &str) -> Result<IngestedArtifact> {
@@ -311,6 +347,14 @@ impl LibraryManager {
             .send()
             .await
             .with_context(|| format!("failed to request {url}"))?;
+
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "download failed with status {}: {}",
+                response.status(),
+                url
+            ));
+        }
 
         let (mut temp_file, byte_size) = if response.status() == reqwest::StatusCode::PARTIAL_CONTENT
         {
@@ -418,8 +462,8 @@ impl LibraryManager {
         if skipped_existing {
             fs::remove_file(&temp_path).await?;
         } else {
-            self.vault.encrypt_file(&temp_path, &final_path).await?;
-            fs::remove_file(&temp_path).await?;
+            // No encryption, just rename the temp file to final destination
+            fs::rename(&temp_path, &final_path).await?;
         }
 
         let relative_path = self
@@ -441,8 +485,8 @@ impl LibraryManager {
     fn path_for_hash(&self, hash: &str, extension: Option<&str>) -> PathBuf {
         let prefix = &hash[0..2];
         let filename = match extension {
-            Some(ext) if !ext.is_empty() => format!("{hash}.{ext}.vault"),
-            _ => format!("{hash}.vault"),
+            Some(ext) if !ext.is_empty() => format!("{hash}.{ext}"),
+            _ => hash.to_string(),
         };
         self.library_path.join(prefix).join(filename)
     }
