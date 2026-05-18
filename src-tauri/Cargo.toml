@@ -66,3 +66,6 @@ objc2-pdf-kit = { version = "0.3", features = ["PDFDocument", "PDFPage"] }
 objc2-core-graphics = { version = "0.3", features = ["CGImage", "CGGeometry"] }
 objc2-app-kit = { version = "0.3", features = ["NSImage"] }
 accelerate-src = "0.3"
+
+[patch.crates-io]
+esaxx-rs = { path = "esaxx-rs-patched" }
