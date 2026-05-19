@@ -104,7 +104,10 @@
 				'extracting-foundation',
 				'indexing-vector',
 				'synthesizing',
-				'loading-model'
+				'loading-model',
+				'batch-planning',
+				'initializing-batch',
+				'foundation-indexed'
 			];
 			if (activeStatuses.includes(payload.status)) {
 				if (!isOpen) isOpen = true;
@@ -121,7 +124,11 @@
 							? 'processing'
 							: payload.status === 'thought'
 								? 'reasoning'
-								: payload.status;
+								: payload.status === 'batch-planning' || payload.status === 'initializing-batch'
+									? 'processing'
+									: payload.status === 'foundation-indexed'
+										? 'indexing-vector'
+										: payload.status;
 				}
 			}
 

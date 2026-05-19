@@ -37,14 +37,22 @@ processor = None
 def load_model():
     global model, processor
     try:
-        logger.info(f"Loading {MODEL_ID} in FP16 precision...")
+        logger.info(f"Loading {MODEL_ID}...")
         processor = AutoProcessor.from_pretrained(MODEL_ID)
-        model = AutoModelForImageTextToText.from_pretrained(
-            MODEL_ID,
-            low_cpu_mem_usage=True,
-            device_map={"": device},
-            dtype=torch.float16 if device != "cpu" else torch.float32,
-        ).eval()
+        if device == "mps":
+            model = AutoModelForImageTextToText.from_pretrained(
+                MODEL_ID,
+                low_cpu_mem_usage=True,
+                torch_dtype=torch.float16,
+            ).eval()
+            model = model.to("mps")
+        else:
+            model = AutoModelForImageTextToText.from_pretrained(
+                MODEL_ID,
+                low_cpu_mem_usage=True,
+                device_map={"": device},
+                torch_dtype=torch.float16 if device != "cpu" else torch.float32,
+            ).eval()
         logger.info("Neural Engine ready.")
     except Exception as e:
         logger.error(f"Failed to load neural engine: {e}")
@@ -98,11 +106,19 @@ async def ocr(request: OCRRequest):
             import gc
             full_text = []
             doc = fitz.open(request.image_path)
+            
+            # WORKAROUND: Remove broken StructTreeRoot to prevent get_pixmap hang on corrupt PDFs
+            try:
+                cat = doc.pdf_catalog()
+                doc.xref_set_key(cat, "StructTreeRoot", "null")
+            except Exception as e:
+                logger.warning(f"Could not remove StructTreeRoot: {e}")
+
             for page_num in range(len(doc)):
                 logger.info(f"Rendering PDF page {page_num + 1}/{len(doc)}")
                 page = doc.load_page(page_num)
-                # 300 DPI is usually sufficient for good OCR, balance with VRAM
-                pix = page.get_pixmap(dpi=300)
+                # 150 DPI is optimal for GOT-OCR-2.0 (it resizes to 1024x1024 anyway)
+                pix = page.get_pixmap(dpi=150)
                 image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 text = process_image(image)
                 full_text.append(text)

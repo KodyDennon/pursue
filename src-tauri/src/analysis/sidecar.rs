@@ -74,6 +74,30 @@ struct OCRResponse {
     text: String,
 }
 
+fn is_port_in_use(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_err()
+}
+
+#[cfg(target_os = "windows")]
+async fn kill_port_owner(port: u16) {
+    if let Ok(output) = tokio::process::Command::new("cmd")
+        .args(&["/C", &format!("for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :{}') do taskkill /F /PID %a", port)])
+        .output()
+        .await {
+        tauri_plugin_log::log::info!("Killed orphaned process on port {}: {:?}", port, String::from_utf8_lossy(&output.stdout));
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+async fn kill_port_owner(port: u16) {
+    if let Ok(output) = tokio::process::Command::new("sh")
+        .args(&["-c", &format!("lsof -t -i:{} | xargs kill -9", port)])
+        .output()
+        .await {
+        tauri_plugin_log::log::info!("Killed orphaned process on port {}: {:?}", port, String::from_utf8_lossy(&output.stdout));
+    }
+}
+
 pub struct VisionSidecar {
     client: Client,
     port: u16,
@@ -85,7 +109,7 @@ impl VisionSidecar {
     pub fn new() -> Self {
         Self {
             client: Client::builder()
-                .timeout(Duration::from_secs(300)) // Long timeout for large OCR tasks
+                .timeout(Duration::from_secs(1800)) // Long timeout (30 mins) for extremely large documents
                 .build()
                 .unwrap(),
             port: 8374,
@@ -98,6 +122,14 @@ impl VisionSidecar {
         let mut child_guard = self.child.lock().await;
         if child_guard.is_some() {
             return Ok(());
+        }
+
+        // Check if sidecar is already running (e.g., from an orphaned process)
+        if is_port_in_use(self.port) {
+            tauri_plugin_log::log::warn!("Port {} is already in use. Killing orphaned process...", self.port);
+            kill_port_owner(self.port).await;
+            // Sleep briefly to let the OS release the socket
+            tokio::time::sleep(Duration::from_millis(1000)).await;
         }
 
         let port_str = self.port.to_string();
