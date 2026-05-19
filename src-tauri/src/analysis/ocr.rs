@@ -1,18 +1,18 @@
-use anyhow::{anyhow, Result};
-use ocrs::OcrEngine as NativeOcr;
+use anyhow::Result;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::Arc;
+use crate::analysis::sidecar::VisionSidecar;
 
-static OCR_INSTANCE: OnceLock<NativeOcr> = OnceLock::new();
-
-pub struct OcrEngine;
+pub struct OcrEngine {
+    vision: Arc<VisionSidecar>,
+}
 
 impl OcrEngine {
-    pub fn new() -> Self {
-        Self
+    pub fn new(vision: Arc<VisionSidecar>) -> Self {
+        Self { vision }
     }
 
-    /// Pure Rust cross-platform OCR fallback using 'ocrs' crate
+    /// Neural vision OCR using GOT-OCR-2.0 sidecar
     pub async fn extract_text_fallback<P: AsRef<Path>>(
         &self,
         _app: &tauri::AppHandle,
@@ -29,7 +29,7 @@ impl OcrEngine {
             return self.extract_pdf_via_images(_app, path).await;
         }
 
-        self.extract_image_text(path)
+        self.extract_image_text(path).await
     }
 
     async fn extract_pdf_via_images(
@@ -47,7 +47,7 @@ impl OcrEngine {
 
         for (filename, _) in images {
             let img_path = temp_dir.join(filename);
-            if let Ok(text) = self.extract_image_text(&img_path) {
+            if let Ok(text) = self.extract_image_text(&img_path).await {
                 full_text.push_str(&text);
                 full_text.push_str("\n--- PAGE BREAK ---\n");
             }
@@ -59,40 +59,8 @@ impl OcrEngine {
         Ok(full_text)
     }
 
-    fn extract_image_text(&self, image_path: &Path) -> Result<String> {
-        let engine = self.get_or_init_engine()?;
-
-        // Load image using 'image' crate
-        let img = image::open(image_path)?;
-        let img = img.to_rgb8();
-        let (width, height) = img.dimensions();
-
-        // Convert to ocrs input format
-        let layout_input = ocrs::ImageSource::from_bytes(img.as_raw(), (width, height))
-            .map_err(|e| anyhow!("failed to prepare OCR input: {:?}", e))?;
-
-        // Prepare OcrInput
-        let input = engine
-            .prepare_input(layout_input)
-            .map_err(|e| anyhow!("failed to prepare OCR input: {:?}", e))?;
-
-        let res = engine
-            .get_text(&input)
-            .map_err(|e| anyhow!("OCR extraction failed: {:?}", e))?;
-
-        Ok(res)
-    }
-
-    fn get_or_init_engine(&self) -> Result<&NativeOcr> {
-        if let Some(engine) = OCR_INSTANCE.get() {
-            return Ok(engine);
-        }
-
-        // Note: ocrs requires models (detection and recognition)
-        // We'll bail for now as this is a fallback.
-        Err(anyhow!(
-            "Bundled OCR engine models missing. Reverting to OS-native OCR."
-        ))
+    async fn extract_image_text(&self, image_path: &Path) -> Result<String> {
+        self.vision.extract_text(image_path).await
     }
 
     pub fn analyze_redactions(&self, image_path: &Path) -> Result<f32> {

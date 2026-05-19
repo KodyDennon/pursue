@@ -3,14 +3,11 @@ pub mod extraction;
 pub mod gemma4;
 pub mod indexer;
 pub mod model_manager;
-#[cfg(target_os = "macos")]
-pub mod native_macos;
-#[cfg(target_os = "windows")]
-pub mod native_windows;
 pub mod ocr;
 pub mod pdf;
 pub mod persistence;
 pub mod registry;
+pub mod sidecar;
 pub mod thumbnails;
 
 use anyhow::{anyhow, Result};
@@ -28,6 +25,7 @@ use crate::analysis::extraction::{ExtractionConfig, IntelligenceExtractor};
 use crate::analysis::indexer::TextExtractor;
 use crate::analysis::model_manager::ModelManager;
 use crate::analysis::persistence::PersistenceManager;
+use crate::analysis::sidecar::VisionSidecar;
 use crate::db::records;
 use crate::library::LibraryManager;
 use crate::models::{AnalysisReport, EntityHit, RecordAsset};
@@ -50,11 +48,13 @@ pub struct AnalysisManager {
     // SERIALIZED WRITER: SQLite only allows one writer at a time.
     // We use a semaphore to ensure only one thread enters the persistence phase.
     write_semaphore: Arc<Semaphore>,
+    pub vision: Arc<VisionSidecar>,
 }
 
 impl AnalysisManager {
     pub fn new(db: SqlitePool, library: Arc<LibraryManager>) -> Self {
-        let ocr = OcrEngine::new();
+        let vision = Arc::new(VisionSidecar::new());
+        let ocr = OcrEngine::new(vision.clone());
         let pdf = PdfAnalyzer::new();
         Self {
             db: db.clone(),
@@ -66,6 +66,7 @@ impl AnalysisManager {
             thumbnails: ThumbnailManager::new(),
             is_analyzing: Arc::new(AtomicBool::new(false)),
             write_semaphore: Arc::new(Semaphore::new(1)),
+            vision,
         }
     }
 
@@ -79,6 +80,10 @@ impl AnalysisManager {
 
     pub async fn provision_models(&self, app: &tauri::AppHandle) -> Result<()> {
         info!("Starting background model provisioning...");
+        
+        // Start Vision Sidecar (GOT-OCR-2.0)
+        let _ = self.vision.start(app).await;
+
         let registry = registry::get_model_registry();
         let specs = get_hardware_specs();
 

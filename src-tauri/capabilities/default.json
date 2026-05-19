@@ -10,6 +10,20 @@
 		"opener:allow-open-url",
 		"dialog:default",
 		"fs:default",
-		"shell:default"
+		"shell:default",
+		{
+			"identifier": "shell:allow-execute",
+			"preference": {
+				"cmd": "python3",
+				"args": true
+			}
+		},
+		{
+			"identifier": "shell:allow-execute",
+			"preference": {
+				"cmd": "got-ocr",
+				"sidecar": true
+			}
+		}
 	]
 }

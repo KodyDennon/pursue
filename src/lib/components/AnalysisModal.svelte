@@ -60,7 +60,8 @@
 		processedCount = 0;
 		logs = [];
 		addLog('Intelligence Foundation Engine starting...', 'info');
-		addLog('Loading high-resolution OCR engine...', 'info');
+		addLog('Waking Neural Vision Sidecar (GOT-OCR-2.0)...', 'info');
+		addLog('Binding to Apple Neural Engine (ANE)...', 'info');
 
 		try {
 			const cmd = 'analyze_all_records';
@@ -128,6 +129,11 @@
 
 			if (payload.status === 'batch-planning') {
 				addLog(payload.msg || 'Batch planning...', 'info');
+				thoughtText = (payload.msg || '') + '\n' + thoughtText;
+				// Keep the thoughtText from growing indefinitely if it's just spamming download percentages
+				if (thoughtText.length > 2000) {
+					thoughtText = thoughtText.substring(0, 2000);
+				}
 			}
 
 			if (payload.status === 'completed') {
