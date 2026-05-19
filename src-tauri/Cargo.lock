@@ -5039,6 +5039,7 @@ dependencies = [
  "log",
  "lopdf",
  "miniz_oxide 0.9.1",
+ "num_cpus",
  "objc2",
  "objc2-app-kit",
  "objc2-core-graphics",

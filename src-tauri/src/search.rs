@@ -45,10 +45,15 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
         return Ok(session);
     }
 
-    // Initialize ORT environment for full transparency
+    // HARDWARE ACCELERATION: Enable Apple Neural Engine (CoreML) for maximum throughput.
+    // We attempt to register CoreML first, then fall back to CPU.
     let _ = ort::init()
         .with_name("pursue-embeddings")
-        .with_execution_providers([ort::execution_providers::CPUExecutionProvider::default().build()])
+        .with_execution_providers([
+            #[cfg(target_os = "macos")]
+            ort::execution_providers::CoreMLExecutionProvider::default().build(),
+            ort::execution_providers::CPUExecutionProvider::default().build(),
+        ])
         .commit();
 
     let path = get_models_dir().join("bge-small-en-v1.5.onnx");
@@ -58,6 +63,8 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
 
     let session = Session::builder()
         .map_err(|e| anyhow::anyhow!("failed to create ort session builder: {}", e))?
+        .with_intra_threads(1)
+        .map_err(|e| anyhow::anyhow!("failed to set threads: {}", e))?
         .commit_from_file(path)
         .map_err(|e| anyhow::anyhow!("failed to load embedding model: {}", e))?;
 

@@ -36,6 +36,7 @@ use self::ocr::OcrEngine;
 use self::pdf::PdfAnalyzer;
 use self::thumbnails::ThumbnailManager;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::Semaphore;
 
 pub struct AnalysisManager {
     db: SqlitePool,
@@ -46,6 +47,9 @@ pub struct AnalysisManager {
     models: ModelManager,
     thumbnails: ThumbnailManager,
     is_analyzing: Arc<AtomicBool>,
+    // SERIALIZED WRITER: SQLite only allows one writer at a time.
+    // We use a semaphore to ensure only one thread enters the persistence phase.
+    write_semaphore: Arc<Semaphore>,
 }
 
 impl AnalysisManager {
@@ -61,6 +65,7 @@ impl AnalysisManager {
             models: ModelManager::new(&library),
             thumbnails: ThumbnailManager::new(),
             is_analyzing: Arc::new(AtomicBool::new(false)),
+            write_semaphore: Arc::new(Semaphore::new(1)),
         }
     }
 
@@ -194,7 +199,12 @@ impl AnalysisManager {
             }),
         );
 
-        // 2. Asset Extraction
+        // 2. Persistence & Asset Extraction
+        // ACQUIRE WRITE PERMIT: We serialize the database writing phase to prevent 'database is locked' errors.
+        // OCR and rendering (the slow parts) were done above in parallel.
+        let _permit = self.write_semaphore.acquire().await?;
+        info!("[Analysis] Persistence permit acquired for {}. Saving results...", record_id);
+
         let asset_dir = self.library.get_full_path(&format!("assets/{}", record_id));
         fs::create_dir_all(&asset_dir).await?;
         let thumb_name = "thumb_main.png";
@@ -241,7 +251,6 @@ impl AnalysisManager {
             }
         }
 
-        // 3. Persistence
         info!("[Analysis] Persisting foundation for {}: entities and chunks...", record_id);
         let entities = extract_entities(&text);
         self.persistence
@@ -252,8 +261,6 @@ impl AnalysisManager {
             .persistence
             .persist_chunks(record_id, &record.title, &text, &entities)
             .await?;
-
-        info!("[Analysis] Foundation secured for {}: {} semantic associations mapped.", record_id, chunks_indexed);
 
         // Raw OCR storage for synthesis phase
         sqlx::query(
@@ -281,7 +288,10 @@ impl AnalysisManager {
         .execute(&self.db)
         .await?;
 
+        info!("[Analysis] Foundation secured for {}: {} semantic associations mapped.", record_id, chunks_indexed);
         info!("[Analysis] Syncing intelligence graph for record {}... Done.", record_id);
+
+        drop(_permit); // Release the database write lock
 
         Ok(AnalysisReport {
             record_id: record_id.to_string(),

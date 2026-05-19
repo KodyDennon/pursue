@@ -214,62 +214,78 @@ pub async fn analyze_all_records(
     let handle = app_handle.clone();
     let analysis = state.analysis.clone();
 
-    // DECOUPLING STRATEGY: Batch processing ONLY performs the Foundation phase (OCR/Vector).
-    // Deep Intelligence (Gemma) is resource-intensive and is reserved for single-record analysis.
+    // RECORD PARALLELISM: Process up to 4 records concurrently.
+    // This maximizes throughput by overlapping OCR (NPU/GPU) with Vectorization (ANE)
+    // and Database I/O.
     tauri::async_runtime::spawn(async move {
+        use futures::stream::StreamExt;
         use sqlx::Row;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
-        for (idx, row) in records.into_iter().enumerate() {
-            let id: String = row.get("id");
-            let current_idx = idx + 1;
+        let processed_count = Arc::new(AtomicUsize::new(0));
+        let total_count = count;
 
-            // Emit foundation start
-            let _ = handle.emit(
-                "analysis-progress",
-                serde_json::json!({
-                    "current": current_idx,
-                    "total": count,
-                    "status": "extracting-foundation",
-                    "record_id": id
-                }),
-            );
+        futures::stream::iter(records)
+            .map(|row| {
+                let id: String = row.get("id");
+                let handle = handle.clone();
+                let analysis = analysis.clone();
+                let processed = processed_count.clone();
 
-            // 1. Foundation Phase (OCR / Vectorization)
-            // MANDATORY PIXEL OCR: force_ocr set to true
-            if let Err(e) = analysis
-                .index_record(&handle, &id, true, current_idx, count)
-                .await
-            {
-                let _ = handle.emit(
-                    "analysis-progress",
-                    serde_json::json!({
-                        "status": "record-failed",
-                        "record_id": id,
-                        "current": current_idx,
-                        "total": count,
-                        "error": format!("Foundation failed: {}", e)
-                    }),
-                );
-                continue;
-            }
+                async move {
+                    let current_idx = processed.fetch_add(1, Ordering::SeqCst) + 1;
 
-            // Success for this record
-            let _ = handle.emit(
-                "analysis-progress",
-                serde_json::json!({
-                    "current": current_idx,
-                    "total": count,
-                    "status": "record-completed",
-                    "record_id": id
-                }),
-            );
-        }
+                    // Emit foundation start
+                    let _ = handle.emit(
+                        "analysis-progress",
+                        serde_json::json!({
+                            "current": current_idx,
+                            "total": total_count,
+                            "status": "extracting-foundation",
+                            "record_id": id
+                        }),
+                    );
+
+                    // 1. Foundation Phase (OCR / Vectorization)
+                    if let Err(e) = analysis
+                        .index_record(&handle, &id, true, current_idx, total_count)
+                        .await
+                    {
+                        let _ = handle.emit(
+                            "analysis-progress",
+                            serde_json::json!({
+                                "status": "record-failed",
+                                "record_id": id,
+                                "current": current_idx,
+                                "total": total_count,
+                                "error": format!("Foundation failed: {}", e)
+                            }),
+                        );
+                    } else {
+                        // Success for this record
+                        let _ = handle.emit(
+                            "analysis-progress",
+                            serde_json::json!({
+                                "current": current_idx,
+                                "total": total_count,
+                                "status": "record-completed",
+                                "record_id": id
+                            }),
+                        );
+                    }
+                    Ok::<(), String>(())
+                }
+            })
+            .buffer_unordered(std::cmp::max(2, num_cpus::get() / 2)) // Dynamic Hardware-Aware Parallelism
+            .collect::<Vec<_>>()
+            .await;
 
         let _ = handle.emit(
             "analysis-progress",
             serde_json::json!({
-                "current": count,
-                "total": count,
+                "current": total_count,
+                "total": total_count,
                 "status": "completed",
                 "record_id": null
             }),
@@ -327,58 +343,74 @@ pub async fn reprocess_all_records(
     let handle = app_handle.clone();
     let analysis = state.analysis.clone();
 
-    // TRIGGER FORCED OCR LOOP
+    // RECORD PARALLELISM: Concurrent re-audit loop.
     tauri::async_runtime::spawn(async move {
+        use futures::stream::StreamExt;
         use sqlx::Row;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
-        for (idx, row) in records.into_iter().enumerate() {
-            let id: String = row.get("id");
-            let current_idx = idx + 1;
+        let processed_count = Arc::new(AtomicUsize::new(0));
+        let total_count = count;
 
-            let _ = handle.emit(
-                "analysis-progress",
-                serde_json::json!({
-                    "current": current_idx,
-                    "total": count,
-                    "status": "extracting-foundation",
-                    "record_id": id
-                }),
-            );
+        futures::stream::iter(records)
+            .map(|row| {
+                let id: String = row.get("id");
+                let handle = handle.clone();
+                let analysis = analysis.clone();
+                let processed = processed_count.clone();
 
-            // MANDATORY PIXEL OCR: force_ocr set to true
-            if let Err(e) = analysis
-                .index_record(&handle, &id, true, current_idx, count)
-                .await
-            {
-                let _ = handle.emit(
-                    "analysis-progress",
-                    serde_json::json!({
-                        "status": "record-failed",
-                        "record_id": id,
-                        "current": current_idx,
-                        "total": count,
-                        "error": format!("Forced OCR failed: {}", e)
-                    }),
-                );
-                continue;
-            }
+                async move {
+                    let current_idx = processed.fetch_add(1, Ordering::SeqCst) + 1;
 
-            let _ = handle.emit(
-                "analysis-progress",
-                serde_json::json!({
-                    "current": current_idx,
-                    "total": count,
-                    "status": "record-completed",
-                    "record_id": id
-                }),
-            );
-        }
+                    let _ = handle.emit(
+                        "analysis-progress",
+                        serde_json::json!({
+                            "current": current_idx,
+                            "total": total_count,
+                            "status": "extracting-foundation",
+                            "record_id": id
+                        }),
+                    );
+
+                    // MANDATORY PIXEL OCR: force_ocr set to true
+                    if let Err(e) = analysis
+                        .index_record(&handle, &id, true, current_idx, total_count)
+                        .await
+                    {
+                        let _ = handle.emit(
+                            "analysis-progress",
+                            serde_json::json!({
+                                "status": "record-failed",
+                                "record_id": id,
+                                "current": current_idx,
+                                "total": total_count,
+                                "error": format!("Forced OCR failed: {}", e)
+                            }),
+                        );
+                    } else {
+                        let _ = handle.emit(
+                            "analysis-progress",
+                            serde_json::json!({
+                                "current": current_idx,
+                                "total": total_count,
+                                "status": "record-completed",
+                                "record_id": id
+                            }),
+                        );
+                    }
+                    Ok::<(), String>(())
+                }
+            })
+            .buffer_unordered(4)
+            .collect::<Vec<_>>()
+            .await;
 
         let _ = handle.emit(
             "analysis-progress",
             serde_json::json!({
-                "current": count,
-                "total": count,
+                "current": total_count,
+                "total": total_count,
                 "status": "completed",
                 "record_id": null
             }),

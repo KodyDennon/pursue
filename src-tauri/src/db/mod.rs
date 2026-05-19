@@ -51,7 +51,12 @@ async fn connect_db(db_path: &std::path::Path) -> anyhow::Result<SqlitePool> {
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
         .busy_timeout(std::time::Duration::from_secs(30));
 
-    Ok(SqlitePool::connect_with(options).await?)
+    Ok(sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(10) // Allow more concurrent reads/writes
+        .min_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(30))
+        .connect_with(options)
+        .await?)
 }
 
 async fn initialize_schema(pool: &SqlitePool) -> anyhow::Result<()> {
