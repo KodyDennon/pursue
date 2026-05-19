@@ -18,6 +18,7 @@
 		error?: string;
 		chunk_count?: number;
 		token_text?: string;
+		msg?: string;
 		telemetry?: {
 			input_shape: number[];
 			kv_cache_shape: number[];

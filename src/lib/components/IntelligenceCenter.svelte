@@ -119,6 +119,8 @@
 			if (onAnalyze) onAnalyze();
 			analysisActive = true;
 			analysisProgress = 0;
+			processedCount = 0;
+			totalCount = 0;
 			analysisStatus = 'Scanning for pending audits...';
 			const count = await invoke<number>('analyze_all_records');
 			addToast({
@@ -145,6 +147,8 @@
 			if (onAnalyze) onAnalyze();
 			analysisActive = true;
 			analysisProgress = 0;
+			processedCount = 0;
+			totalCount = 0;
 			analysisStatus = 'Resetting Archive Intelligence...';
 			const count = await invoke<number>('reprocess_all_records');
 			addToast({

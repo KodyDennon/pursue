@@ -1,6 +1,5 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use csv::ReaderBuilder;
-use reqwest::{header, Client};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
@@ -21,117 +20,7 @@ struct ParsedOfficialRecord {
     content_hash: String,
 }
 
-pub async fn sync_official_source(
-    pool: &SqlitePool,
-    library: &LibraryManager,
-) -> Result<SyncReport> {
-    let mut headers = header::HeaderMap::new();
-    headers.insert(
-        header::ACCEPT,
-        header::HeaderValue::from_static(
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        ),
-    );
-    headers.insert(
-        header::ACCEPT_LANGUAGE,
-        header::HeaderValue::from_static("en-US,en;q=0.9"),
-    );
-    headers.insert(
-        header::ACCEPT_ENCODING,
-        header::HeaderValue::from_static("gzip, deflate, br, zstd"),
-    );
-    headers.insert(
-        "Priority",
-        header::HeaderValue::from_static("u=0, i"),
-    );
-    headers.insert(
-        "Sec-Ch-Ua",
-        header::HeaderValue::from_static("\"Chromium\";v=\"148\", \"Google Chrome\";v=\"148\", \"Not/A)Brand\";v=\"99\""),
-    );
-    headers.insert(
-        "Sec-Ch-Ua-Mobile",
-        header::HeaderValue::from_static("?0"),
-    );
-    headers.insert(
-        "Sec-Ch-Ua-Platform",
-        header::HeaderValue::from_static("\"macOS\""),
-    );
-    headers.insert(
-        "Upgrade-Insecure-Requests",
-        header::HeaderValue::from_static("1"),
-    );
 
-    let client = Client::builder()
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
-        .default_headers(headers)
-        .cookie_store(true)
-        .build()?;
-
-    // Step 1: Prime session
-    tauri_plugin_log::log::info!("Priming session at https://www.war.gov/UFO/...");
-    let _ = client.get("https://www.war.gov/UFO/").send().await;
-
-    // Step 2: Fetch CSV with proper referer and same-origin headers
-    let response = client
-        .get(WAR_GOV_CSV_URL)
-        .header(header::REFERER, "https://www.war.gov/UFO/")
-        .header("Sec-Fetch-Dest", "empty")
-        .header("Sec-Fetch-Mode", "cors")
-        .header("Sec-Fetch-Site", "same-origin")
-        .header(header::ACCEPT, "*/*")
-        .send()
-        .await
-        .context("WAR.gov source request failed")?;
-
-    let status = response.status();
-    let content_type = response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
-    
-    if !status.is_success() {
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Could not read body".to_string());
-        tauri_plugin_log::log::error!("WAR.gov sync failed with status {}: {}", status, body);
-        // ... (existing fallback logic)
-        if let Ok(home) = std::env::var("HOME") {
-            let local_path = std::path::PathBuf::from(home)
-                .join("Downloads")
-                .join("uap-csv.csv");
-            if local_path.exists() {
-                tauri_plugin_log::log::info!("Attempting fallback to local CSV: {:?}", local_path);
-                if let Ok(local_bytes) = fs::read(&local_path).await {
-                    return sync_official_source_from_bytes(pool, library, &local_bytes).await;
-                }
-            }
-        }
-
-        return Err(anyhow!(
-            "WAR.gov source returned error status {}: {}",
-            status,
-            body
-        ));
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .context("WAR.gov source body could not be read")?;
-
-    tauri_plugin_log::log::info!(
-        "Received CSV response: status={}, type={}, len={}, prefix={:?}",
-        status,
-        content_type,
-        bytes.len(),
-        String::from_utf8_lossy(&bytes[..bytes.len().min(100)])
-    );
-
-    sync_official_source_from_bytes(pool, library, &bytes).await
-}
 
 pub async fn sync_official_source_from_bytes(
     pool: &SqlitePool,

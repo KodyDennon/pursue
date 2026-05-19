@@ -7,6 +7,7 @@ from PIL import Image
 import uvicorn
 import logging
 import sys
+import fitz  # PyMuPDF
 
 # Configure logging
 logging.basicConfig(
@@ -42,7 +43,7 @@ def load_model():
             MODEL_ID,
             low_cpu_mem_usage=True,
             device_map={"": device},
-            torch_dtype=torch.float16 if device != "cpu" else torch.float32
+            dtype=torch.float16 if device != "cpu" else torch.float32,
         ).eval()
         logger.info("Neural Engine ready.")
     except Exception as e:
@@ -63,6 +64,24 @@ async def health():
         return {"status": "ready", "device": device, "model": MODEL_ID}
     return {"status": "loading"}
 
+def process_image(image: Image.Image) -> str:
+    inputs = processor(image, return_tensors="pt").to(device)
+    generate_ids = model.generate(
+        **inputs,
+        do_sample=False,
+        tokenizer=processor.tokenizer,
+        stop_strings="<|im_end|>",
+        max_new_tokens=4096,
+    )
+    res = processor.decode(generate_ids[0], skip_special_tokens=True)
+    
+    # Parse out the system prompt and return just the assistant's reply
+    if "assistant\n" in res:
+        return res.split("assistant\n")[-1].strip()
+    elif "assistant" in res:
+        return res.split("assistant")[-1].strip()
+    return res.strip()
+
 @app.post("/ocr")
 async def ocr(request: OCRRequest):
     if model is None:
@@ -74,22 +93,25 @@ async def ocr(request: OCRRequest):
     try:
         logger.info(f"Processing neural vision task: {request.image_path}")
         
-        image = Image.open(request.image_path).convert("RGB")
-        inputs = processor(image, return_tensors="pt").to(device)
-
-        # Generate OCR text
-        generate_ids = model.generate(
-            **inputs,
-            do_sample=False,
-            tokenizer=processor.tokenizer,
-            stop_strings="<|im_end|>",
-            max_new_tokens=4096,
-        )
-
-        # Decode output
-        res = processor.decode(generate_ids[0], skip_special_tokens=True)
-        
-        return {"text": res}
+        # Check if PDF
+        if request.image_path.lower().endswith(".pdf"):
+            full_text = []
+            doc = fitz.open(request.image_path)
+            for page_num in range(len(doc)):
+                logger.info(f"Rendering PDF page {page_num + 1}/{len(doc)}")
+                page = doc.load_page(page_num)
+                # 300 DPI is usually sufficient for good OCR, balance with VRAM
+                pix = page.get_pixmap(dpi=300)
+                image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                text = process_image(image)
+                full_text.append(text)
+                full_text.append("\n--- PAGE BREAK ---\n")
+            doc.close()
+            return {"text": "".join(full_text)}
+        else:
+            image = Image.open(request.image_path).convert("RGB")
+            text = process_image(image)
+            return {"text": text}
     except Exception as e:
         logger.error(f"OCR processing failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

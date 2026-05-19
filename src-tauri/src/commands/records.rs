@@ -6,18 +6,11 @@ use crate::models::{
 };
 use crate::sources::war_gov;
 use anyhow::Result;
-use reqwest::header;
+
 use sqlx::{Row, SqlitePool};
 use std::path::Path;
 use tauri::State;
 use uuid::Uuid;
-
-#[tauri::command]
-pub async fn sync_official_source(state: State<'_, AppState>) -> Result<SyncReport, String> {
-    war_gov::sync_official_source(&state.db, &state.library)
-        .await
-        .map_err(to_error)
-}
 
 #[tauri::command]
 pub async fn sync_official_source_with_csv(
@@ -175,53 +168,6 @@ pub async fn update_download_item_status(
     .await
     .map_err(to_error)?;
     Ok(())
-}
-
-#[tauri::command]
-pub async fn proxy_fetch_url(
-    url: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<u8>, String> {
-    let client = state.library.client();
-    
-    // NORMALIZE URL: Handle literal spaces and special characters by using the url crate.
-    // We attempt to parse directly, and if that fails due to characters like spaces,
-    // we attempt a manual escape before passing to reqwest.
-    let target_url = if let Ok(u) = reqwest::Url::parse(&url) {
-        u
-    } else {
-        // Fallback for URLs with literal spaces: %20 encode them.
-        let escaped = url.replace(' ', "%20");
-        reqwest::Url::parse(&escaped).map_err(|e| format!("Invalid source URL syntax: {} (input: {})", e, url))?
-    };
-
-    // Step 1: Prime session if it's an official war.gov URL
-    if url.contains("war.gov") {
-        let _ = client.get("https://www.war.gov/UFO/").send().await;
-    }
-
-    // Step 2: Fetch with high-fidelity headers while preserving client defaults
-    let response = client
-        .get(target_url)
-        .header(header::REFERER, "https://www.war.gov/UFO/")
-        .header("Sec-Fetch-Dest", "empty")
-        .header("Sec-Fetch-Mode", "cors")
-        .header("Sec-Fetch-Site", "same-origin")
-        .header(header::ACCEPT, "*/*")
-        .send()
-        .await
-        .map_err(to_error)?;
-
-    if !response.status().is_success() {
-        return Err(format!("Source server rejected request ({}): {}", response.status(), url));
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(to_error)?;
-
-    Ok(bytes.to_vec())
 }
 
 #[tauri::command]

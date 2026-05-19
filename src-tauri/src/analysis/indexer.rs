@@ -32,8 +32,6 @@ impl TextExtractor {
                 Ok((fs::read_to_string(path).await?, "text-file".to_string()))
             }
             "pdf" | "png" | "jpg" | "jpeg" | "tif" | "tiff" | "bmp" | "webp" => {
-                // UNIVERSAL NEURAL VISION: All visual documents are now routed through
-                // the GOT-OCR-2.0 sidecar for maximum precision.
                 let text = self.ocr.extract_text_fallback(app, path).await?;
                 Ok((text, "neural-vision-got".to_string()))
             }

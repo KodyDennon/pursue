@@ -84,7 +84,12 @@
 			duration: 0
 		});
 		try {
-			await invoke('sync_official_source');
+			const response = await fetch('https://www.war.gov/Portals/1/Interactive/2026/UFO/uap-release001.csv');
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+			}
+			const csvText = await response.text();
+			await invoke('sync_official_source_with_csv', { csv: csvText });
 			const agentSettings = await invoke<{ auto_sync: boolean; auto_analyze: boolean }>(
 				'get_app_settings',
 				{ key: 'ingestion_agent' }

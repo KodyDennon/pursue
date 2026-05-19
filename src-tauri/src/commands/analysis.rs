@@ -328,16 +328,12 @@ pub async fn reprocess_all_records(
         return Ok(0);
     }
 
-    // Clear previous analysis first
-    for row in &records {
-        use sqlx::Row;
-        let id: String = row.get("id");
-        state
-            .analysis
-            .clear_record_analysis(&id)
-            .await
-            .map_err(to_error)?;
-    }
+    // ATOMIC BULK PURGE: Reset the entire archive in one transaction.
+    state
+        .analysis
+        .clear_all_analysis()
+        .await
+        .map_err(to_error)?;
 
     state.analysis.set_busy(true);
     let handle = app_handle.clone();
@@ -402,7 +398,7 @@ pub async fn reprocess_all_records(
                     Ok::<(), String>(())
                 }
             })
-            .buffer_unordered(4)
+            .buffer_unordered(std::cmp::max(2, num_cpus::get() / 2))
             .collect::<Vec<_>>()
             .await;
 

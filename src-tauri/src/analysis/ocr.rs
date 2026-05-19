@@ -19,51 +19,15 @@ impl OcrEngine {
         path: P,
     ) -> Result<String> {
         let path = path.as_ref();
-        let extension = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if extension == "pdf" {
-            return self.extract_pdf_via_images(_app, path).await;
-        }
-
-        self.extract_image_text(path).await
-    }
-
-    async fn extract_pdf_via_images(
-        &self,
-        _app: &tauri::AppHandle,
-        path: &Path,
-    ) -> Result<String> {
-        use crate::analysis::pdf::PdfAnalyzer;
-        let pdf = PdfAnalyzer::new();
-        let temp_dir = std::env::temp_dir().join(format!("pursue_ocr_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp_dir)?;
-
-        let images = pdf.extract_images(path, &temp_dir).await?;
-        let mut full_text = String::new();
-
-        for (filename, _) in images {
-            let img_path = temp_dir.join(filename);
-            if let Ok(text) = self.extract_image_text(&img_path).await {
-                full_text.push_str(&text);
-                full_text.push_str("\n--- PAGE BREAK ---\n");
-            }
-        }
-
-        // Cleanup
-        let _ = std::fs::remove_dir_all(&temp_dir);
-
-        Ok(full_text)
-    }
-
-    async fn extract_image_text(&self, image_path: &Path) -> Result<String> {
-        self.vision.extract_text(image_path).await
+        self.vision.extract_text(path).await
     }
 
     pub fn analyze_redactions(&self, image_path: &Path) -> Result<f32> {
+        let extension = image_path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+        if extension == "pdf" {
+            return Ok(0.0);
+        }
+
         let img = image::open(image_path)?;
         let luma = img.to_luma8();
         let (width, height) = luma.dimensions();

@@ -122,12 +122,16 @@ impl AnalysisManager {
         total: usize,
     ) -> Result<AnalysisReport> {
         info!("Indexing record: {} ({}/{})", record_id, current, total);
+        
+        let permit = self.write_semaphore.acquire().await?;
         sqlx::query(
             "UPDATE records SET analysis_status = 'indexing', analysis_error = NULL WHERE id = ?",
         )
         .bind(record_id)
         .execute(&self.db)
         .await?;
+        drop(permit);
+
         match self
             .index_record_inner(app, record_id, force_ocr, current, total)
             .await
@@ -135,7 +139,9 @@ impl AnalysisManager {
             Ok(report) => Ok(report),
             Err(error) => {
                 let message = error.to_string();
+                let permit = self.write_semaphore.acquire().await?;
                 let _ = sqlx::query("UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?").bind(&message).bind(record_id).execute(&self.db).await;
+                drop(permit);
                 Err(error)
             }
         }
@@ -147,12 +153,18 @@ impl AnalysisManager {
         record_id: &str,
     ) -> Result<AnalysisReport> {
         info!("Synthesizing intelligence for record: {}", record_id);
+
+        let permit = self.write_semaphore.acquire().await?;
         sqlx::query("UPDATE records SET analysis_status = 'synthesizing', analysis_error = NULL WHERE id = ?").bind(record_id).execute(&self.db).await?;
+        drop(permit);
+
         match self.synthesize_intelligence_inner(app, record_id).await {
             Ok(report) => Ok(report),
             Err(error) => {
                 let message = error.to_string();
+                let permit = self.write_semaphore.acquire().await?;
                 let _ = sqlx::query("UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?").bind(&message).bind(record_id).execute(&self.db).await;
+                drop(permit);
                 Err(error)
             }
         }
@@ -355,6 +367,7 @@ impl AnalysisManager {
             .await?;
 
         let intel_str = serde_json::to_string(&intelligence_json)?;
+        let _permit = self.write_semaphore.acquire().await?;
         sqlx::query(
             "UPDATE records SET analysis_status = 'completed', intelligence_json = ? WHERE id = ?",
         )
@@ -362,6 +375,7 @@ impl AnalysisManager {
         .bind(record_id)
         .execute(&self.db)
         .await?;
+        drop(_permit);
 
         self.get_analysis(record_id)
             .await?
@@ -447,6 +461,7 @@ fn add_entity(e: &mut BTreeMap<(String, String), EntityHit>, n: &str, ty: &str, 
 
 impl AnalysisManager {
     pub async fn clear_record_analysis(&self, record_id: &str) -> Result<()> {
+        let _permit = self.write_semaphore.acquire().await?;
         let mut tx = self.db.begin().await?;
 
         sqlx::query("DELETE FROM analysis_results WHERE record_id = ?")
@@ -481,6 +496,36 @@ impl AnalysisManager {
         sqlx::query("UPDATE records SET analysis_status = 'pending', intelligence_json = NULL, redaction_score = NULL WHERE id = ?").bind(record_id).execute(&mut *tx).await?;
 
         tx.commit().await?;
+        drop(_permit);
+        Ok(())
+    }
+
+    pub async fn clear_all_analysis(&self) -> Result<()> {
+        let _permit = self.write_semaphore.acquire().await?;
+        let mut tx = self.db.begin().await?;
+
+        info!("[Analysis] Initiating BULK PURGE of all intelligence data...");
+
+        sqlx::query("DELETE FROM analysis_results").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM vec_analysis_chunks").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM analysis_chunks").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM analysis_chunks_fts").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM record_forensics").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM record_entities").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM intelligence_logs").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM record_assets WHERE asset_type != 'source'").execute(&mut *tx).await?;
+        
+        sqlx::query("UPDATE records SET analysis_status = 'pending', intelligence_json = NULL, redaction_score = NULL")
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        info!("[Analysis] Bulk purge complete. Database neutralized.");
+        
+        // Optional: Vacuum to reclaim space and optimize
+        let _ = sqlx::query("PRAGMA incremental_vacuum").execute(&self.db).await;
+
+        drop(_permit);
         Ok(())
     }
 }
