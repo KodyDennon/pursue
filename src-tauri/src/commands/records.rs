@@ -397,3 +397,37 @@ pub async fn create_download_job(db: &SqlitePool) -> Result<String> {
     .await?;
     Ok(job_id)
 }
+
+#[tauri::command]
+pub async fn proxy_fetch_url(
+    url: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<u8>, String> {
+    let client = state.library.client();
+    
+    if url.contains("war.gov") {
+        let _ = client.get("https://www.war.gov/UFO/").send().await;
+    }
+
+    let response = client
+        .get(&url)
+        .header(reqwest::header::REFERER, "https://www.war.gov/UFO/")
+        .header("Sec-Fetch-Dest", "empty")
+        .header("Sec-Fetch-Mode", "cors")
+        .header("Sec-Fetch-Site", "same-origin")
+        .header(reqwest::header::ACCEPT, "*/*")
+        .send()
+        .await
+        .map_err(to_error)?;
+
+    if !response.status().is_success() {
+        return Err(format!("proxy fetch failed with status {}: {}", response.status(), url));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(to_error)?;
+
+    Ok(bytes.to_vec())
+}

@@ -114,14 +114,10 @@
 					status: 'downloading' 
 				});
 
-				// Encode URL to prevent WebKit TypeError: Load failed on spaces
-				const encodedUrl = encodeURI(item.url);
-				const response = await fetch(encodedUrl);
-				if (!response.ok) {
-					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-				}
-				const arrayBuffer = await response.arrayBuffer();
-				const bytes = Array.from(new Uint8Array(arrayBuffer));
+				// Use the hardened backend proxy to bypass CORS and browser header restrictions
+				const bytes = await invoke<number[]>('proxy_fetch_url', {
+					url: item.url
+				});
 
 				await invoke('ingest_downloaded_bytes', {
 					jobId: activeJobId,

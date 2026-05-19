@@ -175,13 +175,13 @@
 				>
 			</div>
 		{:else}
-			<button class="action-btn" onclick={() => (showWebIngest = true)} title="Web Ingest">
+			<button class="btn-premium" onclick={() => (showWebIngest = true)} title="Web Ingest">
 				<Globe size={16} /> <span>Web</span>
 			</button>
 		{/if}
 
 		<button
-			class="action-btn"
+			class="btn-premium"
 			onclick={onSync}
 			disabled={busy === 'sync'}
 			title="Sync Official Sources"
@@ -194,14 +194,14 @@
 			<span>Sync</span>
 		</button>
 
-		<button class="action-btn" onclick={onAnalyze} title="Neural Deep Scan">
+		<button class="btn-premium" onclick={onAnalyze} title="Neural Deep Scan">
 			<Brain size={16} />
 			<span>Analyze</span>
 		</button>
 
 		<button
-			class="action-btn primary"
-			onclick={importFile}
+			class="btn-premium accent"
+			onclick={() => document.getElementById('local-upload')?.click()}
 			disabled={busy === 'import'}
 			title="Ingest Local File"
 		>
@@ -339,35 +339,6 @@
 	}
 	.icon-action-btn.success {
 		color: var(--accent-success);
-	}
-
-	.action-btn {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 6px 12px;
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		font-size: 12px;
-		font-weight: 600;
-		transition: var(--transition-fast);
-		cursor: pointer;
-		color: var(--text-secondary);
-	}
-
-	.action-btn:hover:not(:disabled) {
-		border-color: var(--accent-primary);
-		color: var(--text-primary);
-	}
-	.action-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-	.action-btn.primary {
-		background: var(--accent-primary);
-		color: #000;
-		border: none;
 	}
 
 	:global(.spin) {

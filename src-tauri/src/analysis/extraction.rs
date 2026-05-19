@@ -337,7 +337,9 @@ impl IntelligenceExtractor {
     }
 
     fn load_context(repo_path: &PathBuf) -> Result<GemmaContext> {
-        let device = if cfg!(target_os = "macos") {
+        let device = if candle_core::utils::cuda_is_available() {
+            candle_core::Device::new_cuda(0).unwrap_or(candle_core::Device::Cpu)
+        } else if candle_core::utils::metal_is_available() {
             candle_core::Device::new_metal(0).unwrap_or(candle_core::Device::Cpu)
         } else {
             candle_core::Device::Cpu

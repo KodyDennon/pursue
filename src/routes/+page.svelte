@@ -273,7 +273,13 @@
 		</div>
 	</div>
 {:else}
-	<div class="os-container" class:blur={initializing}>
+	<div class="ambient-background">
+		<div class="ambient-blob b1"></div>
+		<div class="ambient-blob b2"></div>
+		<div class="ambient-blob b3"></div>
+	</div>
+
+	<div class="os-container glass-panel" class:blur={initializing}>
 		<header class="os-header glass-header">
 			<div class="view-context">
 				<h2 class="view-title">
@@ -410,11 +416,51 @@
 {/if}
 
 <style>
+	.ambient-background {
+		position: fixed;
+		inset: 0;
+		z-index: -1;
+		background: #000;
+		overflow: hidden;
+	}
+
+	.ambient-blob {
+		position: absolute;
+		border-radius: 50%;
+		filter: blur(100px);
+		opacity: 0.4;
+		animation: ambient-drift 20s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	.b1 {
+		top: -10%; left: -10%;
+		width: 50vw; height: 50vw;
+		background: rgba(231, 196, 107, 0.15); /* Accent Primary */
+		animation-delay: 0s;
+	}
+	.b2 {
+		bottom: -20%; right: -10%;
+		width: 60vw; height: 60vw;
+		background: rgba(77, 243, 169, 0.1); /* Accent Success */
+		animation-delay: -5s;
+		animation-duration: 25s;
+	}
+	.b3 {
+		top: 40%; left: 60%;
+		width: 40vw; height: 40vw;
+		background: rgba(243, 77, 77, 0.08); /* Accent Danger */
+		animation-delay: -10s;
+		animation-duration: 30s;
+	}
+
 	.os-container {
 		display: flex;
 		flex-direction: column;
-		height: 100%;
-		width: 100%;
+		height: 96vh;
+		width: 96vw;
+		margin: 2vh auto;
+		border-radius: 16px;
+		overflow: hidden;
 	}
 
 	.os-header {

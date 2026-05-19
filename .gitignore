@@ -148,3 +148,18 @@ src-tauri/check_output*.txt
 
 # Local Netlify folder
 .netlify
+
+# Python environment and cache files
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+ENV/
+.ipynb_checkpoints/
+pip-log.txt
+pip-delete-this-directory.txt
+

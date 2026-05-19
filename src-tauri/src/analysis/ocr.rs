@@ -15,10 +15,13 @@ impl OcrEngine {
     /// Neural vision OCR using GOT-OCR-2.0 sidecar
     pub async fn extract_text_fallback<P: AsRef<Path>>(
         &self,
-        _app: &tauri::AppHandle,
+        app: &tauri::AppHandle,
         path: P,
     ) -> Result<String> {
         let path = path.as_ref();
+        if let Err(e) = self.vision.start(app).await {
+            return Err(anyhow::anyhow!("Failed to initialize Neural Vision Engine: {}", e));
+        }
         self.vision.extract_text(path).await
     }
 

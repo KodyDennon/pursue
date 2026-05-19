@@ -19,6 +19,7 @@
 		chunk_count?: number;
 		token_text?: string;
 		msg?: string;
+		progress?: number;
 		telemetry?: {
 			input_shape: number[];
 			kv_cache_shape: number[];
@@ -42,6 +43,9 @@
 	let logs = $state<LogEntry[]>([]);
 	let thoughtText = $state('');
 	let busy = $state(false);
+	
+	let modelDownloadProgress = $state(0);
+	let modelDownloadMsg = $state('');
 
 	function addLog(msg: string, type: 'info' | 'error' | 'success' = 'info') {
 		const time = new Date().toLocaleTimeString([], {
@@ -99,7 +103,8 @@
 				'thought',
 				'extracting-foundation',
 				'indexing-vector',
-				'synthesizing'
+				'synthesizing',
+				'loading-model'
 			];
 			if (activeStatuses.includes(payload.status)) {
 				if (!isOpen) isOpen = true;
@@ -155,6 +160,13 @@
 				addLog(`Record ${payload.record_id?.substring(0, 8)} failed: ${payload.error}`, 'error');
 			} else if (payload.status === 'starting' || payload.status === 'processing') {
 				addLog(`Processing record: ${currentRecordId?.substring(0, 8)}...`, 'info');
+			} else if (payload.status === 'loading-model') {
+				if (status !== 'loading-model') {
+					status = 'loading-model';
+					addLog('Neural Engine initialization sequence started...', 'info');
+				}
+				modelDownloadProgress = payload.progress ?? modelDownloadProgress;
+				modelDownloadMsg = payload.msg ?? modelDownloadMsg;
 			} else if (payload.status === 'extracting-foundation') {
 				if (payload.step) {
 					addLog(`OCR Trace: ${payload.step}`, 'info');
@@ -203,7 +215,7 @@
 {#if isOpen}
 	<div class="modal-overlay">
 		<div class="analysis-panel glass-panel">
-			<header class="panel-header">
+			<header class="panel-header glass-header">
 				<div class="brand">
 					<Brain size={24} class="accent-icon" />
 					<div>
@@ -294,7 +306,23 @@
 							<span>NEURAL SYNTHESIS STREAM</span>
 						</div>
 						<div class="thought-viewport custom-scrollbar">
-							{#if status === 'synthesizing' || status === 'reasoning'}
+							{#if status === 'loading-model'}
+								<div class="model-loading-container">
+									<Brain size={48} class="accent-icon pulse-brain" />
+									<div class="loading-info">
+										<h4>INITIALIZING NEURAL ENGINE</h4>
+										<p class="custom-scrollbar" style="max-height: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{modelDownloadMsg || 'Allocating tensor blocks...'}</p>
+									</div>
+									{#if modelDownloadProgress > 0}
+									<div class="model-progress-wrap">
+										<div class="model-progress-bg">
+											<div class="model-progress-fill" style="width: {modelDownloadProgress}%"></div>
+										</div>
+										<span class="model-progress-text">{modelDownloadProgress.toFixed(1)}%</span>
+									</div>
+									{/if}
+								</div>
+							{:else if status === 'synthesizing' || status === 'reasoning'}
 								<div class="neural-stream">
 									<span class="cursor">█</span>
 									{thoughtText}
@@ -345,11 +373,8 @@
 		max-width: 900px;
 		height: 100%;
 		max-height: 700px;
-		background: #0a0b0d;
-		border: 1px solid var(--border-subtle);
 		display: flex;
 		flex-direction: column;
-		box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8);
 		overflow: hidden;
 	}
 
@@ -679,5 +704,73 @@
 		to {
 			transform: rotate(360deg);
 		}
+	}
+
+	.model-loading-container {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		gap: 24px;
+		padding: 20px;
+	}
+
+	.pulse-brain {
+		animation: pulse-brain-anim 2s infinite ease-in-out;
+		filter: drop-shadow(0 0 15px rgba(231, 196, 107, 0.4));
+	}
+
+	@keyframes pulse-brain-anim {
+		0%, 100% { transform: scale(1); opacity: 0.8; }
+		50% { transform: scale(1.1); opacity: 1; filter: drop-shadow(0 0 25px rgba(231, 196, 107, 0.8)); }
+	}
+
+	.loading-info h4 {
+		margin: 0 0 8px 0;
+		color: var(--text-primary);
+		font-size: 14px;
+		letter-spacing: 0.1em;
+	}
+
+	.loading-info p {
+		margin: 0;
+		color: var(--text-secondary);
+		font-family: var(--font-mono);
+		font-size: 11px;
+		opacity: 0.7;
+	}
+
+	.model-progress-wrap {
+		width: 100%;
+		max-width: 300px;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.model-progress-bg {
+		flex: 1;
+		height: 6px;
+		background: rgba(255, 255, 255, 0.1);
+		border-radius: 3px;
+		overflow: hidden;
+	}
+
+	.model-progress-fill {
+		height: 100%;
+		background: var(--accent-primary);
+		box-shadow: 0 0 10px var(--accent-primary);
+		transition: width 0.3s ease-out;
+	}
+
+	.model-progress-text {
+		font-family: var(--font-mono);
+		color: var(--accent-primary);
+		font-size: 11px;
+		font-weight: 700;
+		width: 45px;
+		text-align: right;
 	}
 </style>

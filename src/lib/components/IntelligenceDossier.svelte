@@ -342,33 +342,33 @@
 
 		<div class="header-actions">
 			{#if record.document_url}
-				<button class="action-btn" onclick={openSource}>
+				<button class="btn-premium" onclick={openSource}>
 					<ExternalLink size={14} /> Source
 				</button>
 			{/if}
 			{#if record.local_path}
-				<button class="action-btn" onclick={revealLocal} disabled={busy === 'open-path'}>
+				<button class="btn-premium" onclick={revealLocal} disabled={busy === 'open-path'}>
 					<HardDrive size={14} /> Local Artifact
 				</button>
 				
 				{#if record.analysis_status !== 'completed' && record.analysis_status !== 'indexed'}
-					<button class="action-btn primary" onclick={() => runFoundationIndexing()} disabled={!!busy}>
+					<button class="btn-premium accent" onclick={() => runFoundationIndexing()} disabled={!!busy}>
 						<Search size={14} /> Index Foundation
 					</button>
 				{:else}
-					<button class="action-btn" onclick={() => runFoundationIndexing()} disabled={!!busy}>
+					<button class="btn-premium" onclick={() => runFoundationIndexing()} disabled={!!busy}>
 						<Layers size={14} /> Re-Audit Foundation
 					</button>
-					<button class="action-btn primary" onclick={runDeepSynthesis} disabled={!!busy}>
+					<button class="btn-premium accent" onclick={runDeepSynthesis} disabled={!!busy}>
 						<Brain size={14} /> Neural Synthesis
 					</button>
 				{/if}
 				
-				<button class="action-btn" onclick={() => (viewerOpen = true)}>
+				<button class="btn-premium" onclick={() => (viewerOpen = true)}>
 					<Maximize2 size={14} /> View Media
 				</button>
 			{:else}
-				<button class="action-btn primary" onclick={download} disabled={!!busy}>
+				<button class="btn-premium accent" onclick={download} disabled={!!busy}>
 					<Download size={14} /> Download Evidence
 				</button>
 			{/if}
@@ -564,21 +564,21 @@
 						<textarea bind:value={noteBody} rows="5" placeholder="Append forensic observations to case log..."
 						></textarea>
 						<div class="case-actions">
-							<button class="action-btn" onclick={addToCase} disabled={!selectedCaseId || busy === 'case-add'}
+							<button class="btn-premium" onclick={addToCase} disabled={!selectedCaseId || busy === 'case-add'}
 								>Add to Case</button
 							>
 							<button
-								class="action-btn"
+								class="btn-premium"
 								onclick={addNote}
 								disabled={!selectedCaseId || !noteBody.trim() || busy === 'case-note'}>Post Note</button
 							>
 							<button
-								class="action-btn"
+								class="btn-premium"
 								onclick={() => exportCase('markdown')}
 								disabled={!selectedCaseId || busy === 'export-markdown'}>Export MD</button
 							>
 							<button
-								class="action-btn"
+								class="btn-premium"
 								onclick={() => exportCase('html')}
 								disabled={!selectedCaseId || busy === 'export-html'}>Export HTML</button
 							>
@@ -600,7 +600,6 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		background: #050608;
 		color: #fff;
 	}
 
@@ -707,24 +706,7 @@
 		gap: 12px;
 		margin-top: 24px;
 	}
-	.action-btn {
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid var(--border-subtle);
-		color: var(--text-secondary);
-		padding: 8px 16px;
-		border-radius: 6px;
-		font-size: 12px;
-		font-weight: 700;
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		cursor: pointer;
-	}
-	.action-btn.primary {
-		background: var(--accent-primary);
-		color: #000;
-		border: none;
-	}
+
 
 	.alert-banner {
 		margin-top: 20px;

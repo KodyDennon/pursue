@@ -95,6 +95,7 @@ async def ocr(request: OCRRequest):
         
         # Check if PDF
         if request.image_path.lower().endswith(".pdf"):
+            import gc
             full_text = []
             doc = fitz.open(request.image_path)
             for page_num in range(len(doc)):
@@ -106,6 +107,18 @@ async def ocr(request: OCRRequest):
                 text = process_image(image)
                 full_text.append(text)
                 full_text.append("\n--- PAGE BREAK ---\n")
+                
+                # Proactively clean up memory after each page
+                del pix
+                del image
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                elif torch.backends.mps.is_available():
+                    try:
+                        torch.mps.empty_cache()
+                    except:
+                        pass
             doc.close()
             return {"text": "".join(full_text)}
         else:

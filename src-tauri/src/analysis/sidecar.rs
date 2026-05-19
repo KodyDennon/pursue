@@ -9,6 +9,61 @@ use tokio::sync::Mutex;
 
 use tauri::Emitter;
 
+#[cfg(debug_assertions)]
+async fn setup_python_env(app: &tauri::AppHandle, py_dir: &std::path::Path) -> Result<String> {
+    use tokio::process::Command;
+    let venv_dir = py_dir.join("venv");
+    let req_file = py_dir.join("requirements.txt");
+    
+    let python_cmd = if cfg!(windows) {
+        venv_dir.join("Scripts").join("python.exe")
+    } else {
+        venv_dir.join("bin").join("python")
+    };
+
+    if !python_cmd.exists() {
+        let _ = app.emit("analysis-progress", serde_json::json!({
+            "status": "loading-model",
+            "msg": "Creating Python virtual environment..."
+        }));
+
+        let out = Command::new("python3")
+            .arg("-m")
+            .arg("venv")
+            .arg(&venv_dir)
+            .output()
+            .await?;
+            
+        if !out.status.success() {
+            return Err(anyhow!("Failed to create venv: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+
+        let _ = app.emit("analysis-progress", serde_json::json!({
+            "status": "loading-model",
+            "msg": "Installing GOT-OCR-2.0 dependencies (this may take a few minutes)..."
+        }));
+
+        let pip_cmd = if cfg!(windows) {
+            venv_dir.join("Scripts").join("pip.exe")
+        } else {
+            venv_dir.join("bin").join("pip")
+        };
+
+        let out = Command::new(pip_cmd)
+            .arg("install")
+            .arg("-r")
+            .arg(&req_file)
+            .output()
+            .await?;
+
+        if !out.status.success() {
+            return Err(anyhow!("Failed to install dependencies: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+    }
+
+    Ok(python_cmd.to_string_lossy().to_string())
+}
+
 #[derive(Serialize)]
 struct OCRRequest {
     image_path: String,
@@ -23,6 +78,7 @@ pub struct VisionSidecar {
     client: Client,
     port: u16,
     child: Arc<Mutex<Option<CommandChild>>>,
+    ocr_semaphore: tokio::sync::Semaphore,
 }
 
 impl VisionSidecar {
@@ -34,6 +90,7 @@ impl VisionSidecar {
                 .unwrap(),
             port: 8374,
             child: Arc::new(Mutex::new(None)),
+            ocr_semaphore: tokio::sync::Semaphore::new(1),
         }
     }
 
@@ -50,8 +107,11 @@ impl VisionSidecar {
         #[cfg(debug_assertions)]
         let sidecar_cmd = {
             let current_dir = std::env::current_dir()?;
-            let py_script = current_dir.parent().unwrap().join("src-python/main.py");
-            app.shell().command("python3").args(vec![py_script.to_str().unwrap().to_string()])
+            let py_dir = current_dir.parent().unwrap().join("src-python");
+            let py_script = py_dir.join("main.py");
+            
+            let python_exe = setup_python_env(app, &py_dir).await?;
+            app.shell().command(python_exe).args(vec![py_script.to_str().unwrap().to_string()])
         };
 
         #[cfg(not(debug_assertions))]
@@ -67,14 +127,38 @@ impl VisionSidecar {
         let app_clone = app.clone();
         tauri::async_runtime::spawn(async move {
             use tauri_plugin_shell::process::CommandEvent;
+            let mut buffer = String::new();
+
             while let Some(event) = rx.recv().await {
                 match event {
                     CommandEvent::Stdout(data) | CommandEvent::Stderr(data) => {
-                        let msg = String::from_utf8_lossy(&data).trim().to_string();
-                        if !msg.is_empty() {
+                        let chunk = String::from_utf8_lossy(&data);
+                        buffer.push_str(&chunk);
+
+                        while let Some(idx) = buffer.find(|c| c == '\n' || c == '\r') {
+                            let line = buffer[..idx].trim().to_string();
+                            buffer.drain(..=idx); // Remove the line and the newline char
+
+                            if line.is_empty() {
+                                continue;
+                            }
+
+                            if line.contains("%|") || (line.contains("Downloading") && line.contains('%')) {
+                                if let Some(percent_str) = line.split('%').next().and_then(|s| s.split_whitespace().last()) {
+                                    if let Ok(pct) = percent_str.parse::<f64>() {
+                                        let _ = app_clone.emit("analysis-progress", serde_json::json!({
+                                            "status": "loading-model",
+                                            "progress": pct,
+                                            "msg": line
+                                        }));
+                                        continue;
+                                    }
+                                }
+                            }
+
                             let _ = app_clone.emit("analysis-progress", serde_json::json!({
                                 "status": "batch-planning",
-                                "msg": format!("Neural Engine: {}", msg)
+                                "msg": format!("Neural Engine: {}", line)
                             }));
                         }
                     }
@@ -112,6 +196,7 @@ impl VisionSidecar {
     }
 
     pub async fn extract_text(&self, image_path: &std::path::Path) -> Result<String> {
+        let _permit = self.ocr_semaphore.acquire().await?;
         let url = format!("http://127.0.0.1:{}/ocr", self.port);
         let req = OCRRequest {
             image_path: image_path.to_str().ok_or_else(|| anyhow!("invalid path"))?.to_string(),

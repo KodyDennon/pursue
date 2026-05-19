@@ -73,6 +73,7 @@ pub fn run() {
             get_database_status,
             get_record_artifact_path,
             download_record_with_bytes,
+            proxy_fetch_url,
             ingest_downloaded_bytes,
             update_download_item_status,
             download_missing_records,
