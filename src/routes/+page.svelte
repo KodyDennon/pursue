@@ -170,14 +170,18 @@
 				if (idx !== -1) {
 					// Map the event status to the record analysis_status
 					let newStatus = records[idx].analysis_status;
-					if (payload.status === 'extracting-foundation' || payload.status === 'processing') {
+					if (
+						payload.status === 'extracting-foundation' ||
+						payload.status === 'processing' ||
+						payload.status === 'indexing'
+					) {
 						newStatus = 'indexing';
+					} else if (payload.status === 'foundation-indexed') {
+						newStatus = 'indexed';
 					} else if (payload.status === 'analyzing' || payload.status === 'synthesizing') {
 						newStatus = 'synthesizing';
-					} else if (payload.status === 'completed') {
+					} else if (payload.status === 'completed' || payload.status === 'record-completed') {
 						newStatus = 'completed';
-						// Trigger a refresh of this specific record summary if we want more data (like intelligence_json)
-						// but for now, just updating the status is enough to show progress.
 					} else if (payload.status === 'record-failed') {
 						newStatus = 'failed';
 					}

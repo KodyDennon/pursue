@@ -276,6 +276,10 @@ impl IntelligenceExtractor {
             let input_tokens = &tokens[tokens.len() - context_size..];
             let input = Tensor::new(input_tokens, device)?.unsqueeze(0)?;
 
+            // SHAPE TELEMETRY: Capture internal state
+            let input_dims = input.dims().to_vec();
+            let kv_dims = kv_cache[0].k.as_ref().map(|k| k.dims().to_vec()).unwrap_or_default();
+
             let logits = ctx.model.forward(&input, pos, &mut kv_cache)?;
             let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
 
@@ -302,7 +306,12 @@ impl IntelligenceExtractor {
                         "record_id": rid,
                         "token_index": i,
                         "token_limit": 2048,
-                        "token_text": piece_to_emit
+                        "token_text": piece_to_emit,
+                        "telemetry": {
+                            "input_shape": input_dims,
+                            "kv_cache_shape": kv_dims,
+                            "device": format!("{:?}", device)
+                        }
                     }),
                 );
             }

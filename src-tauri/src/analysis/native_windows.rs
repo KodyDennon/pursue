@@ -1,10 +1,22 @@
 use anyhow::{anyhow, Result};
 use std::path::Path;
+use tauri::Emitter;
+use serde_json::json;
 
 #[cfg(target_os = "windows")]
-pub async fn extract_text_windows<P: AsRef<Path>>(app: &tauri::AppHandle, path: P) -> Result<String> {
+pub async fn extract_text_windows<P: AsRef<Path>>(
+    app: &tauri::AppHandle,
+    id: &str,
+    path: P,
+) -> Result<String> {
     use anyhow::Context;
-    let _ = app;
+    
+    let _ = app.emit("analysis-progress", json!({
+        "status": "extracting-foundation",
+        "record_id": id,
+        "step": "Handing off to Windows Media OCR Host..."
+    }));
+
     use tokio::process::Command;
 
     let path = path.as_ref().to_path_buf();
@@ -56,7 +68,7 @@ for ($i = 0; $i -lt $pdfDoc.PageCount; $i++) {
     # Render page to stream (high quality)
     $options = New-Object Windows.Data.Pdf.PdfPageRenderOptions
     # Scale up for better OCR
-    $options.DestinationWidth = $page.Size.Width * 3
+    $options.DestinationWidth = $page.Size.Width * 4
     Await-WinRt ($page.RenderToStreamAsync($stream, $options)) ([System.Void])
     
     $decoder = Await-WinRt ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])

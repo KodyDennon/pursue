@@ -182,11 +182,19 @@ pub async fn proxy_fetch_url(
     url: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<u8>, String> {
-    // Note: In a production app, we might want to track if we've already primed
-    // But visiting the home page once per download job is safe and ensures session cookies.
-    
     let client = state.library.client();
     
+    // NORMALIZE URL: Handle literal spaces and special characters by using the url crate.
+    // We attempt to parse directly, and if that fails due to characters like spaces,
+    // we attempt a manual escape before passing to reqwest.
+    let target_url = if let Ok(u) = reqwest::Url::parse(&url) {
+        u
+    } else {
+        // Fallback for URLs with literal spaces: %20 encode them.
+        let escaped = url.replace(' ', "%20");
+        reqwest::Url::parse(&escaped).map_err(|e| format!("Invalid source URL syntax: {} (input: {})", e, url))?
+    };
+
     // Step 1: Prime session if it's an official war.gov URL
     if url.contains("war.gov") {
         let _ = client.get("https://www.war.gov/UFO/").send().await;
@@ -194,7 +202,7 @@ pub async fn proxy_fetch_url(
 
     // Step 2: Fetch with high-fidelity headers while preserving client defaults
     let response = client
-        .get(&url)
+        .get(target_url)
         .header(header::REFERER, "https://www.war.gov/UFO/")
         .header("Sec-Fetch-Dest", "empty")
         .header("Sec-Fetch-Mode", "cors")
@@ -205,7 +213,7 @@ pub async fn proxy_fetch_url(
         .map_err(to_error)?;
 
     if !response.status().is_success() {
-        return Err(format!("proxy fetch failed with status {}: {}", response.status(), url));
+        return Err(format!("Source server rejected request ({}): {}", response.status(), url));
     }
 
     let bytes = response

@@ -40,8 +40,8 @@ fn default_rope_theta() -> f32 {
 
 #[derive(Clone)]
 pub struct KVCache {
-    k: Option<Tensor>,
-    v: Option<Tensor>,
+    pub k: Option<Tensor>,
+    pub v: Option<Tensor>,
 }
 
 impl KVCache {
@@ -93,7 +93,7 @@ impl Mlp {
 impl Module for Mlp {
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
         // Gemma uses GELU with tanh approximation
-        let x = (self.gate_proj.forward(x)?.gelu_erf()? * self.up_proj.forward(x)?)?;
+        let x = (self.gate_proj.forward(x)?.gelu()? * self.up_proj.forward(x)?)?;
         self.down_proj.forward(&x)
     }
 }

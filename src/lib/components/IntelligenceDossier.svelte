@@ -156,12 +156,12 @@
 		}
 	}
 
-	async function runFoundationIndexing(forceOcr = false) {
+	async function runFoundationIndexing() {
 		busy = 'indexing';
 		error = null;
 		try {
 			if (onAnalyze) onAnalyze();
-			await invoke('index_record', { id: record.id, forceOcr, current: 1, total: 1 });
+			await invoke('index_record', { id: record.id, current: 1, total: 1 });
 			if (onChanged) await onChanged();
 			await loadAnalysis();
 			addToast({ type: 'success', message: 'Foundation Indexed Successfully', duration: 2000 });
@@ -356,8 +356,8 @@
 						<Search size={14} /> Index Foundation
 					</button>
 				{:else}
-					<button class="action-btn" onclick={() => runFoundationIndexing(true)} disabled={!!busy}>
-						<Layers size={14} /> Force Pixel OCR
+					<button class="action-btn" onclick={() => runFoundationIndexing()} disabled={!!busy}>
+						<Layers size={14} /> Re-Audit Foundation
 					</button>
 					<button class="action-btn primary" onclick={runDeepSynthesis} disabled={!!busy}>
 						<Brain size={14} /> Neural Synthesis

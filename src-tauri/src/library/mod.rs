@@ -244,15 +244,13 @@ impl LibraryManager {
         artifact: &IngestedArtifact,
         source_type: &str,
     ) -> Result<String> {
-        // Use a transaction or a careful sequence to handle the conflict and get the ID
-        // ON CONFLICT in SQLite with RETURNING doesn't return the existing row's ID on conflict.
-        // So we try to find it first or use a subquery.
-        
+        let mut tx = pool.begin().await?;
+
         let existing_id: Option<String> = sqlx::query_scalar(
             "SELECT id FROM artifacts WHERE sha256 = ?"
         )
         .bind(&artifact.sha256)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *tx)
         .await?;
 
         let artifact_id = if let Some(id) = existing_id {
@@ -263,7 +261,7 @@ impl LibraryManager {
             .bind(record_id)
             .bind(&artifact.source_url)
             .bind(&id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
             id
         } else {
@@ -287,7 +285,7 @@ impl LibraryManager {
             .bind(&artifact.relative_path)
             .bind(source_type)
             .bind(now())
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
             artifact.artifact_id.clone()
         };
@@ -298,10 +296,11 @@ impl LibraryManager {
             )
             .bind(&artifact.relative_path)
             .bind(record_id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
         }
 
+        tx.commit().await?;
         Ok(artifact_id)
     }
 

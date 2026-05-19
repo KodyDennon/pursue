@@ -464,6 +464,6 @@ pub async fn get_evidence_stats(state: State<'_, AppState>) -> Result<serde_json
         "pending_count": pending_count,
         "indexed_count": indexed_count,
         "completed_count": completed_count,
-        "unanalyzed_count": pending_count + indexed_count
+        "unanalyzed_count": pending_count
     }))
 }

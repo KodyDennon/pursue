@@ -174,9 +174,13 @@ impl AnalysisManager {
                 "total": total
             }),
         );
-        let (text, engine) = self.indexer.extract(_app, &full_path, force_ocr).await?;
+        let (text, engine) = self.indexer.extract(_app, record_id, &full_path, force_ocr).await?;
 
         info!("Foundation captured for {}: used {}", record_id, engine);
+
+        if text.trim().is_empty() {
+            tauri_plugin_log::log::warn!("[Analysis] Foundation extraction for {} resulted in empty text. No semantic chunks will be created.", record_id);
+        }
 
         // ENGINE TRANSPARENCY: Report the specific OCR implementation used
         let _ = _app.emit(
@@ -190,8 +194,6 @@ impl AnalysisManager {
             }),
         );
 
-        sqlx::query("INSERT INTO analysis_results (record_id, ocr_text, status, processed_at) VALUES (?, ?, 'indexed', ?) ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'indexed', processed_at = excluded.processed_at")
-            .bind(record_id).bind(&text).bind(crate::common::now()).execute(&self.db).await?;
         // 2. Asset Extraction
         let asset_dir = self.library.get_full_path(&format!("assets/{}", record_id));
         fs::create_dir_all(&asset_dir).await?;

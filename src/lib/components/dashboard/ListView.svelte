@@ -4,6 +4,7 @@
 	import {
 		FileText,
 		CheckCircle2,
+		ShieldCheck,
 		ExternalLink,
 		Zap,
 		Maximize2,
@@ -47,6 +48,7 @@
 							<div
 								class="status-indicator"
 								class:ready={record.analysis_status === 'completed'}
+								class:indexed={record.analysis_status === 'indexed'}
 								class:pending={record.analysis_status === 'indexing' ||
 									record.analysis_status === 'extracting-foundation'}
 								class:busy={record.analysis_status === 'synthesizing'}
@@ -54,6 +56,8 @@
 							>
 								{#if record.analysis_status === 'completed'}
 									<CheckCircle2 size={12} />
+								{:else if record.analysis_status === 'indexed'}
+									<ShieldCheck size={12} />
 								{:else if record.analysis_status === 'synthesizing'}
 									<Zap size={12} class="spin" />
 								{:else if record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
@@ -194,6 +198,11 @@
 	.status-indicator.ready {
 		background: rgba(77, 243, 169, 0.1);
 		color: var(--accent-success);
+	}
+
+	.status-indicator.indexed {
+		background: rgba(50, 150, 255, 0.1);
+		color: #3296ff;
 	}
 
 	.status-indicator.busy {

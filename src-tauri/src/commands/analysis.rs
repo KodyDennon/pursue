@@ -21,7 +21,7 @@ pub async fn index_record(
     );
     state
         .analysis
-        .index_record(&app_handle, &id, false, 1, 1)
+        .index_record(&app_handle, &id, true, 1, 1)
         .await
         .map_err(to_error)
 }
@@ -66,7 +66,7 @@ pub async fn analyze_record(
     );
     state
         .analysis
-        .index_record(&app_handle, &id, false, 1, 1)
+        .index_record(&app_handle, &id, true, 1, 1)
         .await
         .map_err(to_error)?;
 
@@ -93,7 +93,7 @@ pub async fn index_all_records(
     app_handle: AppHandle,
 ) -> Result<usize, String> {
     let pool = state.db.clone();
-    let records = sqlx::query("SELECT id FROM records WHERE (analysis_status IS NULL OR analysis_status != 'indexed') AND local_path IS NOT NULL")
+    let records = sqlx::query("SELECT id FROM records WHERE (analysis_status IS NULL OR analysis_status NOT IN ('indexed', 'completed')) AND local_path IS NOT NULL")
         .fetch_all(&pool)
         .await
         .map_err(to_error)?;
@@ -175,16 +175,36 @@ pub async fn analyze_all_records(
     );
 
     let pool = state.db.clone();
-    let records = sqlx::query("SELECT id FROM records WHERE (analysis_status IS NULL OR analysis_status != 'completed') AND local_path IS NOT NULL")
+    let total_local = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM records WHERE local_path IS NOT NULL")
+        .fetch_one(&pool)
+        .await
+        .map_err(to_error)? as usize;
+
+    let records = sqlx::query("SELECT id FROM records WHERE (analysis_status IS NULL OR analysis_status NOT IN ('indexed', 'completed')) AND local_path IS NOT NULL")
         .fetch_all(&pool)
         .await
         .map_err(to_error)?;
+
+    let total_records = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM records")
+        .fetch_one(&pool)
+        .await
+        .map_err(to_error)? as usize;
 
     if state.analysis.is_busy() {
         return Err("Analysis already in progress".to_string());
     }
 
     let count = records.len();
+    let remote_count = total_records - total_local;
+
+    let _ = app_handle.emit(
+        "analysis-progress",
+        serde_json::json!({
+            "status": "batch-planning",
+            "msg": format!("Queueing {} pending audits. ({} records skipped; remote source targets).", count, remote_count)
+        }),
+    );
+
     if count == 0 {
         return Ok(0);
     }
@@ -215,8 +235,9 @@ pub async fn analyze_all_records(
             );
 
             // 1. Foundation Phase (OCR / Vectorization)
+            // MANDATORY PIXEL OCR: force_ocr set to true
             if let Err(e) = analysis
-                .index_record(&handle, &id, false, current_idx, count)
+                .index_record(&handle, &id, true, current_idx, count)
                 .await
             {
                 let _ = handle.emit(
@@ -324,7 +345,7 @@ pub async fn reprocess_all_records(
                 }),
             );
 
-            // FORCE PIXEL OCR: force_ocr parameter set to true
+            // MANDATORY PIXEL OCR: force_ocr set to true
             if let Err(e) = analysis
                 .index_record(&handle, &id, true, current_idx, count)
                 .await

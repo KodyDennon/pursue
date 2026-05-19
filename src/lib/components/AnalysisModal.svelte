@@ -18,6 +18,11 @@
 		error?: string;
 		chunk_count?: number;
 		token_text?: string;
+		telemetry?: {
+			input_shape: number[];
+			kv_cache_shape: number[];
+			device: string;
+		};
 	}
 
 	let progress = $state(0);
@@ -25,6 +30,7 @@
 	let currentRecordId = $state<string | null>(null);
 	let processedCount = $state(0);
 	let totalCount = $state(0);
+	let neuralTelemetry = $state<AnalysisProgress['telemetry'] | null>(null);
 	interface LogEntry {
 		id: string;
 		time: string;
@@ -35,7 +41,6 @@
 	let logs = $state<LogEntry[]>([]);
 	let thoughtText = $state('');
 	let busy = $state(false);
-	let forceReprocess = $state(false);
 
 	function addLog(msg: string, type: 'info' | 'error' | 'success' = 'info') {
 		const time = new Date().toLocaleTimeString([], {
@@ -58,8 +63,8 @@
 		addLog('Loading high-resolution OCR engine...', 'info');
 
 		try {
-			const cmd = forceReprocess ? 'reprocess_all_records' : 'analyze_all_records';
-			const count = await invoke<number>(cmd, { forceOcr: forceReprocess });
+			const cmd = 'analyze_all_records';
+			const count = await invoke<number>(cmd);
 			totalCount = count;
 			if (count === 0) {
 				addLog('No pending records found. Archive is already up-to-date.', 'success');
@@ -121,6 +126,10 @@
 				progress = (processedCount / totalCount) * 100;
 			}
 
+			if (payload.status === 'batch-planning') {
+				addLog(payload.msg || 'Batch planning...', 'info');
+			}
+
 			if (payload.status === 'completed') {
 				status = 'completed';
 				busy = false;
@@ -164,6 +173,9 @@
 				}
 				if (payload.token_text) {
 					thoughtText += payload.token_text;
+				}
+				if (payload.telemetry) {
+					neuralTelemetry = payload.telemetry;
 				}
 			}
 		}).then((u) => (unlisten = u));
@@ -249,12 +261,6 @@
 									START BATCH INDEXING
 								{/if}
 							</button>
-							{#if !busy && status !== 'completed'}
-								<label class="reprocess-toggle">
-									<input type="checkbox" bind:checked={forceReprocess} />
-									<span>FORCE PIXEL OCR (RE-AUDIT)</span>
-								</label>
-							{/if}
 						</div>
 					</div>
 				</section>
@@ -286,6 +292,13 @@
 									<span class="cursor">█</span>
 									{thoughtText}
 								</div>
+								{#if neuralTelemetry}
+									<div class="neural-telemetry">
+										<div class="t-row"><span>DEVICE</span> <strong>{neuralTelemetry.device}</strong></div>
+										<div class="t-row"><span>INPUT</span> <strong>{JSON.stringify(neuralTelemetry.input_shape)}</strong></div>
+										<div class="t-row"><span>KV_CACHE</span> <strong>{JSON.stringify(neuralTelemetry.kv_cache_shape)}</strong></div>
+									</div>
+								{/if}
 							{:else}
 								<div class="empty-state">Standby for intelligence synthesis (Dossier Mode only)...</div>
 							{/if}
@@ -500,28 +513,8 @@
 		gap: 12px;
 	}
 
-	.reprocess-toggle {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 10px;
-		font-weight: 800;
-		color: var(--text-tertiary);
-		cursor: pointer;
-		justify-content: center;
-		padding: 4px;
-		transition: color 0.2s;
-	}
-
-	.reprocess-toggle:hover {
-		color: var(--accent-danger);
-	}
-
-	.reprocess-toggle input {
-		accent-color: var(--accent-danger);
-	}
-
 	.info-card.thinking {
+
 		border-color: #f3c46b;
 		background: rgba(243, 196, 107, 0.05);
 		animation: pulse-thought 2s infinite;
@@ -600,6 +593,31 @@
 		color: var(--accent-primary);
 		white-space: pre-wrap;
 		word-break: break-all;
+	}
+
+	.neural-telemetry {
+		margin-top: 20px;
+		padding-top: 20px;
+		border-top: 1px solid rgba(231, 196, 107, 0.1);
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.t-row {
+		display: flex;
+		justify-content: space-between;
+		font-size: 9px;
+		color: var(--text-tertiary);
+		font-family: var(--font-mono);
+	}
+
+	.t-row span {
+		opacity: 0.5;
+	}
+
+	.t-row strong {
+		color: var(--accent-primary);
 	}
 
 	.empty-state {

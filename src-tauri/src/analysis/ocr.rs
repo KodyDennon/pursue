@@ -16,8 +16,50 @@ impl OcrEngine {
     pub async fn extract_text_fallback<P: AsRef<Path>>(
         &self,
         _app: &tauri::AppHandle,
-        image_path: P,
+        path: P,
     ) -> Result<String> {
+        let path = path.as_ref();
+        let extension = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        if extension == "pdf" {
+            return self.extract_pdf_via_images(_app, path).await;
+        }
+
+        self.extract_image_text(path)
+    }
+
+    async fn extract_pdf_via_images(
+        &self,
+        _app: &tauri::AppHandle,
+        path: &Path,
+    ) -> Result<String> {
+        use crate::analysis::pdf::PdfAnalyzer;
+        let pdf = PdfAnalyzer::new();
+        let temp_dir = std::env::temp_dir().join(format!("pursue_ocr_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir)?;
+
+        let images = pdf.extract_images(path, &temp_dir).await?;
+        let mut full_text = String::new();
+
+        for (filename, _) in images {
+            let img_path = temp_dir.join(filename);
+            if let Ok(text) = self.extract_image_text(&img_path) {
+                full_text.push_str(&text);
+                full_text.push_str("\n--- PAGE BREAK ---\n");
+            }
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        Ok(full_text)
+    }
+
+    fn extract_image_text(&self, image_path: &Path) -> Result<String> {
         let engine = self.get_or_init_engine()?;
 
         // Load image using 'image' crate

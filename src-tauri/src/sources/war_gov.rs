@@ -339,6 +339,15 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
             None => continue,
         };
 
+        let document_url = get_field("PDF | Image Link").map(|url| {
+            if let Ok(parsed) = url::Url::parse(&url) {
+                parsed.to_string()
+            } else {
+                // Fallback for URLs with literal spaces: %20 encode them.
+                url.replace(' ', "%20")
+            }
+        });
+
         let csv = CsvRecord {
             redaction: get_field("Redaction"),
             release_date: get_field("Release Date"),
@@ -352,7 +361,7 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
             agency: get_field("Agency"),
             incident_date: get_field("Incident Date"),
             incident_location: get_field("Incident Location"),
-            document_url: get_field("PDF | Image Link"),
+            document_url,
             modal_image: get_field("Modal Image"),
             image_alt_text: get_field("Image Alt Text"),
             image_virin: get_field("Image VIRIN"),

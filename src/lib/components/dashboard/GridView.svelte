@@ -2,7 +2,7 @@
 	import { convertFileSrc } from '@tauri-apps/api/core';
 	import type { RecordSummary } from '$lib/types';
 	import { formatBytes } from '$lib/utils';
-	import { FileText, MapPin, Calendar, CheckCircle2, Clock, Zap, Maximize2, Loader2 } from 'lucide-svelte';
+	import { FileText, MapPin, Calendar, CheckCircle2, ShieldCheck, Clock, Zap, Maximize2, Loader2 } from 'lucide-svelte';
 
 	let {
 		records,
@@ -75,12 +75,15 @@
 					<div
 						class="status-indicator"
 						class:ready={record.analysis_status === 'completed'}
+						class:indexed={record.analysis_status === 'indexed'}
 						class:busy={record.analysis_status === 'synthesizing'}
 						class:pending={record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
 						class:error={record.analysis_status === 'failed'}
 					>
 						{#if record.analysis_status === 'completed'}
 							<CheckCircle2 size={12} />
+						{:else if record.analysis_status === 'indexed'}
+							<ShieldCheck size={12} />
 						{:else if record.analysis_status === 'synthesizing'}
 							<Zap size={12} class="spin" />
 						{:else if record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
@@ -93,9 +96,11 @@
 								? 'FOUNDATION' 
 								: record.analysis_status === 'indexing'
 									? 'INDEXING'
-									: record.analysis_status === 'synthesizing'
-										? 'NEURAL'
-										: record.analysis_status?.toUpperCase() || 'pending'}
+									: record.analysis_status === 'indexed'
+										? 'FOUNDATION'
+										: record.analysis_status === 'synthesizing'
+											? 'NEURAL'
+											: record.analysis_status?.toUpperCase() || 'pending'}
 						</span>
 					</div>
 				</header>
@@ -123,12 +128,15 @@
 					<div
 						class="intel-tag"
 						class:active={record.analysis_status === 'completed'}
+						class:indexed={record.analysis_status === 'indexed'}
 						class:pending={record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
 						class:busy={record.analysis_status === 'synthesizing'}
 						class:error={record.analysis_status === 'failed'}
 					>
 						{#if record.analysis_status === 'completed'}
 							INTELLIGENCE READY
+						{:else if record.analysis_status === 'indexed'}
+							FOUNDATION READY
 						{:else if record.analysis_status === 'synthesizing'}
 							NEURAL SYNTHESIS
 						{:else if record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
@@ -335,6 +343,11 @@
 		color: var(--accent-success);
 	}
 
+	.status-indicator.indexed {
+		background: rgba(50, 150, 255, 0.1);
+		color: #3296ff;
+	}
+
 	.status-indicator.busy {
 		background: rgba(231, 196, 107, 0.1);
 		color: var(--accent-primary);
@@ -412,6 +425,11 @@
 		background: var(--accent-primary);
 		color: #000;
 		box-shadow: 0 0 10px rgba(231, 196, 107, 0.3);
+	}
+
+	.intel-tag.indexed {
+		background: rgba(50, 150, 255, 0.2);
+		color: #3296ff;
 	}
 
 	.intel-tag.busy {

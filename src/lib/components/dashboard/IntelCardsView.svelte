@@ -8,6 +8,7 @@
 		Calendar,
 		Database,
 		CheckCircle2,
+		ShieldCheck,
 		Clock,
 		Zap,
 		Maximize2,
@@ -81,12 +82,15 @@
 							<div
 								class="status"
 								class:ready={record.analysis_status === 'completed'}
+								class:indexed={record.analysis_status === 'indexed'}
 								class:busy={record.analysis_status === 'synthesizing'}
 								class:pending={record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
 								class:error={record.analysis_status === 'failed'}
 							>
 								{#if record.analysis_status === 'completed'}
 									<CheckCircle2 size={10} /> <span>READY</span>
+								{:else if record.analysis_status === 'indexed'}
+									<ShieldCheck size={10} /> <span>FOUNDATION</span>
 								{:else if record.analysis_status === 'synthesizing'}
 									<Zap size={10} class="spin" /> <span>NEURAL</span>
 								{:else if record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
@@ -242,6 +246,11 @@
 	.status.ready {
 		color: var(--accent-success);
 		background: rgba(77, 243, 169, 0.1);
+	}
+
+	.status.indexed {
+		color: #3296ff;
+		background: rgba(50, 150, 255, 0.1);
 	}
 
 	.status.busy {

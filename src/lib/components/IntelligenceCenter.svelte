@@ -120,7 +120,7 @@
 			analysisActive = true;
 			analysisProgress = 0;
 			analysisStatus = 'Scanning for pending audits...';
-			const count = await invoke<number>('analyze_all_records', { forceOcr: false });
+			const count = await invoke<number>('analyze_all_records');
 			addToast({
 				type: 'info',
 				message: `Foundation Indexing initiated for ${count} records.`,
@@ -136,7 +136,7 @@
 		if (analysisActive) return;
 		if (
 			!confirm(
-				'CRITICAL ACTION: This will purge all existing intelligence, OCR results, and forensic summaries and rerun the entire foundation indexing pipeline (FORCED PIXEL OCR). Proceed?'
+				'CRITICAL ACTION: This will purge all existing intelligence, OCR results, and forensic summaries and rerun the entire foundation indexing pipeline. Proceed?'
 			)
 		)
 			return;
@@ -146,7 +146,7 @@
 			analysisActive = true;
 			analysisProgress = 0;
 			analysisStatus = 'Resetting Archive Intelligence...';
-			const count = await invoke<number>('reprocess_all_records', { forceOcr: true });
+			const count = await invoke<number>('reprocess_all_records');
 			addToast({
 				type: 'info',
 				message: `Deep Re-Audit initiated for ${count} records.`,
