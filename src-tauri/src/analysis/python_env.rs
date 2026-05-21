@@ -210,7 +210,6 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
 
                 // Enable site-packages in ._pth file
                 if let Ok(mut entries) = std::fs::read_dir(&py_env_dir) {
-                    use std::io::Read;
                     while let Some(Ok(entry)) = entries.next() {
                         let path = entry.path();
                         if path.extension().and_then(|s| s.to_str()) == Some("_pth") {
