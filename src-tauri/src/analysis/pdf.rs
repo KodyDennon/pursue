@@ -16,6 +16,27 @@ impl PdfAnalyzer {
         Self
     }
 
+    pub async fn extract_text<P: AsRef<Path>>(&self, path: P) -> Result<String> {
+        let path = path.as_ref();
+        let lopdf_text = self.extract_with_lopdf(path).unwrap_or_default();
+        Ok(lopdf_text)
+    }
+
+    fn extract_with_lopdf<P: AsRef<Path>>(&self, path: P) -> Result<String> {
+        let doc = Document::load(path)?;
+        let mut text = String::new();
+
+        for (index, _) in doc.get_pages().iter().enumerate() {
+            let page_number = (index + 1) as u32;
+            if let Ok(page_text) = doc.extract_text(&[page_number]) {
+                text.push_str(&page_text);
+                text.push('\n');
+            }
+        }
+
+        Ok(text)
+    }
+
     pub fn extract_forensics<P: AsRef<Path>>(&self, path: P) -> Result<Vec<ForensicDiscovery>> {
         let doc = Document::load(path)?;
         let mut discoveries = Vec::new();

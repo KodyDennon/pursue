@@ -107,6 +107,16 @@
 			];
 
 			if (ocrStatuses.includes(payload.status)) {
+				if (
+					payload.status === 'initializing-batch' ||
+					(payload.status === 'extracting-foundation' && payload.current === 1)
+				) {
+					logs = [];
+					progress = 0;
+					processedCount = 0;
+					totalCount = 0;
+					currentRecordId = null;
+				}
 				if (!isOpen) {
 					isOpen = true;
 				}

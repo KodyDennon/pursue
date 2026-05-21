@@ -158,12 +158,12 @@
 		}
 	}
 
-	async function runFoundationIndexing() {
+	async function runFoundationIndexing(forceOcr = false) {
 		busy = 'indexing';
 		error = null;
 		try {
 			if (onAnalyze) onAnalyze();
-			await invoke('index_record', { id: record.id, current: 1, total: 1 });
+			await invoke('index_record', { id: record.id, forceOcr, current: 1, total: 1 });
 			if (onChanged) await onChanged();
 			await loadAnalysis();
 			addToast({ type: 'success', message: 'Foundation Indexed Successfully', duration: 2000 });
@@ -354,11 +354,11 @@
 				</button>
 				
 				{#if record.analysis_status !== 'completed' && record.analysis_status !== 'indexed'}
-					<button class="btn-premium accent" onclick={() => runFoundationIndexing()} disabled={!!busy}>
+					<button class="btn-premium accent" onclick={() => runFoundationIndexing(false)} disabled={!!busy}>
 						<Search size={14} /> Index Foundation
 					</button>
 				{:else}
-					<button class="btn-premium" onclick={() => runFoundationIndexing()} disabled={!!busy}>
+					<button class="btn-premium" onclick={() => runFoundationIndexing(true)} disabled={!!busy}>
 						<Layers size={14} /> Re-Audit Foundation
 					</button>
 					<button class="btn-premium accent" onclick={runDeepSynthesis} disabled={!!busy}>

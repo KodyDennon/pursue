@@ -9,14 +9,14 @@ pub mod persistence;
 pub mod registry;
 pub mod sidecar;
 pub mod thumbnails;
+pub mod python_env;
+pub mod entities;
 
 use anyhow::{anyhow, Result};
-use regex::Regex;
 use sqlx::{Row, SqlitePool};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use tauri::Emitter;
-use tauri_plugin_log::log::info;
+use tauri_plugin_log::log::{info, error};
 use tokio::fs;
 use uuid::Uuid;
 
@@ -26,9 +26,11 @@ use crate::analysis::indexer::TextExtractor;
 use crate::analysis::model_manager::ModelManager;
 use crate::analysis::persistence::PersistenceManager;
 use crate::analysis::sidecar::VisionSidecar;
+use crate::analysis::entities::extract_entities;
 use crate::db::records;
+use crate::db::analysis_repo::AnalysisRepository;
 use crate::library::LibraryManager;
-use crate::models::{AnalysisReport, EntityHit, RecordAsset};
+use crate::models::{AnalysisReport, RecordAsset};
 
 use self::ocr::OcrEngine;
 use self::pdf::PdfAnalyzer;
@@ -38,6 +40,7 @@ use tokio::sync::Semaphore;
 
 pub struct AnalysisManager {
     db: SqlitePool,
+    repo: AnalysisRepository,
     library: Arc<LibraryManager>,
     indexer: TextExtractor,
     persistence: PersistenceManager,
@@ -58,6 +61,7 @@ impl AnalysisManager {
         let pdf = PdfAnalyzer::new();
         Self {
             db: db.clone(),
+            repo: AnalysisRepository::new(db.clone()),
             library: library.clone(),
             indexer: TextExtractor::new(ocr, pdf),
             persistence: PersistenceManager::new(db),
@@ -124,12 +128,7 @@ impl AnalysisManager {
         info!("Indexing record: {} ({}/{})", record_id, current, total);
         
         let permit = self.write_semaphore.acquire().await?;
-        sqlx::query(
-            "UPDATE records SET analysis_status = 'indexing', analysis_error = NULL WHERE id = ?",
-        )
-        .bind(record_id)
-        .execute(&self.db)
-        .await?;
+        self.repo.update_analysis_status(record_id, "indexing", None).await?;
         drop(permit);
 
         match self
@@ -137,12 +136,13 @@ impl AnalysisManager {
             .await
         {
             Ok(report) => Ok(report),
-            Err(error) => {
-                let message = error.to_string();
+            Err(e) => {
+                let message = e.to_string();
+                error!("[Analysis] Indexing failed for {}: {}", record_id, message);
                 let permit = self.write_semaphore.acquire().await?;
-                let _ = sqlx::query("UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?").bind(&message).bind(record_id).execute(&self.db).await;
+                let _ = self.repo.update_analysis_status(record_id, "failed", Some(&message)).await;
                 drop(permit);
-                Err(error)
+                Err(e)
             }
         }
     }
@@ -155,17 +155,18 @@ impl AnalysisManager {
         info!("Synthesizing intelligence for record: {}", record_id);
 
         let permit = self.write_semaphore.acquire().await?;
-        sqlx::query("UPDATE records SET analysis_status = 'synthesizing', analysis_error = NULL WHERE id = ?").bind(record_id).execute(&self.db).await?;
+        self.repo.update_analysis_status(record_id, "synthesizing", None).await?;
         drop(permit);
 
         match self.synthesize_intelligence_inner(app, record_id).await {
             Ok(report) => Ok(report),
-            Err(error) => {
-                let message = error.to_string();
+            Err(e) => {
+                let message = e.to_string();
+                error!("[Analysis] Synthesis failed for {}: {}", record_id, message);
                 let permit = self.write_semaphore.acquire().await?;
-                let _ = sqlx::query("UPDATE records SET analysis_status = 'failed', analysis_error = ? WHERE id = ?").bind(&message).bind(record_id).execute(&self.db).await;
+                let _ = self.repo.update_analysis_status(record_id, "failed", Some(&message)).await;
                 drop(permit);
-                Err(error)
+                Err(e)
             }
         }
     }
@@ -235,11 +236,7 @@ impl AnalysisManager {
         {
             let rel_thumb_path = format!("assets/{}/{}", record_id, thumb_name);
             let rel_thumb_path = self.library.encrypt_generated_asset(&rel_thumb_path).await?;
-            let _ = sqlx::query("UPDATE records SET thumbnail_path = ? WHERE id = ?")
-                .bind(&rel_thumb_path)
-                .bind(record_id)
-                .execute(&self.db)
-                .await;
+            let _ = self.repo.save_thumbnail_path(record_id, &rel_thumb_path).await;
         }
 
         // PDF specialized extraction
@@ -262,8 +259,7 @@ impl AnalysisManager {
                     let asset_id = Uuid::new_v4().to_string();
                     let rel_path = format!("assets/{}/{}", record_id, filename);
                     let rel_path = self.library.encrypt_generated_asset(&rel_path).await?;
-                    let _ = sqlx::query("INSERT INTO record_assets (id, record_id, asset_type, local_path, mime_type, created_at) VALUES (?, ?, 'image', ?, ?, ?)")
-                        .bind(&asset_id).bind(record_id).bind(&rel_path).bind(&mime).bind(crate::common::now()).execute(&self.db).await;
+                    let _ = self.repo.insert_record_asset(&asset_id, record_id, "image", &rel_path, &mime).await;
                 }
             }
         }
@@ -280,16 +276,7 @@ impl AnalysisManager {
             .await?;
 
         // Raw OCR storage for synthesis phase
-        sqlx::query(
-            "INSERT INTO analysis_results (record_id, ocr_text, status, processed_at) \
-             VALUES (?, ?, 'indexed', ?) \
-             ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'indexed', processed_at = excluded.processed_at"
-        )
-        .bind(record_id)
-        .bind(&text)
-        .bind(crate::common::now())
-        .execute(&self.db)
-        .await?;
+        self.repo.save_ocr_result(record_id, &text).await?;
 
         let redaction_score = self
             .indexer
@@ -297,13 +284,8 @@ impl AnalysisManager {
             .analyze_redactions(&full_path)
             .unwrap_or(0.0);
         
-        sqlx::query(
-            "UPDATE records SET analysis_status = 'indexed', redaction_score = ? WHERE id = ?",
-        )
-        .bind(redaction_score)
-        .bind(record_id)
-        .execute(&self.db)
-        .await?;
+        self.repo.update_redaction_score(record_id, redaction_score).await?;
+        self.repo.update_analysis_status(record_id, "indexed", None).await?;
 
         info!("[Analysis] Foundation secured for {}: {} semantic associations mapped.", record_id, chunks_indexed);
         info!("[Analysis] Syncing intelligence graph for record {}... Done.", record_id);
@@ -327,11 +309,7 @@ impl AnalysisManager {
         app: &tauri::AppHandle,
         record_id: &str,
     ) -> Result<AnalysisReport> {
-        let res_row = sqlx::query("SELECT ocr_text FROM analysis_results WHERE record_id = ?")
-            .bind(record_id)
-            .fetch_one(&self.db)
-            .await?;
-        let text: String = res_row.get("ocr_text");
+        let text = self.repo.get_ocr_text(record_id).await?;
         let assets =
             sqlx::query_as::<_, RecordAsset>("SELECT * FROM record_assets WHERE record_id = ?")
                 .bind(record_id)
@@ -368,13 +346,7 @@ impl AnalysisManager {
 
         let intel_str = serde_json::to_string(&intelligence_json)?;
         let _permit = self.write_semaphore.acquire().await?;
-        sqlx::query(
-            "UPDATE records SET analysis_status = 'completed', intelligence_json = ? WHERE id = ?",
-        )
-        .bind(&intel_str)
-        .bind(record_id)
-        .execute(&self.db)
-        .await?;
+        self.repo.save_intelligence_json(record_id, &intel_str).await?;
         drop(_permit);
 
         self.get_analysis(record_id)
@@ -401,38 +373,6 @@ impl AnalysisManager {
     }
 }
 
-pub fn extract_entities(text: &str) -> Vec<EntityHit> {
-    let mut entities = BTreeMap::<(String, String), EntityHit>::new();
-
-    let patterns = [
-        (r"(?i)\b(AARO|NASA|DOJ|FBI|CIA|DHS|FAA|NORAD)\b", "agency"),
-        (
-            r"(?i)\b(orb|sphere|tic-tac|cylinder|disc|triangle)\b",
-            "shape",
-        ),
-        (r"(?i)\b(radar|ir|flir|sonar|visual|satellite)\b", "sensor"),
-        (
-            r"(?i)\b(hypersonic|transmedium|instantaneous acceleration)\b",
-            "pattern",
-        ),
-    ];
-
-    for (pat, ty) in patterns {
-        if let Ok(re) = Regex::new(pat) {
-            for mat in re.find_iter(text) {
-                add_entity(&mut entities, mat.as_str(), ty, 0.85, "deterministic");
-            }
-        }
-    }
-
-    let date_re = Regex::new(r"\b\d{4}-\d{2}-\d{2}\b").unwrap();
-    for h in date_re.find_iter(text) {
-        add_entity(&mut entities, h.as_str(), "date", 0.8, "deterministic");
-    }
-
-    entities.into_values().collect()
-}
-
 impl AnalysisManager {
     pub async fn analyze_record(
         &self,
@@ -442,84 +382,18 @@ impl AnalysisManager {
         self.index_record(app, record_id, false, 1, 1).await?;
         self.synthesize_intelligence(app, record_id).await
     }
-}
 
-fn add_entity(e: &mut BTreeMap<(String, String), EntityHit>, n: &str, ty: &str, c: f64, s: &str) {
-    let name = n.trim().to_string();
-    if name.is_empty() {
-        return;
-    }
-    e.entry((name.to_lowercase(), ty.to_string()))
-        .or_insert(EntityHit {
-            id: Uuid::new_v4().to_string(),
-            name,
-            entity_type: ty.to_string(),
-            confidence: c,
-            source: s.to_string(),
-        });
-}
-
-impl AnalysisManager {
     pub async fn clear_record_analysis(&self, record_id: &str) -> Result<()> {
         let _permit = self.write_semaphore.acquire().await?;
-        let mut tx = self.db.begin().await?;
-
-        sqlx::query("DELETE FROM analysis_results WHERE record_id = ?")
-            .bind(record_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM vec_analysis_chunks WHERE chunk_id IN (SELECT id FROM analysis_chunks WHERE record_id = ?)").bind(record_id).execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM analysis_chunks WHERE record_id = ?")
-            .bind(record_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM analysis_chunks_fts WHERE record_id = ?")
-            .bind(record_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM record_forensics WHERE record_id = ?")
-            .bind(record_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM record_entities WHERE record_id = ?")
-            .bind(record_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM intelligence_logs WHERE record_id = ?")
-            .bind(record_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM record_assets WHERE record_id = ? AND asset_type != 'source'")
-            .bind(record_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE records SET analysis_status = 'pending', intelligence_json = NULL, redaction_score = NULL WHERE id = ?").bind(record_id).execute(&mut *tx).await?;
-
-        tx.commit().await?;
+        self.repo.clear_analysis_data(record_id).await?;
         drop(_permit);
         Ok(())
     }
 
     pub async fn clear_all_analysis(&self) -> Result<()> {
         let _permit = self.write_semaphore.acquire().await?;
-        let mut tx = self.db.begin().await?;
-
         info!("[Analysis] Initiating BULK PURGE of all intelligence data...");
-
-        sqlx::query("DELETE FROM analysis_results").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM vec_analysis_chunks").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM analysis_chunks").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM analysis_chunks_fts").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM record_forensics").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM record_entities").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM intelligence_logs").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM record_assets WHERE asset_type != 'source'").execute(&mut *tx).await?;
-        
-        sqlx::query("UPDATE records SET analysis_status = 'pending', intelligence_json = NULL, redaction_score = NULL")
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
+        self.repo.clear_all_analysis_data().await?;
         info!("[Analysis] Bulk purge complete. Database neutralized.");
         
         // Optional: Vacuum to reclaim space and optimize

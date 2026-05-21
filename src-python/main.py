@@ -8,6 +8,9 @@ import uvicorn
 import logging
 import sys
 import fitz  # PyMuPDF
+import threading
+import time
+import errno
 
 # Configure logging
 logging.basicConfig(
@@ -58,8 +61,33 @@ def load_model():
         logger.error(f"Failed to load neural engine: {e}")
         raise e
 
+def monitor_parent_lifecycle():
+    parent_pid = os.getppid()
+    if parent_pid <= 1:
+        return
+
+    def poll_parent():
+        logger.info(f"Parent process monitor active for PID: {parent_pid}")
+        while True:
+            if os.getppid() == 1:
+                logger.info("Parent process terminated (re-parented to init). Exiting...")
+                os._exit(0)
+            
+            try:
+                os.kill(parent_pid, 0)
+            except OSError as e:
+                if e.errno == errno.ESRCH:
+                    logger.info("Parent process has ceased to exist. Exiting...")
+                    os._exit(0)
+            
+            time.sleep(2)
+
+    thread = threading.Thread(target=poll_parent, daemon=True)
+    thread.start()
+
 @app.on_event("startup")
 async def startup_event():
+    monitor_parent_lifecycle()
     # We load the model on startup to ensure readiness
     load_model()
 
