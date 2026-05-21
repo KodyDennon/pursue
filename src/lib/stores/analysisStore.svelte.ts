@@ -155,6 +155,9 @@ class AnalysisStore {
 	}
 
 	addLog(msg: string, type: 'info' | 'error' | 'success' = 'info') {
+		if (this.logs.length > 0 && this.logs[0].msg === msg) {
+			return;
+		}
 		const time = new Date().toLocaleTimeString([], {
 			hour12: false,
 			hour: '2-digit',

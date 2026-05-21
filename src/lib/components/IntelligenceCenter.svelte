@@ -59,7 +59,7 @@
 			/>
 
 			<CognitiveSynthesis
-				evidenceStats={intelligenceStore.evidenceStats}
+				status={intelligenceStore.status}
 				analysisActive={intelligenceStore.analysisActive}
 				analysisStatus={intelligenceStore.analysisStatus}
 				analysisProgress={intelligenceStore.analysisProgress}

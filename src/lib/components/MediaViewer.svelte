@@ -344,33 +344,6 @@
 		}
 	}
 
-	.image-wrapper {
-		transition: transform 0.1s ease-out;
-	}
-
-	img {
-		max-width: 90%;
-		max-height: 90%;
-		object-fit: contain;
-		user-select: none;
-		pointer-events: none;
-		transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-		box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
-	}
-
-	video {
-		max-width: 100%;
-		max-height: 100%;
-		background: #000;
-	}
-
-	iframe {
-		width: 100%;
-		height: 100%;
-		border: none;
-		background: #fff;
-	}
-
 	.unsupported-media,
 	.media-error {
 		display: flex;

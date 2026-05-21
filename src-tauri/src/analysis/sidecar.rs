@@ -182,6 +182,7 @@ impl VisionSidecar {
                                             "step": step_msg
                                         }),
                                     );
+                                    continue; // Avoid logging this twice as batch-planning
                                 }
                             }
 

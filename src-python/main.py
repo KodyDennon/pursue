@@ -1,4 +1,9 @@
 import os
+
+# Disable HF telemetry and warnings early
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+
 import torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -11,12 +16,19 @@ import fitz  # PyMuPDF
 import threading
 import time
 import errno
+import warnings
+
+# Suppress specific library warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*torch_dtype.*")
+warnings.filterwarnings("ignore", message=".*clean_up_tokenization_spaces.*")
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True  # Ensure we override any default uvicorn handlers
 )
 logger = logging.getLogger("got-ocr-sidecar")
 
@@ -41,21 +53,28 @@ def load_model():
     global model, processor
     try:
         logger.info(f"Loading {MODEL_ID}...")
-        processor = AutoProcessor.from_pretrained(MODEL_ID)
+        processor = AutoProcessor.from_pretrained(
+            MODEL_ID, 
+            trust_remote_code=True,
+            clean_up_tokenization_spaces=False
+        )
+        
+        load_params = {
+            "low_cpu_mem_usage": True,
+            "trust_remote_code": True,
+            "dtype": torch.float16 if device != "cpu" else torch.float32,
+        }
+
         if device == "mps":
-            model = AutoModelForImageTextToText.from_pretrained(
-                MODEL_ID,
-                low_cpu_mem_usage=True,
-                torch_dtype=torch.float16,
-            ).eval()
+            model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, **load_params).eval()
             model = model.to("mps")
         else:
             model = AutoModelForImageTextToText.from_pretrained(
                 MODEL_ID,
-                low_cpu_mem_usage=True,
                 device_map={"": device},
-                torch_dtype=torch.float16 if device != "cpu" else torch.float32,
+                **load_params
             ).eval()
+            
         logger.info("Neural Engine ready.")
     except Exception as e:
         logger.error(f"Failed to load neural engine: {e}")
