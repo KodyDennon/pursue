@@ -5189,7 +5189,7 @@ dependencies = [
 
 [[package]]
 name = "pursue-data-analyzer"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "accelerate-src",
  "aes-gcm",

@@ -1,6 +1,6 @@
 [package]
 name = "pursue-data-analyzer"
-version = "0.6.2"
+version = "0.7.0"
 description = "Local-first PURSUE/WAR.gov OSINT evidence analyzer"
 authors = ["PURSUE Data Analyzer contributors"]
 edition = "2021"
@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 default = []
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "ort/cuda"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal", "ort/coreml"]
+directml = ["ort/directml"]
 
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api"] }

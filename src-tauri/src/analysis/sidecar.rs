@@ -150,6 +150,7 @@ impl VisionSidecar {
                                 continue;
                             }
 
+                            // Capture TQDM-style progress bars (from transformers/torch)
                             if line.contains("%|")
                                 || (line.contains("Downloading") && line.contains('%'))
                             {
@@ -172,20 +173,26 @@ impl VisionSidecar {
                                 }
                             }
 
-                            if line.contains("Rendering PDF page") {
-                                if let Some(pos) = line.find("Rendering PDF page") {
-                                    let step_msg = line[pos..].to_string();
-                                    let _ = app_clone.emit(
-                                        "analysis-progress",
-                                        serde_json::json!({
-                                            "status": "extracting-foundation",
-                                            "step": step_msg
-                                        }),
-                                    );
-                                    continue; // Avoid logging this twice as batch-planning
-                                }
+                            // Capture PDF rendering and OCR progress
+                            if line.contains("Rendering PDF page") || line.contains("Processing neural vision task") {
+                                let step_msg = if let Some(pos) = line.find("Rendering PDF page") {
+                                    &line[pos..]
+                                } else if let Some(pos) = line.find("Processing neural vision task") {
+                                    &line[pos..]
+                                } else {
+                                    &line
+                                };
+
+                                let _ = app_clone.emit(
+                                    "analysis-progress",
+                                    serde_json::json!({
+                                        "status": "extracting-foundation",
+                                        "step": step_msg.to_string()
+                                    }),
+                                );
                             }
 
+                            // General log relay to UI
                             let _ = app_clone.emit(
                                 "analysis-progress",
                                 serde_json::json!({
@@ -206,8 +213,8 @@ impl VisionSidecar {
 
     async fn wait_for_ready(&self, app: &tauri::AppHandle) -> Result<()> {
         let url = format!("http://127.0.0.1:{}/health", self.port);
-        // Allow up to 10 minutes (300 * 2s) for the initial 2GB model download
-        for i in 0..300 {
+        // Allow up to 30 minutes (900 * 2s) for the initial 2GB model download
+        for i in 0..900 {
             if let Ok(resp) = self.client.get(&url).send().await {
                 if resp.status().is_success() {
                     let body: serde_json::Value = resp.json().await?;
@@ -224,15 +231,15 @@ impl VisionSidecar {
                 }
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
-            if i % 10 == 0 && i > 0 {
+            if i % 30 == 0 && i > 0 {
                 tauri_plugin_log::log::info!(
-                    "Still waiting for Neural Vision Sidecar (attempt {}/300)...",
+                    "Still waiting for Neural Vision Sidecar (attempt {}/900)...",
                     i
                 );
             }
         }
         Err(anyhow!(
-            "Neural Vision Sidecar failed to start in time (Timeout after 10 minutes)"
+            "Neural Vision Sidecar failed to start in time (Timeout after 30 minutes)"
         ))
     }
 

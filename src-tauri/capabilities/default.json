@@ -21,6 +21,13 @@
 		{
 			"identifier": "shell:allow-execute",
 			"preference": {
+				"cmd": "python",
+				"args": true
+			}
+		},
+		{
+			"identifier": "shell:allow-execute",
+			"preference": {
 				"cmd": "got-ocr",
 				"sidecar": true
 			}

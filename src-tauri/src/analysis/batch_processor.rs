@@ -192,7 +192,7 @@ impl BatchProcessor {
                         Ok::<(), String>(())
                     }
                 })
-                .buffer_unordered(std::cmp::max(2, num_cpus::get() / 2)) // Dynamic Hardware-Aware Parallelism
+                .buffer_unordered(2) // Reduced concurrency to prevent resource exhaustion during heavy OCR
                 .collect::<Vec<_>>()
                 .await;
 
@@ -305,7 +305,7 @@ impl BatchProcessor {
                         Ok::<(), String>(())
                     }
                 })
-                .buffer_unordered(std::cmp::max(2, num_cpus::get() / 2))
+                .buffer_unordered(2) // Reduced concurrency to prevent resource exhaustion during heavy OCR
                 .collect::<Vec<_>>()
                 .await;
 

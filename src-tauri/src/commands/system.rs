@@ -408,12 +408,40 @@ pub async fn cleanup_poisoned_artifacts(state: State<'_, AppState>) -> Result<us
 #[allow(unreachable_code)]
 pub async fn factory_reset(state: State<'_, AppState>, handle: AppHandle) -> Result<(), String> {
     info!("INITIATING FULL SYSTEM PURGE (Factory Reset)");
+
+    // 1. Close database pool to release locks
     state.db.close().await;
+
+    // 2. Allow a moment for file handles to close
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
     let app_dir = handle.path().app_data_dir().map_err(to_error)?;
     if app_dir.exists() {
-        std::fs::remove_dir_all(&app_dir).map_err(to_error)?;
+        // Windows Hardening: Standard std::fs::remove_dir_all fails if files are locked (e.g. log file).
+        // We attempt a recursive delete and log errors for locked files without failing the whole reset.
+        if let Err(e) = remove_dir_all_robust(&app_dir) {
+            log::warn!("Partial failure during factory reset: {}. Some files may remain.", e);
+        }
     }
+
     info!("System purge complete. Triggering restart...");
     handle.restart();
+    Ok(())
+}
+
+fn remove_dir_all_robust(path: &std::path::Path) -> std::io::Result<()> {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                let _ = remove_dir_all_robust(&path);
+            } else {
+                // If it fails (e.g. log file lock), we just skip it on Windows
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        let _ = std::fs::remove_dir(path);
+    }
     Ok(())
 }

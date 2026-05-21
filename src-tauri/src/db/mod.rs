@@ -118,7 +118,35 @@ fn quarantine_incompatible_database(db_path: &std::path::Path) -> anyhow::Result
                 timestamp,
                 suffix
             ));
-            fs::rename(&path, quarantined)?;
+
+            // Windows Hardening: Retry renaming a few times in case of lingering locks
+            let mut last_err = None;
+            for attempt in 0..5 {
+                match fs::rename(&path, &quarantined) {
+                    Ok(_) => {
+                        last_err = None;
+                        break;
+                    }
+                    Err(e) => {
+                        last_err = Some(e);
+                        std::thread::sleep(std::time::Duration::from_millis(100 * (attempt + 1)));
+                    }
+                }
+            }
+
+            if let Some(e) = last_err {
+                log::error!(
+                    "Failed to quarantine incompatible database file {:?}: {}",
+                    path,
+                    e
+                );
+                // On Windows, if we can't rename, we might have to copy and delete (best effort)
+                if let Err(e2) = std::fs::copy(&path, &quarantined) {
+                    log::error!("Copy fallback also failed: {}", e2);
+                    return Err(e.into());
+                }
+                let _ = std::fs::remove_file(&path);
+            }
         }
     }
     Ok(())

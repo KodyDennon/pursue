@@ -14,9 +14,9 @@
 	});
 </script>
 
-<div class="app-layout">
+<div class="app-layout" data-tauri-drag-region>
 	<AppDock />
-	<main class="app-main">
+	<main class="app-main" data-tauri-drag-region={false}>
 		{@render children()}
 	</main>
 	<GlobalSearch />

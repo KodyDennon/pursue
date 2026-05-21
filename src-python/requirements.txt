@@ -1,12 +1,12 @@
 fastapi==0.111.0
 uvicorn==0.30.1
 torch>=2.4.1
-transformers==5.8.1
+transformers>=4.44.0
 pillow==10.3.0
-accelerate==1.13.0
+accelerate>=0.30.0
 python-multipart==0.0.9
-verovio
 pymupdf
 tiktoken
 torchvision
 torchaudio
+sentencepiece
