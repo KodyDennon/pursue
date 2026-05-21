@@ -346,7 +346,10 @@
 							}}
 						/>
 					{:else if $activeView === 'intelligence'}
-						<IntelligenceCenter onAnalyze={() => (analysisModalOpen = true)} />
+						<IntelligenceCenter
+							onAnalyze={() => (analysisModalOpen = true)}
+							onSynthesize={() => (intelligenceModalOpen = true)}
+						/>
 					{:else if $activeView === 'vault'}
 						<EvidenceVault />
 					{:else if $activeView === 'agent'}

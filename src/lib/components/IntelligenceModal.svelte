@@ -37,6 +37,9 @@
 	let thoughtText = $state('');
 	let busy = $state(false);
 
+	let currentBatchIndex = $state(0);
+	let totalBatchCount = $state(0);
+
 	$effect(() => {
 		isBusy = busy;
 	});
@@ -85,6 +88,12 @@
 			}
 
 			currentRecordId = payload.record_id ?? currentRecordId;
+			if (payload.current !== undefined) {
+				currentBatchIndex = payload.current;
+			}
+			if (payload.total !== undefined) {
+				totalBatchCount = payload.total;
+			}
 
 			if (payload.status === 'loading-model') {
 				modelDownloadProgress = payload.progress ?? modelDownloadProgress;
@@ -148,6 +157,20 @@
 									<span class="v">{currentRecordId ? currentRecordId.substring(0, 16) + '...' : 'None'}</span>
 								</div>
 							</div>
+
+							<!-- Batch Progress Card -->
+							{#if totalBatchCount > 1}
+								<div class="info-card batch-card">
+									<Activity size={16} class="card-icon batch-icon" />
+									<div class="val">
+										<span class="l">Batch Synthesis Progress</span>
+										<span class="v">Record {currentBatchIndex} of {totalBatchCount}</span>
+										<div class="batch-progress-bar-bg">
+											<div class="batch-progress-bar-fill" style="width: {(currentBatchIndex / totalBatchCount) * 100}%"></div>
+										</div>
+									</div>
+								</div>
+							{/if}
 
 							<!-- Telemetry Metrics Card -->
 							{#if status === 'loading-model'}
@@ -650,5 +673,30 @@
 
 	:global(.accent-icon) {
 		color: var(--accent-primary);
+	}
+
+	.batch-card {
+		border-color: rgba(80, 179, 255, 0.2);
+		background: rgba(80, 179, 255, 0.02);
+	}
+
+	:global(.batch-icon) {
+		color: #50b3ff;
+	}
+
+	.batch-progress-bar-bg {
+		width: 100%;
+		height: 4px;
+		background: rgba(255, 255, 255, 0.05);
+		border-radius: 2px;
+		overflow: hidden;
+		margin-top: 6px;
+	}
+
+	.batch-progress-bar-fill {
+		height: 100%;
+		background: #50b3ff;
+		box-shadow: 0 0 8px #50b3ff;
+		transition: width 0.3s ease-out;
 	}
 </style>

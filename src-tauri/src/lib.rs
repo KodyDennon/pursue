@@ -111,6 +111,7 @@ pub fn run() {
             get_intelligence_logs,
             index_record,
             synthesize_intelligence,
+            synthesize_all_records,
             reprocess_all_records,
             check_neural_runtime_status,
             provision_neural_runtime

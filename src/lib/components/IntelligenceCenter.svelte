@@ -10,7 +10,8 @@
 		CheckCircle2,
 		Loader2,
 		RefreshCw,
-		Zap
+		Zap,
+		AlertCircle
 	} from 'lucide-svelte';
 	import type { DatabaseStatus } from '$lib/types';
 	import { addToast } from '$lib/toastStore';
@@ -19,7 +20,10 @@
 
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-	let { onAnalyze } = $props<{ onAnalyze?: () => void }>();
+	let { onAnalyze, onSynthesize } = $props<{
+		onAnalyze?: () => void;
+		onSynthesize?: () => void;
+	}>();
 
 	interface HardwareDiagnostics {
 		cpu_brand: string;
@@ -41,8 +45,19 @@
 		etaSeconds: number | null;
 	}
 
+	interface EvidenceStats {
+		total_count: number;
+		local_count: number;
+		total_size: number;
+		pending_count: number;
+		indexed_count: number;
+		completed_count: number;
+		unanalyzed_count: number;
+	}
+
 	let status = $state<DatabaseStatus | null>(null);
 	let diagnostics = $state<HardwareDiagnostics | null>(null);
+	let evidenceStats = $state<EvidenceStats | null>(null);
 	let models = $state<IntelligenceModel[]>([]);
 	let busyModelId = $state<string | null>(null);
 
@@ -60,6 +75,7 @@
 		try {
 			status = await invoke<DatabaseStatus>('get_database_status');
 			diagnostics = await invoke<HardwareDiagnostics>('get_hardware_diagnostics');
+			evidenceStats = await invoke<EvidenceStats>('get_evidence_stats');
 			runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
 			logger.debug('[IntelligenceCenter] Diagnostics loaded:', diagnostics);
 			if (models.length === 0) {
@@ -177,6 +193,34 @@
 			});
 		} catch (e) {
 			addToast({ type: 'error', message: `Re-Audit failed: ${e}`, duration: 5000 });
+			analysisActive = false;
+		}
+	}
+
+	async function runBatchSynthesis() {
+		if (analysisActive) return;
+		if (
+			!confirm(
+				'CRITICAL ACTION: This will invoke local Gemma 4 LLM inference sequentially across all records that have completed foundation processing but have not yet been synthesized. This is extremely resource-intensive. Proceed?'
+			)
+		)
+			return;
+
+		try {
+			if (onSynthesize) onSynthesize();
+			analysisActive = true;
+			analysisProgress = 0;
+			processedCount = 0;
+			totalCount = 0;
+			analysisStatus = 'Waking Neural Engine...';
+			const count = await invoke<number>('synthesize_all_records');
+			addToast({
+				type: 'info',
+				message: `Neural Synthesis initiated for ${count} records.`,
+				duration: 5000
+			});
+		} catch (e) {
+			addToast({ type: 'error', message: `Synthesis failed: ${e}`, duration: 5000 });
 			analysisActive = false;
 		}
 	}
@@ -451,6 +495,68 @@
 				{:else}
 					<div class="loading-state">Syncing index status...</div>
 				{/if}
+			</section>
+
+			<!-- Cognitive Synthesis Engine -->
+			<section class="center-card synthesis-engine">
+				<header>
+					<Brain size={18} />
+					<div class="header-content">
+						<h3>Cognitive Synthesis</h3>
+						{#if analysisActive}
+							<div class="analysis-progress">
+								<span class="status-text">{analysisStatus}</span>
+								<div class="progress-bar-bg">
+									<div class="progress-bar-fill" style="width: {analysisProgress}%"></div>
+								</div>
+							</div>
+						{:else}
+							<div class="model-meta">
+								<span>Gemma 4 (Local LLM)</span>
+								<div class="actions">
+									<button
+										class="text-btn"
+										onclick={runBatchSynthesis}
+										disabled={!evidenceStats || evidenceStats.indexed_count === 0}
+									>
+										<Zap size={14} /> Batch Synthesis
+									</button>
+								</div>
+							</div>
+						{/if}
+					</div>
+				</header>
+				
+				{#if evidenceStats}
+					<div class="diag-metrics">
+						<div class="metric">
+							<span>Pending Neural Audits</span>
+							<strong class={evidenceStats.indexed_count > 0 ? 'text-warning' : ''}>
+								{evidenceStats.indexed_count}
+							</strong>
+						</div>
+						<div class="metric">
+							<span>Completed Audits</span>
+							<strong>{evidenceStats.completed_count}</strong>
+						</div>
+						<div class="metric" style="grid-column: span 2;">
+							<span>Inference Pipeline</span>
+							<strong>Sequential Local LLM (VRAM Safe)</strong>
+						</div>
+					</div>
+				{:else}
+					<div class="loading-state">Syncing synthesis status...</div>
+				{/if}
+
+				<div class="hardware-warning-box">
+					<div class="warning-header">
+						<AlertCircle size={14} class="warning-icon" />
+						<span>Resource Warning</span>
+					</div>
+					<p class="warning-text">
+						Batch deep intelligence synthesis executes local LLM inference sequentially across all pending records. This action is extremely resource-intensive. Ensure your machine has active cooling, is connected to power, and avoid running other heavy workloads.
+					</p>
+				</div>
 			</section>
 		</div>
 	</div>
@@ -751,5 +857,38 @@
 		to {
 			transform: rotate(360deg);
 		}
+	}
+
+	.hardware-warning-box {
+		margin-top: auto;
+		background: rgba(243, 196, 107, 0.05);
+		border: 1px solid rgba(243, 196, 107, 0.15);
+		border-radius: var(--radius-md);
+		padding: 12px 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.warning-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: #f3c46b;
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	:global(.warning-icon) {
+		color: #f3c46b;
+	}
+
+	.warning-text {
+		margin: 0;
+		font-size: 11px;
+		line-height: 1.5;
+		color: var(--text-secondary);
 	}
 </style>
