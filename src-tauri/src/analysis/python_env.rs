@@ -181,6 +181,7 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
         }
 
         let client = Client::new();
+        let _ = &client; // silence unused warning on non-win/mac platforms
 
         #[cfg(target_os = "windows")]
         {
