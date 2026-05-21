@@ -10,7 +10,7 @@
 		ShieldCheck
 	} from 'lucide-svelte';
 	import Logo from '$lib/components/Logo.svelte';
-	import { activeView, globalSearchOpen } from '$lib/store';
+	import { appStore } from '$lib/stores/appStore.svelte';
 	import { onMount } from 'svelte';
 	import { logger } from '$lib/logger';
 
@@ -28,48 +28,48 @@
 		<div class="nav-items">
 			<button
 				class="nav-item"
-				class:active={$activeView === 'dashboard'}
-				onclick={() => ($activeView = 'dashboard')}
+				class:active={appStore.activeView === 'dashboard'}
+				onclick={() => (appStore.activeView = 'dashboard')}
 				title="Evidence Archive"
 			>
 				<Database size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={$activeView === 'intelligence'}
-				onclick={() => ($activeView = 'intelligence')}
+				class:active={appStore.activeView === 'intelligence'}
+				onclick={() => (appStore.activeView = 'intelligence')}
 				title="Neural Engine"
 			>
 				<Brain size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={$activeView === 'vault'}
-				onclick={() => ($activeView = 'vault')}
+				class:active={appStore.activeView === 'vault'}
+				onclick={() => (appStore.activeView = 'vault')}
 				title="Secure Vault"
 			>
 				<ShieldCheck size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={$activeView === 'agent'}
-				onclick={() => ($activeView = 'agent')}
+				class:active={appStore.activeView === 'agent'}
+				onclick={() => (appStore.activeView = 'agent')}
 				title="Ingestion Agent"
 			>
 				<DownloadCloud size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={$activeView === 'map'}
-				onclick={() => ($activeView = 'map')}
+				class:active={appStore.activeView === 'map'}
+				onclick={() => (appStore.activeView = 'map')}
 				title="Tactical Map"
 			>
 				<Map size={22} />
 			</button>
 			<button
 				class="nav-item"
-				class:active={$activeView === 'link-analysis'}
-				onclick={() => ($activeView = 'link-analysis')}
+				class:active={appStore.activeView === 'link-analysis'}
+				onclick={() => (appStore.activeView = 'link-analysis')}
 				title="Link Analysis"
 			>
 				<BrainCircuit size={22} />
@@ -78,13 +78,13 @@
 	</div>
 
 	<div class="dock-bottom">
-		<button class="nav-item" onclick={() => ($globalSearchOpen = true)} title="Global Search">
+		<button class="nav-item" onclick={() => (appStore.globalSearchOpen = true)} title="Global Search">
 			<Search size={22} />
 		</button>
 		<button
 			class="nav-item"
-			class:active={$activeView === 'settings'}
-			onclick={() => ($activeView = 'settings')}
+			class:active={appStore.activeView === 'settings'}
+			onclick={() => (appStore.activeView = 'settings')}
 			title="Settings"
 		>
 			<Settings size={22} />

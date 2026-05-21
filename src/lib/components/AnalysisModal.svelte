@@ -1,9 +1,7 @@
 <script lang="ts">
-	import { invoke } from '@tauri-apps/api/core';
-	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { onMount } from 'svelte';
 	import { Layers, X, AlertCircle } from 'lucide-svelte';
-	import { logger } from '$lib/logger';
+	import { analysisStore } from '$lib/stores/analysisStore.svelte';
 
 	import NeuralTelemetry from './analysis_modal/NeuralTelemetry.svelte';
 	import ThoughtStream from './analysis_modal/ThoughtStream.svelte';
@@ -20,189 +18,14 @@
 		onComplete?: () => void;
 	}>();
 
-	interface AnalysisProgress {
-		status: string;
-		current?: number;
-		total?: number;
-		record_id?: string;
-		error?: string;
-		chunk_count?: number;
-		msg?: string;
-		progress?: number;
-		engine?: string;
-		step?: string;
-	}
-
-	interface LogEntry {
-		id: string;
-		time: string;
-		msg: string;
-		type: 'info' | 'error' | 'success';
-	}
-
-	let status = $state('standby');
-	let currentRecordId = $state<string | null>(null);
-	let processedCount = $state(0);
-	let totalCount = $state(0);
-	let logs = $state<LogEntry[]>([]);
-	let busy = $state(false);
-
-	let ocrDownloadProgress = $state(0);
-	let ocrDownloadMsg = $state('');
-
 	$effect(() => {
-		isBusy = busy;
+		isBusy = analysisStore.busy;
+		progress = analysisStore.progress;
 	});
 
-	function addLog(msg: string, type: 'info' | 'error' | 'success' = 'info') {
-		const time = new Date().toLocaleTimeString([], {
-			hour12: false,
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit'
-		});
-		logs = [{ id: crypto.randomUUID(), time, msg, type }, ...logs].slice(0, 100);
-	}
-
-	async function startAnalysis() {
-		if (busy) return;
-		busy = true;
-		status = 'initializing';
-		progress = 0;
-		processedCount = 0;
-		ocrDownloadProgress = 0;
-		ocrDownloadMsg = '';
-		logs = [];
-		addLog('Secure Ingestion Pipeline initialized...', 'info');
-		addLog('Starting Optical Character Recognition (OCR) runtime...', 'info');
-		addLog('Allocating vector engine indices...', 'info');
-
-		try {
-			const cmd = 'analyze_all_records';
-			const count = await invoke<number>(cmd);
-			totalCount = count;
-			if (count === 0) {
-				addLog('Zero pending records identified. Database is fully audited.', 'success');
-				status = 'completed';
-				busy = false;
-				return;
-			}
-			addLog(`Batch Queued: ${count} target files registered for ingestion.`, 'info');
-			status = 'processing';
-		} catch (e) {
-			addLog(`Ingestion failed to start: ${e}`, 'error');
-			status = 'failed';
-			busy = false;
-		}
-	}
-
 	onMount(() => {
-		let unlisten: UnlistenFn;
-		logger.debug('[AnalysisModal] Listening for foundation indexing events...');
-
-		listen<AnalysisProgress>('analysis-progress', (event) => {
-			const payload = event.payload;
-
-			// Handle foundation-specific active statuses
-			const ocrStatuses = [
-				'initializing-batch',
-				'batch-planning',
-				'extracting-foundation',
-				'foundation-indexed',
-				'indexing-vector',
-				'record-completed',
-				'record-failed',
-				'loading-ocr-engine'
-			];
-
-			if (ocrStatuses.includes(payload.status)) {
-				if (
-					payload.status === 'initializing-batch' ||
-					(payload.status === 'extracting-foundation' && payload.current === 1)
-				) {
-					logs = [];
-					progress = 0;
-					processedCount = 0;
-					totalCount = 0;
-					currentRecordId = null;
-				}
-				if (!isOpen) {
-					isOpen = true;
-				}
-				busy = true;
-				status = payload.status === 'extracting-foundation'
-					? 'processing'
-					: payload.status === 'indexing-vector'
-						? 'vectorizing'
-						: payload.status;
-			} else if (payload.status === 'completed') {
-				// Only complete if we were actively running this modal's pipeline
-				if (busy) {
-					status = 'completed';
-					busy = false;
-					addLog('Ingestion and Vector Indexing complete.', 'success');
-					if (onComplete) onComplete();
-				}
-				return;
-			} else if (payload.status === 'failed') {
-				if (busy) {
-					status = 'failed';
-					busy = false;
-					addLog(`Process aborted: ${payload.error}`, 'error');
-				}
-				return;
-			} else {
-				// Ignore intelligence synthesis events completely in this modal
-				return;
-			}
-
-			processedCount = payload.current ?? processedCount;
-			totalCount = payload.total ?? totalCount;
-			currentRecordId = payload.record_id ?? currentRecordId;
-
-			if (totalCount > 0) {
-				progress = (processedCount / totalCount) * 100;
-			}
-
-			if (payload.status === 'batch-planning') {
-				addLog(payload.msg || 'Organizing batch execution plan...', 'info');
-			} else if (payload.status === 'initializing-batch') {
-				addLog(payload.msg || 'Resolving ingestion pipeline settings...', 'info');
-			} else if (payload.status === 'extracting-foundation') {
-				if (payload.step) {
-					addLog(`[OCR Trace] ${payload.step}`, 'info');
-				} else {
-					addLog(`Analyzing document structures for record: ${payload.record_id?.substring(0, 12)}...`, 'info');
-				}
-			} else if (payload.status === 'foundation-indexed') {
-				let engineName = 'Neural Vision';
-				if (payload.engine === 'pdf-digital') {
-					engineName = 'PDF Digital';
-				} else if (payload.engine === 'text-file') {
-					engineName = 'Plaintext File';
-				} else if (payload.engine) {
-					engineName = payload.engine.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-				}
-				addLog(`Foundation metadata mapped via ${engineName}.`, 'success');
-			} else if (payload.status === 'indexing-vector') {
-				const chunkMsg = payload.chunk_count ? ` (${payload.chunk_count} semantic associations)` : '';
-				addLog(`Chunking and embedding text vectors${chunkMsg}...`, 'info');
-			} else if (payload.status === 'record-completed') {
-				addLog(`Record ${payload.record_id?.substring(0, 8)} successfully secured in the vault.`, 'success');
-			} else if (payload.status === 'record-failed') {
-				addLog(`Failed to index record ${payload.record_id?.substring(0, 8)}: ${payload.error}`, 'error');
-			} else if (payload.status === 'loading-ocr-engine') {
-				ocrDownloadProgress = payload.progress ?? ocrDownloadProgress;
-				ocrDownloadMsg = payload.msg ?? ocrDownloadMsg;
-				if (payload.msg) {
-					addLog(payload.msg, 'info');
-				}
-			}
-		}).then((u) => (unlisten = u));
-
-		return () => {
-			if (unlisten) unlisten();
-		};
+		analysisStore.init(isOpen, (open) => (isOpen = open), onComplete);
+		return () => analysisStore.destroy();
 	});
 
 	function close() {
@@ -227,18 +50,18 @@
 			<div class="panel-body">
 				<div class="overhaul-grid">
 					<NeuralTelemetry
-						{status}
-						{processedCount}
-						{totalCount}
-						{progress}
-						{currentRecordId}
-						{busy}
-						{ocrDownloadProgress}
-						{ocrDownloadMsg}
-						onStartAnalysis={startAnalysis}
+						status={analysisStore.status}
+						processedCount={analysisStore.processedCount}
+						totalCount={analysisStore.totalCount}
+						progress={analysisStore.progress}
+						currentRecordId={analysisStore.currentRecordId}
+						busy={analysisStore.busy}
+						ocrDownloadProgress={analysisStore.ocrDownloadProgress}
+						ocrDownloadMsg={analysisStore.ocrDownloadMsg}
+						onStartAnalysis={() => analysisStore.startAnalysis()}
 					/>
 
-					<ThoughtStream {logs} />
+					<ThoughtStream logs={analysisStore.logs} />
 				</div>
 			</div>
 
