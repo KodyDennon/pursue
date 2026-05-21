@@ -33,9 +33,7 @@ impl TextExtractor {
             }
             "pdf" => {
                 match self.ocr.extract_text_fallback(app, path).await {
-                    Ok(text) => {
-                        Ok((text, "neural-vision".to_string()))
-                    }
+                    Ok(text) => Ok((text, "neural-vision".to_string())),
                     Err(e) => {
                         tauri_plugin_log::log::warn!(
                             "[Analysis] Neural Vision extraction failed for record {}: {}. Falling back to digital...",
@@ -73,4 +71,3 @@ impl TextExtractor {
         }
     }
 }
-

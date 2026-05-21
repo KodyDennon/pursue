@@ -18,6 +18,8 @@
 	import type { CaseSummary, DatabaseStatus, RecordSummary } from '$lib/types';
 	import { addToast, updateToast } from '$lib/toastStore';
 	import { appStore } from '$lib/stores/appStore.svelte';
+	import { intelligenceStore } from '$lib/stores/intelligenceStore.svelte';
+	import { settingsStore } from '$lib/stores/settingsStore.svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { logger } from '$lib/logger';
 	import { Brain, Layers } from 'lucide-svelte';
@@ -33,7 +35,6 @@
 	let cases = $state<CaseSummary[]>([]);
 	let selectedRecord = $state<RecordSummary | null>(null);
 	let selectedCaseId = $state<string | null>(null);
-	let databaseStatus = $state<DatabaseStatus | null>(null);
 
 	let query = $state('');
 	let busy = $state<string | null>(null);
@@ -69,12 +70,11 @@
 				});
 			}
 
-			const [nextCases, nextStatus] = await Promise.all([
+			const [nextCases] = await Promise.all([
 				invoke<CaseSummary[]>('list_cases'),
-				invoke<DatabaseStatus>('get_database_status')
+				intelligenceStore.loadStatus()
 			]);
 			cases = nextCases;
-			databaseStatus = nextStatus;
 			if (!selectedCaseId && nextCases.length > 0) {
 				selectedCaseId = nextCases[0].id;
 			}
@@ -146,6 +146,8 @@
 	// Auto-detect provisioning
 	onMount(() => {
 		logger.debug('[App] Mounting +page...');
+		intelligenceStore.init();
+		settingsStore.init();
 		(async () => {
 			try {
 				const modelStatus = await invoke<Record<string, boolean>>('check_model_status');
@@ -212,6 +214,7 @@
 		return () => {
 			clearInterval(statsInterval);
 			if (unlistenAnalysis) unlistenAnalysis();
+			intelligenceStore.destroy();
 		};
 	});
 
@@ -313,7 +316,7 @@
 					{#if appStore.activeView === 'dashboard'}
 						<Dashboard
 							{records}
-							libraryPath={databaseStatus?.library_path ?? null}
+							libraryPath={intelligenceStore.status?.library_path ?? null}
 							{viewMode}
 							{cases}
 							{selectedCaseId}
@@ -342,7 +345,7 @@
 						{#if selectedRecord}
 							<IntelligenceDossier
 								record={selectedRecord}
-								libraryPath={databaseStatus?.library_path}
+								libraryPath={intelligenceStore.status?.library_path}
 								{cases}
 								{selectedCaseId}
 								onBack={() => (selectedRecord = null)}

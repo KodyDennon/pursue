@@ -10,6 +10,9 @@
 	import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 	import { openPath } from '@tauri-apps/plugin-opener';
 	import type { RecordSummary } from '$lib/types';
+	import ImageViewer from './media/ImageViewer.svelte';
+	import VideoViewer from './media/VideoViewer.svelte';
+	import PdfViewer from './media/PdfViewer.svelte';
 
 	let { record, isOpen = $bindable(false) } = $props<{
 		record: RecordSummary;
@@ -143,21 +146,11 @@
 					</div>
 				{:else if assetUrl}
 					{#if isImage}
-						<div class="image-wrapper" style="transform: translate({position.x}px, {position.y}px)">
-							<img
-								src={assetUrl}
-								alt={record.title}
-								style="transform: scale({zoom}) rotate({rotation}deg)"
-								draggable="false"
-							/>
-						</div>
+						<ImageViewer bind:zoom bind:rotation bind:position {assetUrl} title={record.title} />
 					{:else if isVideo}
-						<video controls autoplay src={assetUrl}>
-							<track kind="captions" />
-							Your browser does not support the video tag.
-						</video>
+						<VideoViewer {assetUrl} />
 					{:else if isPdf}
-						<iframe src="{assetUrl}#toolbar=0" title="PDF Viewer"></iframe>
+						<PdfViewer {assetUrl} />
 					{:else}
 						<div class="unsupported-media">
 							<div class="file-icon">

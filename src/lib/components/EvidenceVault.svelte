@@ -71,7 +71,7 @@
 					</div>
 					<div class="p-item">
 						<span class="p-label">Indexed</span>
-						<span class="p-value highlight-blue">{intelligenceStore.status?.indexed_count || 0}</span>
+						<span class="p-value highlight-blue">{(intelligenceStore.status?.analyzed_records || 0) - (intelligenceStore.status?.completed_count || 0)}</span>
 					</div>
 					<div class="p-item">
 						<span class="p-label">Completed</span>

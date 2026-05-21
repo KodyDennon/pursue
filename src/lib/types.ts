@@ -119,8 +119,11 @@ export interface DatabaseStatus {
 	latest_snapshot_url: string | null;
 	latest_snapshot_records: number | null;
 	active_download_jobs: number;
-	total_count?: number;
-	total_size?: number;
+	total_count: number;
+	total_size: number;
+	unanalyzed_count: number;
+	completed_count: number;
+	pending_count: number;
 }
 
 export interface ManualImportRequest {

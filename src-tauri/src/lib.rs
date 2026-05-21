@@ -97,8 +97,8 @@ pub fn run() {
             index_all_records,
             get_record_chunks,
             get_model_registry,
-            get_evidence_stats,
             verify_vault_integrity,
+
             get_vault_encryption_status,
             clear_evidence_cache,
             get_latest_download_job,
