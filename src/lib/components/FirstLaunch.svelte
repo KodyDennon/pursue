@@ -4,13 +4,11 @@
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import Logo from '$lib/components/Logo.svelte';
 	import { MODELS } from '$lib/models';
-	import {
-		Cpu,
-		Brain,
-		CheckCircle,
-		ChevronRight,
-		Loader2
-	} from 'lucide-svelte';
+
+	import DiagnosticStep from './first_launch/DiagnosticStep.svelte';
+	import SelectionStep from './first_launch/SelectionStep.svelte';
+	import ProvisioningStep from './first_launch/ProvisioningStep.svelte';
+	import ReadyStep from './first_launch/ReadyStep.svelte';
 
 	let { onComplete } = $props<{ onComplete: () => void }>();
 
@@ -45,7 +43,7 @@
 
 	onMount(() => {
 		console.log('[FirstLaunch] Component mounted.');
-		// 1. Check Diagnostics and Provisioning status
+		// Check Diagnostics and Provisioning status
 		(async () => {
 			console.log('[FirstLaunch] Probing hardware diagnostics...');
 			try {
@@ -257,89 +255,27 @@
 		<div class="brand-hero">PURSUE</div>
 
 		{#if step === 'diagnostic'}
-			<h2>Black-Ops Initialization</h2>
-			<p class="status-mono mono">{statusText}</p>
-			<div class="diagnostic-loader">
-				<Loader2 size={24} class="spin" />
-			</div>
+			<DiagnosticStep {statusText} />
 		{:else if step === 'selection'}
-			<div class="selection-view">
-				<h2>Intelligence Tier Selection</h2>
-				<p>
-					Recommended based on your <strong>{specs?.cpu_brand || 'Processor'}</strong> and
-					<strong>{specs?.total_memory_gb || '??'}GB RAM</strong>.
-				</p>
-
-				<div class="tier-options">
-					<button
-						class="tier-card"
-						class:active={selectedTier === 'Standard'}
-						class:recommended={specs?.recommended_tier === 'Standard'}
-						onclick={() => (selectedTier = 'Standard')}
-					>
-						<div class="tier-head">
-							<Cpu size={24} />
-							<div class="t-title">Standard Intel</div>
-						</div>
-						<p>
-							Gemma 4 E2B + BGE. Optimized effective parameter architecture for workstation
-							performance.
-						</p>
-						<div class="tier-meta">~3.2 GB Storage</div>
-					</button>
-
-					<button
-						class="tier-card"
-						class:active={selectedTier === 'Elite'}
-						class:recommended={specs?.recommended_tier === 'Elite'}
-						onclick={() => (selectedTier = 'Elite')}
-					>
-						<div class="tier-head">
-							<Brain size={24} />
-							<div class="t-title">Elite Intel</div>
-						</div>
-						<p>Gemma 4 E4B + BGE. Advanced reasoning with native multimodal capabilities.</p>
-						<div class="tier-meta">~5.0 GB Storage</div>
-					</button>
-				</div>
-
-				<button class="provision-btn" onclick={startProvisioning}>
-					Initialize Neural OS <ChevronRight size={18} />
-				</button>
-			</div>
+			<SelectionStep
+				{specs}
+				{selectedTier}
+				onSelectTier={(tier) => (selectedTier = tier)}
+				onStartProvisioning={startProvisioning}
+			/>
 		{:else if step === 'provisioning'}
-			<h2>Provisioning Intelligence Engine</h2>
-			<p class="status-mono mono">{statusText}</p>
-
-			<div class="progress-bar-wrap">
-				<div class="progress-fill" style="width: {progressWidth}%"></div>
-			</div>
-
-			<div class="sys-reqs">
-				<span>{currentModelName}</span>
-				<span>{overallProgress}%</span>
-			</div>
-
-			<div class="dl-stats">
-				{#if speedMbps !== null && speedMbps > 0}
-					<span>{speedMbps.toFixed(2)} MB/s</span>
-				{:else}
-					<span>...</span>
-				{/if}
-				{#if etaSeconds !== null && etaSeconds > 0}
-					<span>ETA: {Math.floor(etaSeconds / 60)}m {etaSeconds % 60}s</span>
-				{/if}
-			</div>
-
-			<div class="step-counter">
-				<span>Model {currentModelIndex} of {totalModels}</span>
-			</div>
+			<ProvisioningStep
+				{statusText}
+				{progressWidth}
+				{currentModelName}
+				{overallProgress}
+				{speedMbps}
+				{etaSeconds}
+				{currentModelIndex}
+				{totalModels}
+			/>
 		{:else if step === 'ready'}
-			<h2>Systems Ready</h2>
-			<p class="status-mono mono">{statusText}</p>
-			<div class="ready-check">
-				<CheckCircle size={48} class="accent-success" />
-			</div>
+			<ReadyStep {statusText} />
 		{/if}
 	</div>
 </div>
@@ -365,6 +301,10 @@
 		box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
 	}
 
+	.provision-card.selection {
+		width: 720px;
+	}
+
 	:global(.hero-logo) {
 		margin-bottom: 32px;
 		filter: drop-shadow(0 0 20px rgba(231, 196, 107, 0.3));
@@ -378,205 +318,5 @@
 		color: var(--accent-primary);
 		margin-bottom: 24px;
 		text-shadow: 0 0 10px rgba(231, 196, 107, 0.2);
-	}
-
-	h2 {
-		font-size: 20px;
-		margin-bottom: 8px;
-		color: var(--text-primary);
-		letter-spacing: 0.05em;
-	}
-
-	p {
-		font-size: 14px;
-		color: var(--text-secondary);
-		margin-bottom: 32px;
-	}
-
-	.status-mono {
-		font-size: 11px;
-		color: var(--accent-success);
-		margin-bottom: 24px;
-		text-transform: uppercase;
-		letter-spacing: 0.1em;
-	}
-
-	.diagnostic-loader {
-		padding: 20px;
-		color: var(--accent-primary);
-	}
-
-	.progress-bar-wrap {
-		width: 100%;
-		height: 6px;
-		background: rgba(255, 255, 255, 0.05);
-		border-radius: 3px;
-		overflow: hidden;
-		margin-bottom: 16px;
-		border: 1px solid rgba(255, 255, 255, 0.02);
-	}
-
-	.progress-fill {
-		height: 100%;
-		background: linear-gradient(90deg, var(--accent-primary), #f5d547);
-		box-shadow: 0 0 15px var(--accent-primary);
-		transition: width 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-	}
-
-	.sys-reqs {
-		display: flex;
-		justify-content: space-between;
-		width: 100%;
-		font-size: 10px;
-		color: var(--text-tertiary);
-		text-transform: uppercase;
-		letter-spacing: 0.1em;
-		font-weight: 700;
-	}
-
-	.dl-stats {
-		display: flex;
-		justify-content: space-between;
-		width: 100%;
-		font-size: 10px;
-		color: var(--text-tertiary);
-		margin-top: 6px;
-		font-family: var(--font-mono);
-	}
-
-	.step-counter {
-		margin-top: 16px;
-		font-size: 9px;
-		color: var(--text-tertiary);
-		text-transform: uppercase;
-		letter-spacing: 0.15em;
-		font-weight: 600;
-	}
-
-	.tier-options {
-		display: flex;
-		gap: 16px;
-		margin-bottom: 40px;
-		width: 100%;
-	}
-
-	.tier-card {
-		flex: 1;
-		background: rgba(255, 255, 255, 0.01);
-		border: 1px solid var(--border-subtle);
-		border-radius: 12px;
-		padding: 24px;
-		text-align: left;
-		cursor: pointer;
-		transition: all 0.3s;
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.tier-card p {
-		font-size: 12px;
-		margin: 0;
-		line-height: 1.5;
-		color: var(--text-tertiary);
-	}
-
-	.tier-card.active {
-		border-color: var(--accent-primary);
-		background: rgba(231, 196, 107, 0.05);
-		box-shadow: 0 0 20px rgba(231, 196, 107, 0.1);
-	}
-
-	.tier-card.recommended {
-		position: relative;
-	}
-	.tier-card.recommended::before {
-		content: 'RECOMMENDED';
-		position: absolute;
-		top: -10px;
-		right: 12px;
-		font-size: 8px;
-		background: var(--accent-primary);
-		color: #000;
-		padding: 2px 6px;
-		border-radius: 4px;
-		font-weight: 800;
-	}
-
-	.tier-head {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		color: var(--accent-primary);
-	}
-
-	.t-title {
-		font-weight: 700;
-		font-size: 15px;
-		color: var(--text-primary);
-	}
-
-	.tier-meta {
-		font-size: 10px;
-		color: var(--text-tertiary);
-		text-transform: uppercase;
-		margin-top: auto;
-	}
-
-	.provision-btn {
-		width: 100%;
-		background: var(--accent-primary);
-		color: #000;
-		border: none;
-		border-radius: 8px;
-		padding: 16px;
-		font-weight: 800;
-		font-size: 15px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 12px;
-		cursor: pointer;
-		transition: all 0.3s;
-		text-transform: uppercase;
-		letter-spacing: 0.1em;
-	}
-
-	.provision-btn:hover {
-		filter: brightness(1.1);
-		transform: translateY(-2px);
-	}
-
-	.provision-card.selection {
-		width: 720px;
-	}
-
-	.ready-check {
-		margin-top: 20px;
-		color: var(--accent-success);
-		animation: scale-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-	}
-
-	@keyframes scale-in {
-		from {
-			transform: scale(0);
-			opacity: 0;
-		}
-		to {
-			transform: scale(1);
-			opacity: 1;
-		}
-	}
-
-	:global(.spin) {
-		animation: spin 1s linear infinite;
-	}
-	@keyframes spin {
-		from {
-			transform: rotate(0deg);
-		}
-		to {
-			transform: rotate(360deg);
-		}
 	}
 </style>

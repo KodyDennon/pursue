@@ -20,8 +20,12 @@
 	import { activeView, selectedRecordId } from '$lib/store';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { logger } from '$lib/logger';
-	import { formatBytes } from '$lib/utils';
 	import { Brain, Layers } from 'lucide-svelte';
+
+	import SystemSplash from '$lib/components/layout/SystemSplash.svelte';
+	import AmbientBackground from '$lib/components/layout/AmbientBackground.svelte';
+	import StatsBar from '$lib/components/layout/StatsBar.svelte';
+	import Footer from '$lib/components/layout/Footer.svelte';
 
 	let isProvisioned = $state(false);
 
@@ -267,24 +271,9 @@
 		}}
 	/>
 {:else if initializing}
-	<div class="system-splash">
-		<div class="splash-content">
-			<div class="loader-spinner"></div>
-			<h2>INTELLIGENCE OS INITIALIZING</h2>
-			<p>Syncing local evidence vault and neural models...</p>
-			<div class="boot-log">
-				<span>[SYSTEM] Mounting secure database...</span>
-				<span>[SYSTEM] Initializing vector search engine...</span>
-				<span>[SYSTEM] Loading AARO official source records...</span>
-			</div>
-		</div>
-	</div>
+	<SystemSplash />
 {:else}
-	<div class="ambient-background">
-		<div class="ambient-blob b1"></div>
-		<div class="ambient-blob b2"></div>
-		<div class="ambient-blob b3"></div>
-	</div>
+	<AmbientBackground />
 
 	<div class="os-container glass-panel" class:blur={initializing}>
 		<header class="os-header glass-header">
@@ -316,15 +305,7 @@
 			</div>
 		</header>
 
-		{#if databaseStatus}
-			<div class="stats-bar">
-				<span class="stat">Total Records: <strong>{databaseStatus.total_count}</strong></span>
-				<span class="stat"
-					>Vault Storage: <strong>{formatBytes(databaseStatus.total_size)}</strong></span
-				>
-				<span class="stat">Database: <strong>Online</strong></span>
-			</div>
-		{/if}
+		<StatsBar {databaseStatus} />
 
 		<div class="os-body">
 			<main class="os-main">
@@ -385,40 +366,7 @@
 			</main>
 		</div>
 
-		<footer class="os-footer">
-			<div class="f-section">
-				<span class="f-label">Ingestion:</span>
-				<span class="f-val"
-					>{databaseStatus?.local_records || 0} / {databaseStatus?.official_records || 0} Assets</span
-				>
-			</div>
-			<div class="f-section">
-				<span class="f-label">Analysis:</span>
-				<span class="f-val">{databaseStatus?.analyzed_records || 0} Reports</span>
-			</div>
-			<div class="f-section resource-monitor">
-				{#if systemStats}
-					<div class="res-item">
-						<span class="f-label">CPU</span>
-						<div class="res-bar-wrap">
-							<div class="res-bar-fill" style="width: {systemStats.cpu_usage}%"></div>
-						</div>
-						<span class="f-val">{systemStats.cpu_usage.toFixed(1)}%</span>
-					</div>
-					<div class="res-item">
-						<span class="f-label">MEM</span>
-						<span class="f-val">{formatBytes(systemStats.process_memory_mb * 1024 * 1024)}</span>
-					</div>
-				{/if}
-			</div>
-
-			<div class="f-section engine-status">
-				<div class="status-orb" class:busy></div>
-				<span class="f-val"
-					>{busy ? `AGENT ${busy.toUpperCase()} ACTIVE` : 'INTELLIGENCE OS STANDBY'}</span
-				>
-			</div>
-		</footer>
+		<Footer {databaseStatus} {systemStats} {busy} />
 	</div>
 
 	<AnalysisModal
@@ -457,43 +405,6 @@
 {/if}
 
 <style>
-	.ambient-background {
-		position: fixed;
-		inset: 0;
-		z-index: -1;
-		background: #000;
-		overflow: hidden;
-	}
-
-	.ambient-blob {
-		position: absolute;
-		border-radius: 50%;
-		filter: blur(100px);
-		opacity: 0.4;
-		animation: ambient-drift 20s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
-	}
-
-	.b1 {
-		top: -10%; left: -10%;
-		width: 50vw; height: 50vw;
-		background: rgba(231, 196, 107, 0.15); /* Accent Primary */
-		animation-delay: 0s;
-	}
-	.b2 {
-		bottom: -20%; right: -10%;
-		width: 60vw; height: 60vw;
-		background: rgba(77, 243, 169, 0.1); /* Accent Success */
-		animation-delay: -5s;
-		animation-duration: 25s;
-	}
-	.b3 {
-		top: 40%; left: 60%;
-		width: 40vw; height: 40vw;
-		background: rgba(243, 77, 77, 0.08); /* Accent Danger */
-		animation-delay: -10s;
-		animation-duration: 30s;
-	}
-
 	.os-container {
 		display: flex;
 		flex-direction: column;
@@ -533,24 +444,6 @@
 		align-items: center;
 	}
 
-	.stats-bar {
-		display: flex;
-		align-items: center;
-		gap: 24px;
-		padding: 8px 32px;
-		background: rgba(0, 0, 0, 0.2);
-		border-bottom: 1px solid var(--border-subtle);
-		font-size: 11px;
-		text-transform: uppercase;
-		color: var(--text-secondary);
-		letter-spacing: 0.05em;
-	}
-
-	.stats-bar strong {
-		color: var(--text-primary);
-		margin-left: 4px;
-	}
-
 	.os-body {
 		display: flex;
 		flex: 1;
@@ -568,159 +461,10 @@
 		width: 100%;
 	}
 
-	.os-footer {
-		height: 32px;
-		background: #050608;
-		border-top: 1px solid var(--border-subtle);
-		display: flex;
-		align-items: center;
-		padding: 0 32px;
-		gap: 32px;
-		font-size: 10px;
-		letter-spacing: 0.1em;
-		color: var(--text-tertiary);
-		text-transform: uppercase;
-	}
-
-	.f-section {
-		display: flex;
-		gap: 8px;
-		align-items: center;
-	}
-
-	.resource-monitor {
-		margin-left: auto;
-		gap: 24px;
-		padding-right: 24px;
-		border-right: 1px solid var(--border-subtle);
-	}
-
-	.res-item {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-	}
-
-	.res-bar-wrap {
-		width: 40px;
-		height: 3px;
-		background: rgba(255, 255, 255, 0.05);
-		border-radius: 1px;
-		overflow: hidden;
-	}
-
-	.res-bar-fill {
-		height: 100%;
-		background: var(--accent-primary);
-		transition: width 0.3s ease;
-	}
-
-	.f-label {
-		opacity: 0.5;
-	}
-
-	.f-val {
-		color: var(--text-secondary);
-		font-weight: 600;
-	}
-
-	.engine-status {
-		margin-left: auto;
-		color: var(--accent-primary);
-	}
-
-	.status-orb {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: #2a2d35;
-	}
-
-	.status-orb.busy {
-		background: var(--accent-primary);
-		box-shadow: 0 0 8px var(--accent-primary);
-		animation: orb-pulse 2s infinite;
-	}
-
-	@keyframes orb-pulse {
-		0% {
-			opacity: 1;
-			transform: scale(1);
-		}
-		50% {
-			opacity: 0.5;
-			transform: scale(1.2);
-		}
-		100% {
-			opacity: 1;
-			transform: scale(1);
-		}
-	}
-
 	.view-empty {
 		height: 100%;
 		width: 100%;
 		box-sizing: border-box;
-	}
-
-	.system-splash {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: #000;
-		z-index: 1000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.splash-content {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 24px;
-		text-align: center;
-	}
-
-	.splash-content h2 {
-		font-size: 24px;
-		color: var(--text-primary);
-		margin: 0;
-	}
-
-	.splash-content p {
-		color: var(--text-secondary);
-		margin: 0;
-	}
-
-	.loader-spinner {
-		width: 40px;
-		height: 40px;
-		border: 3px solid rgba(231, 196, 107, 0.1);
-		border-top: 3px solid var(--accent-primary);
-		border-radius: 50%;
-		animation: spin 1s linear infinite;
-		margin-bottom: 24px;
-	}
-
-	@keyframes spin {
-		0% { transform: rotate(0deg); }
-		100% { transform: rotate(360deg); }
-	}
-
-	.boot-log {
-		margin-top: 24px;
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		font-family: var(--font-mono);
-		font-size: 11px;
-		color: var(--accent-primary);
-		opacity: 0.7;
-		text-align: left;
-		width: 300px;
 	}
 
 	.os-container.blur {

@@ -1,6 +1,5 @@
 use anyhow::Result;
 use sqlx::{SqlitePool, Row};
-use crate::models::{EntityHit, RecordForensics};
 use crate::common::now;
 
 pub struct AnalysisRepository {

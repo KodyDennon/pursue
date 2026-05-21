@@ -1,31 +1,24 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
 	import { onMount } from 'svelte';
-	import {
-		Brain,
-		Cpu,
-		Database,
-		HardDrive,
-		Download,
-		CheckCircle2,
-		Loader2,
-		RefreshCw,
-		Zap,
-		AlertCircle
-	} from 'lucide-svelte';
+	import { Brain, Loader2 } from 'lucide-svelte';
 	import type { DatabaseStatus } from '$lib/types';
 	import { addToast } from '$lib/toastStore';
 	import { logger } from '$lib/logger';
-	import { formatBytes } from '$lib/utils';
 
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+
+	import HardwareDiagnostics from './intelligence_center/HardwareDiagnostics.svelte';
+	import ModelManager from './intelligence_center/ModelManager.svelte';
+	import VectorAnalytics from './intelligence_center/VectorAnalytics.svelte';
+	import CognitiveSynthesis from './intelligence_center/CognitiveSynthesis.svelte';
 
 	let { onAnalyze, onSynthesize } = $props<{
 		onAnalyze?: () => void;
 		onSynthesize?: () => void;
 	}>();
 
-	interface HardwareDiagnostics {
+	interface HardwareDiagnosticsType {
 		cpu_brand: string;
 		total_memory_gb: number;
 		gpu_acceleration_available: boolean;
@@ -56,7 +49,7 @@
 	}
 
 	let status = $state<DatabaseStatus | null>(null);
-	let diagnostics = $state<HardwareDiagnostics | null>(null);
+	let diagnostics = $state<HardwareDiagnosticsType | null>(null);
 	let evidenceStats = $state<EvidenceStats | null>(null);
 	let models = $state<IntelligenceModel[]>([]);
 	let busyModelId = $state<string | null>(null);
@@ -74,7 +67,7 @@
 		logger.debug('[IntelligenceCenter] Syncing status...');
 		try {
 			status = await invoke<DatabaseStatus>('get_database_status');
-			diagnostics = await invoke<HardwareDiagnostics>('get_hardware_diagnostics');
+			diagnostics = await invoke<HardwareDiagnosticsType>('get_hardware_diagnostics');
 			evidenceStats = await invoke<EvidenceStats>('get_evidence_stats');
 			runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
 			logger.debug('[IntelligenceCenter] Diagnostics loaded:', diagnostics);
@@ -327,237 +320,34 @@
 		</header>
 
 		<div class="center-grid">
-			<!-- Hardware Diagnostics -->
-			<section class="center-card diagnostics">
-				<header>
-					<Cpu size={18} />
-					<h3>Hardware Diagnostics</h3>
-				</header>
-				{#if diagnostics}
-					<div class="diag-metrics">
-						<div class="metric">
-							<span>Processor</span>
-							<strong>{diagnostics.cpu_brand || 'Generic CPU'}</strong>
-						</div>
-						<div class="metric">
-							<span>Memory Pool</span>
-							<strong>{diagnostics.total_memory_gb} GB Total</strong>
-						</div>
-						<div class="metric">
-							<span>Acceleration</span>
-							<strong
-								class={diagnostics.gpu_acceleration_available ? 'text-success' : 'text-warning'}
-							>
-								{diagnostics.gpu_acceleration_available
-									? 'GPU Active (Metal/CUDA)'
-									: 'CPU Only (Fallback)'}
-							</strong>
-						</div>
-						<div class="metric">
-							<span>Intelligence Tier</span>
-							<strong class="tier-badge {diagnostics.recommended_tier}">
-								{diagnostics.recommended_tier}
-							</strong>
-						</div>
-					</div>
-				{:else}
-					<div class="loading-state">Probing hardware...</div>
-				{/if}
-			</section>
+			<HardwareDiagnostics {diagnostics} />
 
-			<!-- Model Management -->
-			<section class="center-card models">
-				<header>
-					<Database size={18} />
-					<div class="header-content">
-						<h3>Cognitive Models</h3>
-						{#if models.some((m) => m.status === 'missing')}
-							<button class="text-btn" onclick={provisionAll} disabled={!!busyModelId}>
-								<Download size={14} /> Provision All Missing
-							</button>
-						{/if}
-					</div>
-				</header>
-				<div class="model-list">
-					<!-- Neural Vision Runtime (Python) -->
-					<div class="model-item" class:busy={runtimeBusy}>
-						<div class="model-info">
-							<span class="m-type">Neural Engine</span>
-							<span class="m-name">Neural Vision Runtime (Python)</span>
-							<span class="m-size">~150 MB • {runtimeProvisioned ? 'ready' : runtimeBusy ? 'provisioning' : 'missing'}</span>
-						</div>
-						<div class="model-actions">
-							{#if runtimeBusy}
-								<Loader2 class="spin" size={18} />
-							{:else if runtimeProvisioned}
-								<CheckCircle2 class="text-success" size={18} />
-							{:else}
-								<button class="icon-btn" onclick={provisionRuntime}>
-									<Download size={18} />
-								</button>
-							{/if}
-						</div>
-					</div>
+			<ModelManager
+				{models}
+				{runtimeProvisioned}
+				{runtimeBusy}
+				{busyModelId}
+				onProvisionRuntime={provisionRuntime}
+				onDownloadModel={downloadModel}
+				onProvisionAll={provisionAll}
+			/>
 
-					{#each models as model (model.id)}
-						<div class="model-item" class:busy={busyModelId === model.id}>
-							<div class="model-info">
-								<span class="m-type">{model.type}</span>
-								<span class="m-name">{model.name}</span>
-								{#if model.status === 'downloading'}
-									<div class="progress-container">
-										<div class="progress-bar" style="width: {model.progress}%"></div>
-										<div class="m-stats">
-											<span class="m-size">{model.progress.toFixed(1)}% of {model.size}</span>
-											<span class="m-eta">
-												{#if model.speedMbps !== null && model.speedMbps > 0}
-													{model.speedMbps.toFixed(2)} MB/s
-												{:else}
-													...
-												{/if}
-												{#if model.etaSeconds !== null}
-													• ETA: {model.etaSeconds}s
-												{/if}
-											</span>
-										</div>
-									</div>
-								{:else}
-									<span class="m-size">{model.size} • {model.status}</span>
-								{/if}
-							</div>
-							<div class="model-actions">
-								{#if busyModelId === model.id}
-									<Loader2 class="spin" size={18} />
-								{:else if model.status === 'ready'}
-									<CheckCircle2 class="text-success" size={18} />
-								{:else}
-									<button class="icon-btn" onclick={() => downloadModel(model.id)}>
-										<Download size={18} />
-									</button>
-								{/if}
-							</div>
-						</div>
-					{/each}
-				</div>
-			</section>
+			<VectorAnalytics
+				{status}
+				{analysisActive}
+				{analysisStatus}
+				{analysisProgress}
+				onReindexAll={reindexAll}
+				onForceReprocessAll={forceReprocessAll}
+			/>
 
-			<!-- Vector Database Status -->
-			<section class="center-card vector">
-				<header>
-					<HardDrive size={18} />
-					<div class="header-content">
-						<h3>Vector Index Analytics</h3>
-						{#if analysisActive}
-							<div class="analysis-progress">
-								<span class="status-text">{analysisStatus}</span>
-								<div class="progress-bar-bg">
-									<div class="progress-bar-fill" style="width: {analysisProgress}%"></div>
-								</div>
-							</div>
-						{:else}
-							<div class="model-meta">
-								<span>BGE v1.5 (384d)</span>
-								<div class="actions">
-									<button class="text-btn" onclick={reindexAll}>
-										<Zap size={14} /> Audit Pending
-									</button>
-									<button class="text-btn danger" onclick={forceReprocessAll}>
-										<RefreshCw size={14} /> Force Re-Audit
-									</button>
-								</div>
-							</div>
-						{/if}
-					</div>
-				</header>
-				{#if status}
-					<div class="diag-metrics">
-						<div class="metric">
-							<span>Indexed Chunks</span>
-							<strong>{status.vector_chunks}</strong>
-						</div>
-						<div class="metric">
-							<span>Entity Associations</span>
-							<strong>{status.entity_count}</strong>
-						</div>
-						<div class="metric">
-							<span>Storage Overhead</span>
-							<strong>{formatBytes(status.artifact_bytes)}</strong>
-						</div>
-						<div class="metric">
-							<span>Search Engine</span>
-							<strong>ONNX / Vector (BGE)</strong>
-						</div>
-						<div class="metric">
-							<span>OCR Infrastructure</span>
-							<strong>Native (Vision/Media)</strong>
-						</div>
-					</div>
-				{:else}
-					<div class="loading-state">Syncing index status...</div>
-				{/if}
-			</section>
-
-			<!-- Cognitive Synthesis Engine -->
-			<section class="center-card synthesis-engine">
-				<header>
-					<Brain size={18} />
-					<div class="header-content">
-						<h3>Cognitive Synthesis</h3>
-						{#if analysisActive}
-							<div class="analysis-progress">
-								<span class="status-text">{analysisStatus}</span>
-								<div class="progress-bar-bg">
-									<div class="progress-bar-fill" style="width: {analysisProgress}%"></div>
-								</div>
-							</div>
-						{:else}
-							<div class="model-meta">
-								<span>Gemma 4 (Local LLM)</span>
-								<div class="actions">
-									<button
-										class="text-btn"
-										onclick={runBatchSynthesis}
-										disabled={!evidenceStats || evidenceStats.indexed_count === 0}
-									>
-										<Zap size={14} /> Batch Synthesis
-									</button>
-								</div>
-							</div>
-						{/if}
-					</div>
-				</header>
-				
-				{#if evidenceStats}
-					<div class="diag-metrics">
-						<div class="metric">
-							<span>Pending Neural Audits</span>
-							<strong class={evidenceStats.indexed_count > 0 ? 'text-warning' : ''}>
-								{evidenceStats.indexed_count}
-							</strong>
-						</div>
-						<div class="metric">
-							<span>Completed Audits</span>
-							<strong>{evidenceStats.completed_count}</strong>
-						</div>
-						<div class="metric" style="grid-column: span 2;">
-							<span>Inference Pipeline</span>
-							<strong>Sequential Local LLM (VRAM Safe)</strong>
-						</div>
-					</div>
-				{:else}
-					<div class="loading-state">Syncing synthesis status...</div>
-				{/if}
-
-				<div class="hardware-warning-box">
-					<div class="warning-header">
-						<AlertCircle size={14} class="warning-icon" />
-						<span>Resource Warning</span>
-					</div>
-					<p class="warning-text">
-						Batch deep intelligence synthesis executes local LLM inference sequentially across all pending records. This action is extremely resource-intensive. Ensure your machine has active cooling, is connected to power, and avoid running other heavy workloads.
-					</p>
-				</div>
-			</section>
+			<CognitiveSynthesis
+				{evidenceStats}
+				{analysisActive}
+				{analysisStatus}
+				{analysisProgress}
+				onRunBatchSynthesis={runBatchSynthesis}
+			/>
 		</div>
 	</div>
 {/if}
@@ -629,224 +419,6 @@
 		gap: 24px;
 	}
 
-	.center-card {
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-lg);
-		padding: 24px;
-		display: flex;
-		flex-direction: column;
-		gap: 20px;
-	}
-
-	.center-card header {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		color: var(--text-secondary);
-	}
-
-	.center-card h3 {
-		margin: 0;
-		font-size: 14px;
-		text-transform: uppercase;
-		letter-spacing: 0.1em;
-		font-weight: 700;
-		flex: 1;
-	}
-
-	.header-content {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		width: 100%;
-	}
-
-	.text-btn {
-		background: none;
-		border: none;
-		color: var(--accent-primary);
-		font-size: 11px;
-		font-weight: 700;
-		text-transform: uppercase;
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		cursor: pointer;
-		padding: 4px 8px;
-		border-radius: 4px;
-		transition: background 0.2s;
-	}
-
-	.text-btn:hover {
-		background: rgba(231, 196, 107, 0.1);
-	}
-
-	.text-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.diag-metrics {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 20px;
-	}
-
-	.metric {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.metric span {
-		font-size: 11px;
-		color: var(--text-tertiary);
-		text-transform: uppercase;
-	}
-
-	.metric strong {
-		font-size: 15px;
-		color: var(--text-primary);
-	}
-
-	.text-success {
-		color: var(--accent-success) !important;
-	}
-	.text-warning {
-		color: #f3c46b !important;
-	}
-
-	.tier-badge {
-		display: inline-block;
-		padding: 2px 8px;
-		border-radius: 4px;
-		background: rgba(231, 196, 107, 0.1);
-		color: var(--accent-primary);
-	}
-
-	.model-list {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.model-item {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 16px;
-		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		transition: var(--transition-fast);
-	}
-
-	.model-item.busy {
-		border-color: var(--accent-primary);
-		background: rgba(231, 196, 107, 0.05);
-	}
-
-	.progress-container {
-		margin-top: 8px;
-		width: 200px;
-		height: 4px;
-		background: rgba(255, 255, 255, 0.05);
-		border-radius: 2px;
-		position: relative;
-		overflow: hidden;
-	}
-
-	.progress-bar {
-		height: 100%;
-		background: var(--accent-primary);
-		box-shadow: 0 0 8px var(--accent-primary);
-		transition: width 0.2s ease;
-	}
-
-	.model-info {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.m-type {
-		font-size: 10px;
-		text-transform: uppercase;
-		color: var(--text-tertiary);
-	}
-	.m-name {
-		font-size: 14px;
-		font-weight: 600;
-		color: var(--text-primary);
-	}
-	.m-size {
-		font-size: 12px;
-		color: var(--text-secondary);
-	}
-
-	.m-stats {
-		display: flex;
-		justify-content: space-between;
-		margin-top: 4px;
-		font-size: 11px;
-	}
-
-	.m-eta {
-		color: var(--text-tertiary);
-		font-family: var(--font-mono);
-	}
-
-	.icon-btn {
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 50%;
-		color: var(--text-secondary);
-		transition: var(--transition-fast);
-	}
-
-	.icon-btn:hover {
-		background: var(--bg-surface-elevated);
-		color: var(--accent-primary);
-	}
-
-	.loading-state {
-		padding: 20px;
-		text-align: center;
-		color: var(--text-tertiary);
-		font-style: italic;
-	}
-
-	.analysis-progress {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		flex: 1;
-		align-items: flex-end;
-	}
-
-	.status-text {
-		font-size: 11px;
-		color: var(--text-secondary);
-	}
-
-	.analysis-progress .progress-bar-bg {
-		width: 100%;
-		height: 4px;
-		background: rgba(255, 255, 255, 0.05);
-		border-radius: 2px;
-		overflow: hidden;
-	}
-
-	.analysis-progress .progress-bar-fill {
-		height: 100%;
-		background: var(--accent-primary);
-		transition: width 0.2s ease;
-	}
-
 	:global(.spin) {
 		animation: spin 1s linear infinite;
 	}
@@ -857,38 +429,5 @@
 		to {
 			transform: rotate(360deg);
 		}
-	}
-
-	.hardware-warning-box {
-		margin-top: auto;
-		background: rgba(243, 196, 107, 0.05);
-		border: 1px solid rgba(243, 196, 107, 0.15);
-		border-radius: var(--radius-md);
-		padding: 12px 16px;
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-
-	.warning-header {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		color: #f3c46b;
-		font-size: 11px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-
-	:global(.warning-icon) {
-		color: #f3c46b;
-	}
-
-	.warning-text {
-		margin: 0;
-		font-size: 11px;
-		line-height: 1.5;
-		color: var(--text-secondary);
 	}
 </style>

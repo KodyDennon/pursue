@@ -5,6 +5,7 @@ use std::time::Duration;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandChild;
 use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 use crate::analysis::python_env;
 
 #[derive(Serialize)]

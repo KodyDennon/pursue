@@ -1,4 +1,5 @@
 pub mod records;
+pub mod analysis_repo;
 
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::fs;

@@ -23,6 +23,8 @@
 	} from 'lucide-svelte';
 	import MediaViewer from './MediaViewer.svelte';
 	import ForensicAuditViewer from './ForensicAuditViewer.svelte';
+	import SynthesisTab from './dossier/SynthesisTab.svelte';
+	import CaseWorkTab from './dossier/CaseWorkTab.svelte';
 	import { addToast } from '$lib/toastStore';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import type {
@@ -72,8 +74,6 @@
 	let chunks = $state<AnalysisChunk[]>([]);
 	let busy = $state<string | null>(null);
 	let error = $state<string | null>(null);
-	let noteBody = $state('');
-	let exportPath = $state<string | null>(null);
 	let viewerOpen = $state(false);
 
 	// Real-time analysis status
@@ -206,56 +206,6 @@
 		try {
 			const path = await invoke<string>('get_record_artifact_path', { id: record.id });
 			await openPath(path);
-		} catch (e) {
-			error = String(e);
-		} finally {
-			busy = null;
-		}
-	}
-
-	async function addToCase() {
-		if (!selectedCaseId) return;
-		busy = 'case-add';
-		error = null;
-		try {
-			await invoke('add_record_to_case', {
-				request: { case_id: selectedCaseId, record_id: record.id, notes: noteBody.trim() || null }
-			});
-			if (onChanged) await onChanged();
-		} catch (e) {
-			error = String(e);
-		} finally {
-			busy = null;
-		}
-	}
-
-	async function addNote() {
-		if (!selectedCaseId || !noteBody.trim()) return;
-		busy = 'case-note';
-		error = null;
-		try {
-			await invoke('update_case_notes', {
-				request: { case_id: selectedCaseId, record_id: record.id, body: noteBody.trim() }
-			});
-			noteBody = '';
-			if (onChanged) await onChanged();
-		} catch (e) {
-			error = String(e);
-		} finally {
-			busy = null;
-		}
-	}
-
-	async function exportCase(format: 'markdown' | 'html') {
-		if (!selectedCaseId) return;
-		busy = `export-${format}`;
-		error = null;
-		try {
-			const result = await invoke<ExportResult>('export_case', {
-				request: { case_id: selectedCaseId, format }
-			});
-			exportPath = result.absolute_path;
-			if (onChanged) await onChanged();
 		} catch (e) {
 			error = String(e);
 		} finally {
@@ -436,71 +386,13 @@
 
 		<div class="tab-content custom-scrollbar">
 			{#if activeTab === 'synthesis'}
-				<div class="view-padding">
-					{#if record.intelligence_json}
-						{@const intel = JSON.parse(record.intelligence_json)}
-						<div class="intel-grid">
-							<div class="intel-main">
-								<section class="intel-card-section">
-									<header class="section-head"><span class="prefix">EXECUTIVE SUMMARY</span></header>
-									<p class="para">{intel.object_description || 'No summary available.'}</p>
-								</section>
-
-								<div class="data-grid-tactical">
-									<div class="t-card">
-										<span class="t-label">TARGET DATE</span>
-										<span class="t-val">{intel.incident_date || record.incident_date || 'UNDISCLOSED'}</span>
-									</div>
-									<div class="t-card">
-										<span class="t-label">GEOSPATIAL TAG</span>
-										<span class="t-val">{intel.location || record.incident_location || 'GLOBAL'}</span>
-									</div>
-									<div class="t-card full">
-										<span class="t-label">AGENCY ASSOCIATIONS</span>
-										<div class="t-tags">
-											{#each intel.agencies || [] as agency (agency)}
-												<span class="f-tag">{agency}</span>
-											{/each}
-										</div>
-									</div>
-								</div>
-								
-								<section class="intel-card-section">
-									<header class="section-head"><span class="prefix">QUALITATIVE OBSERVATIONS</span></header>
-									<p class="para">{intel.pilot_observations || 'No observational data resolved.'}</p>
-								</section>
-							</div>
-
-							<aside class="intel-sidebar">
-								<div class="fidelity-dial-wrap">
-									<span class="t-label">SYNTHESIS FIDELITY</span>
-									<div class="dial">
-										{Math.round((intel.intelligence_score || 0.6) * 100)}%
-									</div>
-								</div>
-								{#if images.length > 0}
-									<div class="mini-gallery">
-										<span class="t-label">VISUAL EVIDENCE</span>
-										<div class="g-grid">
-											{#each images.slice(0, 4) as img (img.id)}
-												<img src={convertFileSrc(img.local_path)} alt="Evidence" />
-											{/each}
-										</div>
-									</div>
-								{/if}
-							</aside>
-						</div>
-					{:else}
-						<div class="pending-state">
-							<Brain size={48} class="accent-icon" />
-							<h3>Deep Intelligence Synthesis Pending</h3>
-							<p>Gemma 4 must perform a semantic audit to generate executive intelligence.</p>
-							<button class="primary-btn" onclick={runDeepSynthesis} disabled={busy === 'synthesis'}>
-								RUN NEURAL SYNTHESIS
-							</button>
-						</div>
-					{/if}
-				</div>
+				<SynthesisTab
+					{record}
+					{analysis}
+					{images}
+					{busy}
+					onRunDeepSynthesis={runDeepSynthesis}
+				/>
 			{:else if activeTab === 'forensics'}
 				<ForensicAuditViewer recordId={record.id} {forensics} {images} />
 			{:else if activeTab === 'thoughts'}
@@ -555,41 +447,12 @@
 					</div>
 				</div>
 			{:else if activeTab === 'case'}
-				<div class="view-padding">
-					<header class="section-head"><span class="prefix">TACTICAL CASE INTEGRATION</span></header>
-					<section class="case-work-section">
-						<p class="case-status">
-							{selectedCase
-								? `Target Case: ${selectedCase.title}`
-								: 'No primary case active. Select a case from the Tactical Dashboard.'}
-						</p>
-						<textarea bind:value={noteBody} rows="5" placeholder="Append forensic observations to case log..."
-						></textarea>
-						<div class="case-actions">
-							<button class="btn-premium" onclick={addToCase} disabled={!selectedCaseId || busy === 'case-add'}
-								>Add to Case</button
-							>
-							<button
-								class="btn-premium"
-								onclick={addNote}
-								disabled={!selectedCaseId || !noteBody.trim() || busy === 'case-note'}>Post Note</button
-							>
-							<button
-								class="btn-premium"
-								onclick={() => exportCase('markdown')}
-								disabled={!selectedCaseId || busy === 'export-markdown'}>Export MD</button
-							>
-							<button
-								class="btn-premium"
-								onclick={() => exportCase('html')}
-								disabled={!selectedCaseId || busy === 'export-html'}>Export HTML</button
-							>
-						</div>
-						{#if exportPath}
-							<p class="path-line">Dossier exported to: {exportPath}</p>
-						{/if}
-					</section>
-				</div>
+				<CaseWorkTab
+					recordId={record.id}
+					{selectedCaseId}
+					{selectedCase}
+					{onChanged}
+				/>
 			{/if}
 		</div>
 	</div>
