@@ -262,6 +262,12 @@ impl VisionSidecar {
         let data: OCRResponse = resp.json().await?;
         Ok(data.text)
     }
+
+    pub async fn cancel(&self) -> Result<()> {
+        let url = format!("http://127.0.0.1:{}/cancel", self.port);
+        let _ = self.client.post(&url).send().await?;
+        Ok(())
+    }
 }
 
 impl Drop for VisionSidecar {
