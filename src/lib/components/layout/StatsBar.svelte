@@ -1,15 +1,13 @@
 <script lang="ts">
-	import type { DatabaseStatus } from '$lib/types';
 	import { formatBytes } from '$lib/utils';
-
-	let { databaseStatus } = $props<{ databaseStatus: DatabaseStatus | null }>();
+	import { intelligenceStore } from '$lib/stores/intelligenceStore.svelte';
 </script>
 
-{#if databaseStatus}
+{#if intelligenceStore.status}
 	<div class="stats-bar">
-		<span class="stat">Total Records: <strong>{databaseStatus.total_count}</strong></span>
+		<span class="stat">Total Records: <strong>{intelligenceStore.status.total_count}</strong></span>
 		<span class="stat"
-			>Vault Storage: <strong>{formatBytes(databaseStatus.total_size)}</strong></span
+			>Vault Storage: <strong>{formatBytes(intelligenceStore.status.total_size)}</strong></span
 		>
 		<span class="stat">Database: <strong>Online</strong></span>
 	</div>

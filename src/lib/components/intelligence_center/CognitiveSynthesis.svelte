@@ -1,24 +1,9 @@
 <script lang="ts">
 	import { Brain, Zap, AlertCircle } from 'lucide-svelte';
+	import type { DatabaseStatus } from '$lib/types';
 
-	interface EvidenceStats {
-		total_count: number;
-		local_count: number;
-		total_size: number;
-		pending_count: number;
-		indexed_count: number;
-		completed_count: number;
-		unanalyzed_count: number;
-	}
-
-	let {
-		evidenceStats,
-		analysisActive,
-		analysisStatus,
-		analysisProgress,
-		onRunBatchSynthesis
-	} = $props<{
-		evidenceStats: EvidenceStats | null;
+	let { status, analysisActive, analysisStatus, analysisProgress, onRunBatchSynthesis } = $props<{
+		status: DatabaseStatus | null;
 		analysisActive: boolean;
 		analysisStatus: string;
 		analysisProgress: number;
@@ -45,7 +30,7 @@
 						<button
 							class="text-btn"
 							onclick={onRunBatchSynthesis}
-							disabled={!evidenceStats || evidenceStats.indexed_count === 0}
+							disabled={!status || status.analyzed_records === status.completed_count}
 						>
 							<Zap size={14} /> Batch Synthesis
 						</button>
@@ -54,18 +39,18 @@
 			{/if}
 		</div>
 	</header>
-	
-	{#if evidenceStats}
+
+	{#if status}
 		<div class="diag-metrics">
 			<div class="metric">
-				<span>Pending Neural Audits</span>
-				<strong class={evidenceStats.indexed_count > 0 ? 'text-warning' : ''}>
-					{evidenceStats.indexed_count}
+				<span>Audit Ready</span>
+				<strong class={status.analyzed_records > (status.completed_count || 0) ? 'text-warning' : ''}>
+					{status.analyzed_records}
 				</strong>
 			</div>
 			<div class="metric">
-				<span>Completed Audits</span>
-				<strong>{evidenceStats.completed_count}</strong>
+				<span>Intelligence Synthesized</span>
+				<strong>{status.completed_count || 0}</strong>
 			</div>
 			<div class="metric" style="grid-column: span 2;">
 				<span>Inference Pipeline</span>
@@ -82,7 +67,9 @@
 			<span>Resource Warning</span>
 		</div>
 		<p class="warning-text">
-			Batch deep intelligence synthesis executes local LLM inference sequentially across all pending records. This action is extremely resource-intensive. Ensure your machine has active cooling, is connected to power, and avoid running other heavy workloads.
+			Batch deep intelligence synthesis executes local LLM inference sequentially across all
+			pending records. This action is extremely resource-intensive. Ensure your machine has active
+			cooling, is connected to power, and avoid running other heavy workloads.
 		</p>
 	</div>
 </section>

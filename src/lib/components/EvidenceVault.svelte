@@ -1,111 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { invoke } from '@tauri-apps/api/core';
-	import { listen } from '@tauri-apps/api/event';
 	import { Database, ShieldCheck, HardDrive, FileText, AlertTriangle } from 'lucide-svelte';
-	import { addToast } from '$lib/toastStore';
-	import type { DatabaseStatus } from '$lib/types';
 	import { formatBytes } from '$lib/utils';
-
-	let stats = $state<DatabaseStatus & {
-		pending_count?: number;
-		indexed_count?: number;
-		completed_count?: number;
-	} | null>(null);
-
-	let busy = $state(false);
-	let verifyProgress = $state(0);
-	let verifyStatusText = $state('');
-	let agentSettings = $state({ auto_sync: true, auto_analyze: true });
-	let encryptionStatus = $state<{ enabled: boolean; algorithm: string } | null>(null);
-
-	async function loadSettings() {
-		try {
-			const s = await invoke<typeof agentSettings>('get_app_settings', { key: 'ingestion_agent' });
-			if (s) agentSettings = s;
-		} catch (e) {
-			console.error(e);
-		}
-	}
-
-	async function saveSettings() {
-		try {
-			await invoke('set_app_settings', { key: 'ingestion_agent', value: agentSettings });
-		} catch (e) {
-			console.error(e);
-		}
-	}
-
-	async function loadStats() {
-		try {
-			stats = await invoke<DatabaseStatus & {
-				pending_count?: number;
-				indexed_count?: number;
-				completed_count?: number;
-			}>('get_evidence_stats');
-			encryptionStatus = await invoke('get_vault_encryption_status');
-		} catch (e) {
-			console.error(e);
-		}
-	}
-
-	async function runIntegrityCheck() {
-		if (busy) return;
-		busy = true;
-		verifyProgress = 0;
-		verifyStatusText = 'Initiating SHA-256 integrity sweep across vault...';
-		addToast({ type: 'info', message: verifyStatusText, duration: 3000 });
-
-		let unlisten: (() => void) | null = null;
-		try {
-			unlisten = await listen<{ current: number; total: number; status: string }>(
-				'integrity-progress',
-				(event) => {
-					const { current, total, status } = event.payload;
-					if (total > 0) {
-						verifyProgress = (current / total) * 100;
-					}
-					if (status === 'completed') {
-						verifyStatusText = 'Finalizing report...';
-					} else {
-						verifyStatusText = `Verifying artifact ${current} of ${total}...`;
-					}
-				}
-			);
-
-			const report = await invoke<{ verified: number; corrupted: number; missing: number }>(
-				'verify_vault_integrity'
-			);
-
-			const corrupted = report.corrupted;
-			const missing = report.missing;
-
-			if (corrupted === 0 && missing === 0) {
-				addToast({
-					type: 'success',
-					message: `Integrity check complete. All ${report.verified} local artifacts verified.`,
-					duration: 5000
-				});
-			} else {
-				addToast({
-					type: 'error',
-					message: `Integrity failure: ${corrupted} corrupted, ${missing} missing.`,
-					duration: 8000
-				});
-			}
-		} catch (e) {
-			addToast({ type: 'error', message: `Integrity check failed: ${e}`, duration: 5000 });
-		} finally {
-			if (unlisten) unlisten();
-			busy = false;
-			verifyStatusText = '';
-			verifyProgress = 0;
-		}
-	}
+	import { vaultStore } from '$lib/stores/vaultStore.svelte';
+	import { settingsStore } from '$lib/stores/settingsStore.svelte';
+	import { intelligenceStore } from '$lib/stores/intelligenceStore.svelte';
 
 	onMount(() => {
-		loadSettings();
-		loadStats();
+		vaultStore.init();
+		settingsStore.init();
+		intelligenceStore.loadStatus();
 	});
 </script>
 
@@ -119,15 +23,15 @@
 			</div>
 		</div>
 		<div class="actions-wrapper">
-			{#if busy && verifyStatusText}
+			{#if vaultStore.busy && vaultStore.verifyStatusText}
 				<div class="verify-progress-container">
-					<span class="verify-status">{verifyStatusText}</span>
+					<span class="verify-status">{vaultStore.verifyStatusText}</span>
 					<div class="progress-bar-bg">
-						<div class="progress-bar-fill" style="width: {verifyProgress}%"></div>
+						<div class="progress-bar-fill" style="width: {vaultStore.verifyProgress}%"></div>
 					</div>
 				</div>
 			{/if}
-			<button class="integrity-btn" onclick={runIntegrityCheck} disabled={busy}>
+			<button class="integrity-btn" onclick={() => vaultStore.runIntegrityCheck()} disabled={vaultStore.busy}>
 				<ShieldCheck size={16} /> Integrity Sweep
 			</button>
 		</div>
@@ -138,7 +42,7 @@
 			<div class="stat-icon"><FileText size={18} /></div>
 			<div class="stat-body">
 				<span class="label">Total Intelligence Records</span>
-				<span class="value">{stats?.total_count || 0}</span>
+				<span class="value">{intelligenceStore.status?.total_count || 0}</span>
 			</div>
 		</section>
 
@@ -146,14 +50,14 @@
 			<div class="stat-icon"><HardDrive size={18} /></div>
 			<div class="stat-body">
 				<span class="label">Local Storage Used</span>
-				<span class="value">{formatBytes(stats?.total_size || 0)}</span>
+				<span class="value">{formatBytes(intelligenceStore.status?.artifact_bytes || 0)}</span>
 				<div class="storage-bar">
 					<div
 						class="fill"
-						style="width: {((stats?.local_records || 0) / (stats?.total_records || 1)) * 100}%"
+						style="width: {((intelligenceStore.status?.local_records || 0) / (intelligenceStore.status?.total_records || 1)) * 100}%"
 						></div>
 						</div>
-						<span class="sub-label">{stats?.local_records || 0} Artifacts cached locally</span>			</div>
+						<span class="sub-label">{intelligenceStore.status?.local_records || 0} Artifacts cached locally</span>			</div>
 		</section>
 
 		<section class="stat-card warning">
@@ -163,15 +67,15 @@
 				<div class="pipeline-stats">
 					<div class="p-item">
 						<span class="p-label">Pending</span>
-						<span class="p-value">{stats?.pending_count || 0}</span>
+						<span class="p-value">{intelligenceStore.status?.pending_count || 0}</span>
 					</div>
 					<div class="p-item">
 						<span class="p-label">Indexed</span>
-						<span class="p-value highlight-blue">{stats?.indexed_count || 0}</span>
+						<span class="p-value highlight-blue">{intelligenceStore.status?.indexed_count || 0}</span>
 					</div>
 					<div class="p-item">
 						<span class="p-label">Completed</span>
-						<span class="p-value highlight-green">{stats?.completed_count || 0}</span>
+						<span class="p-value highlight-green">{intelligenceStore.status?.completed_count || 0}</span>
 					</div>
 				</div>
 				<p class="desc">Awaiting Gemma 4 neural extraction to reach 'Intelligence Ready' status.</p>
@@ -189,10 +93,10 @@
 				</div>
 				<button
 					class="toggle"
-					class:active={agentSettings.auto_sync}
+					class:active={settingsStore.agentSettings.auto_sync}
 					onclick={() => {
-						agentSettings.auto_sync = !agentSettings.auto_sync;
-						saveSettings();
+						settingsStore.agentSettings.auto_sync = !settingsStore.agentSettings.auto_sync;
+						settingsStore.saveAgentSettings();
 					}}
 					aria-label="Auto-Retrieval Toggle"
 				></button>
@@ -201,12 +105,12 @@
 				<div class="text">
 					<strong>Encrypted Artifact Storage</strong>
 					<span
-						>{encryptionStatus?.enabled
-							? `Vault files are stored with ${encryptionStatus.algorithm} at rest.`
+						>{vaultStore.encryptionStatus?.enabled
+							? `Vault files are stored with ${vaultStore.encryptionStatus.algorithm} at rest.`
 							: 'Vault encryption status is unavailable.'}</span
 					>
 				</div>
-				<div class="status-tag">{encryptionStatus?.enabled ? 'SECURE' : 'UNKNOWN'}</div>
+				<div class="status-tag">{vaultStore.encryptionStatus?.enabled ? 'SECURE' : 'UNKNOWN'}</div>
 			</div>
 		</div>
 	</div>

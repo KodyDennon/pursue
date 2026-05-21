@@ -182,6 +182,8 @@ pub struct DatabaseStatus {
     pub total_count: i64,
     pub total_size: i64,
     pub unanalyzed_count: i64,
+    pub completed_count: i64,
+    pub pending_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

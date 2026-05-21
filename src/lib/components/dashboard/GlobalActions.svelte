@@ -15,7 +15,7 @@
 		Zap,
 		Brain
 	} from 'lucide-svelte';
-	import { activeView } from '$lib/store';
+	import { appStore } from '$lib/stores/appStore.svelte';
 
 	let {
 		query = $bindable(''),
@@ -97,7 +97,7 @@
 </script>
 
 <div class="global-actions">
-	{#if $activeView === 'dashboard'}
+	{#if appStore.activeView === 'dashboard'}
 		<div class="view-toggles">
 			<button
 				class="toggle-btn"

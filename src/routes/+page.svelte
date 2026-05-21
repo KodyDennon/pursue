@@ -17,7 +17,7 @@
 	import { MODELS } from '$lib/models';
 	import type { CaseSummary, DatabaseStatus, RecordSummary } from '$lib/types';
 	import { addToast, updateToast } from '$lib/toastStore';
-	import { activeView, selectedRecordId } from '$lib/store';
+	import { appStore } from '$lib/stores/appStore.svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { logger } from '$lib/logger';
 	import { Brain, Layers } from 'lucide-svelte';
@@ -122,7 +122,7 @@
 					duration: 3000
 				});
 
-				$activeView = 'agent';
+				appStore.activeView = 'agent';
 				await invoke('download_missing_records');
 			} else {
 				updateToast(toastId, {
@@ -220,10 +220,10 @@
 			isProvisioned: $state.snapshot(isProvisioned), 
 			hasLoaded: $state.snapshot(hasLoaded), 
 			initializing: $state.snapshot(initializing), 
-			activeView: $state.snapshot($activeView) 
+			activeView: $state.snapshot(appStore.activeView) 
 		});
 		if (isProvisioned && !hasLoaded && !initializing) {
-			if ($activeView === 'dashboard') {
+			if (appStore.activeView === 'dashboard') {
 				logger.debug('[App] Triggering loadInitialData from effect...');
 				hasLoaded = true;
 				loadInitialData();
@@ -232,31 +232,31 @@
 	});
 
 	$effect(() => {
-		logger.debug('[App] Active view changed:', $state.snapshot($activeView));
+		logger.debug('[App] Active view changed:', $state.snapshot(appStore.activeView));
 		// Clear selection when switching top-level modules
-		if ($activeView && $activeView !== 'map') {
+		if (appStore.activeView && appStore.activeView !== 'map') {
 			selectedRecord = null;
 		}
 	});
 
 	$effect(() => {
-		const id = $selectedRecordId;
+		const id = appStore.selectedRecordId;
 		if (!id || records.length === 0) return;
 		const match = records.find((record) => record.id === id);
 		if (match) {
 			selectedRecord = match;
-			$activeView = 'map';
-			$selectedRecordId = null;
+			appStore.activeView = 'map';
+			appStore.selectedRecordId = null;
 		} else {
 			invoke<RecordSummary | null>('get_record', { id })
 				.then((record) => {
 					if (record) {
 						selectedRecord = record;
-						$activeView = 'map';
+						appStore.activeView = 'map';
 					}
 				})
 				.finally(() => {
-					$selectedRecordId = null;
+					appStore.selectedRecordId = null;
 				});
 		}
 	});
@@ -279,15 +279,15 @@
 		<header class="os-header glass-header">
 			<div class="view-context">
 				<h2 class="view-title">
-					{($activeView === 'dashboard'
+					{(appStore.activeView === 'dashboard'
 						? 'Evidence Archive'
-						: $activeView === 'intelligence'
+						: appStore.activeView === 'intelligence'
 							? 'Neural Engine'
-							: $activeView === 'vault'
+							: appStore.activeView === 'vault'
 								? 'Secure Vault'
-								: $activeView === 'agent'
+								: appStore.activeView === 'agent'
 									? 'Ingestion Agent'
-									: $activeView
+									: appStore.activeView
 					).toUpperCase()}
 				</h2>
 			</div>
@@ -305,12 +305,12 @@
 			</div>
 		</header>
 
-		<StatsBar {databaseStatus} />
+		<StatsBar />
 
 		<div class="os-body">
 			<main class="os-main">
 				<div class="view-container">
-					{#if $activeView === 'dashboard'}
+					{#if appStore.activeView === 'dashboard'}
 						<Dashboard
 							{records}
 							libraryPath={databaseStatus?.library_path ?? null}
@@ -326,19 +326,19 @@
 								viewerOpen = true;
 							}}
 						/>
-					{:else if $activeView === 'intelligence'}
+					{:else if appStore.activeView === 'intelligence'}
 						<IntelligenceCenter
 							onAnalyze={() => (analysisModalOpen = true)}
 							onSynthesize={() => (intelligenceModalOpen = true)}
 						/>
-					{:else if $activeView === 'vault'}
+					{:else if appStore.activeView === 'vault'}
 						<EvidenceVault />
-					{:else if $activeView === 'agent'}
+					{:else if appStore.activeView === 'agent'}
 						<DownloadAgent
 							onComplete={loadInitialData}
 							onAnalyze={() => (analysisModalOpen = true)}
 						/>
-					{:else if $activeView === 'map'}
+					{:else if appStore.activeView === 'map'}
 						{#if selectedRecord}
 							<IntelligenceDossier
 								record={selectedRecord}
@@ -355,18 +355,18 @@
 								<Map {records} onSelect={(r) => (selectedRecord = r)} />
 							</div>
 						{/if}
-					{:else if $activeView === 'link-analysis'}
+					{:else if appStore.activeView === 'link-analysis'}
 						<div class="view-empty">
 							<LinkAnalysis {records} />
 						</div>
-					{:else if $activeView === 'settings'}
+					{:else if appStore.activeView === 'settings'}
 						<Settings />
 					{/if}
 				</div>
 			</main>
 		</div>
 
-		<Footer {databaseStatus} {systemStats} {busy} />
+		<Footer {systemStats} {busy} />
 	</div>
 
 	<AnalysisModal

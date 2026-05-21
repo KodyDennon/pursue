@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { Search } from 'lucide-svelte';
-	import { activeView, globalSearchOpen, selectedRecordId } from '$lib/store';
+	import { appStore } from '$lib/stores/appStore.svelte';
 	import type { SearchResults } from '$lib/types';
 	import { logger } from '$lib/logger';
 
@@ -16,10 +16,10 @@
 		const handleKeydown = (e: KeyboardEvent) => {
 			if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
 				e.preventDefault();
-				$globalSearchOpen = true;
+				appStore.globalSearchOpen = true;
 			}
-			if (e.key === 'Escape' && $globalSearchOpen) {
-				$globalSearchOpen = false;
+			if (e.key === 'Escape' && appStore.globalSearchOpen) {
+				appStore.globalSearchOpen = false;
 			}
 		};
 		window.addEventListener('keydown', handleKeydown);
@@ -27,7 +27,7 @@
 	});
 
 	$effect(() => {
-		if ($globalSearchOpen && searchInput) {
+		if (appStore.globalSearchOpen && searchInput) {
 			setTimeout(() => searchInput?.focus(), 50);
 		}
 	});
@@ -50,13 +50,13 @@
 	}
 </script>
 
-{#if $globalSearchOpen}
+{#if appStore.globalSearchOpen}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="search-overlay"
 		onclick={(e) => {
-			if (e.target === e.currentTarget) $globalSearchOpen = false;
+			if (e.target === e.currentTarget) appStore.globalSearchOpen = false;
 		}}
 	>
 		<div class="search-modal glass-panel">
@@ -87,9 +87,9 @@
 						<button
 							class="result-row"
 							onclick={() => {
-								$selectedRecordId = result.id;
-								$activeView = 'dashboard';
-								$globalSearchOpen = false;
+								appStore.selectedRecordId = result.id;
+								appStore.activeView = 'dashboard';
+								appStore.globalSearchOpen = false;
 							}}
 						>
 							<div class="r-head">

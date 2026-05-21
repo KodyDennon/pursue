@@ -45,6 +45,8 @@ pub async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Resul
             (SELECT COUNT(*) FROM records WHERE analysis_status IN ('completed', 'indexed')) as analyzed_records,
             (SELECT COUNT(*) FROM records WHERE analysis_status = 'failed') as failed_analysis_records,
             (SELECT COUNT(*) FROM records WHERE analysis_status IS NULL OR analysis_status NOT IN ('completed', 'indexed')) as unanalyzed_count,
+            (SELECT COUNT(*) FROM records WHERE analysis_status = 'completed') as completed_count,
+            (SELECT COUNT(*) FROM records WHERE analysis_status IS NULL OR analysis_status = 'pending') as pending_count,
             (SELECT COUNT(*) FROM artifacts) as artifact_count,
             (SELECT COUNT(*) FROM analysis_chunks) as analysis_chunks,
             (SELECT COUNT(*) FROM vec_analysis_chunks) as vector_chunks,
@@ -100,5 +102,7 @@ pub async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Resul
         total_count: counts.get("total_records"),
         total_size: counts.get("artifact_bytes"),
         unanalyzed_count: counts.get("unanalyzed_count"),
+        completed_count: counts.get("completed_count"),
+        pending_count: counts.get("pending_count"),
     })
 }

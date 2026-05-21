@@ -24,20 +24,9 @@ export interface IntelligenceModel {
 	etaSeconds: number | null;
 }
 
-export interface EvidenceStats {
-	total_count: number;
-	local_count: number;
-	total_size: number;
-	pending_count: number;
-	indexed_count: number;
-	completed_count: number;
-	unanalyzed_count: number;
-}
-
 class IntelligenceStore {
 	status = $state<DatabaseStatus | null>(null);
 	diagnostics = $state<HardwareDiagnosticsType | null>(null);
-	evidenceStats = $state<EvidenceStats | null>(null);
 	models = $state<IntelligenceModel[]>([]);
 	busyModelId = $state<string | null>(null);
 
@@ -135,7 +124,6 @@ class IntelligenceStore {
 		try {
 			this.status = await invoke<DatabaseStatus>('get_database_status');
 			this.diagnostics = await invoke<HardwareDiagnosticsType>('get_hardware_diagnostics');
-			this.evidenceStats = await invoke<EvidenceStats>('get_evidence_stats');
 			this.runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
 
 			if (this.models.length === 0) {

@@ -1,9 +1,8 @@
 <script lang="ts">
-	import type { DatabaseStatus } from '$lib/types';
 	import { formatBytes } from '$lib/utils';
+	import { intelligenceStore } from '$lib/stores/intelligenceStore.svelte';
 
-	let { databaseStatus, systemStats, busy } = $props<{
-		databaseStatus: DatabaseStatus | null;
+	let { systemStats, busy } = $props<{
 		systemStats: { cpu_usage: number; process_memory_mb: number } | null;
 		busy: string | null;
 	}>();
@@ -13,12 +12,12 @@
 	<div class="f-section">
 		<span class="f-label">Ingestion:</span>
 		<span class="f-val"
-			>{databaseStatus?.local_records || 0} / {databaseStatus?.official_records || 0} Assets</span
+			>{intelligenceStore.status?.local_records || 0} / {intelligenceStore.status?.official_records || 0} Assets</span
 		>
 	</div>
 	<div class="f-section">
 		<span class="f-label">Analysis:</span>
-		<span class="f-val">{databaseStatus?.analyzed_records || 0} Reports</span>
+		<span class="f-val">{intelligenceStore.status?.analyzed_records || 0} Reports</span>
 	</div>
 	<div class="f-section resource-monitor">
 		{#if systemStats}
