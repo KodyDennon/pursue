@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { FileText, Activity, Loader2, CheckCircle2 } from 'lucide-svelte';
+	import { analysisStore } from '$lib/stores/analysisStore.svelte';
 
 	let {
 		status,
