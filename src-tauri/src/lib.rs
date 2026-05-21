@@ -113,6 +113,7 @@ pub fn run() {
             synthesize_intelligence,
             synthesize_all_records,
             reprocess_all_records,
+            abort_analysis,
             check_neural_runtime_status,
             provision_neural_runtime
         ])

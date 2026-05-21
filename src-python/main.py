@@ -64,6 +64,7 @@ logger.info(f"Hardware detected: {device.upper()}")
 model = None
 processor = None
 model_lock = threading.Lock()
+cancel_requested = False
 
 def load_model():
     global model, processor
@@ -166,6 +167,13 @@ async def status():
     
     return stats
 
+@app.post("/cancel")
+async def cancel():
+    global cancel_requested
+    cancel_requested = True
+    logger.info("Cancellation signal received")
+    return {"status": "cancelling"}
+
 def process_image(image: Image.Image) -> str:
     # GOT-OCR-2.0 performs best with 1024x1024 input
     # The processor usually handles this, but we ensure it's RGB
@@ -198,6 +206,9 @@ def process_image(image: Image.Image) -> str:
 
 @app.post("/ocr")
 async def ocr(request: OCRRequest):
+    global cancel_requested
+    cancel_requested = False
+    
     if model is None:
         load_model()
     
@@ -223,6 +234,11 @@ async def ocr(request: OCRRequest):
 
             total_pages = len(doc)
             for page_num in range(total_pages):
+                if cancel_requested:
+                    logger.info("OCR task cancelled by user during PDF processing")
+                    doc.close()
+                    raise HTTPException(status_code=499, detail="Processing cancelled")
+
                 logger.info(f"Rendering PDF page {page_num + 1}/{total_pages}")
                 page = doc.load_page(page_num)
                 

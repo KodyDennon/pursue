@@ -31,7 +31,18 @@ impl BatchProcessor {
         let analysis_clone = analysis.clone();
 
         tauri::async_runtime::spawn(async move {
+            let cancel_token = analysis_clone.get_cancel_token();
             for (idx, row) in records.into_iter().enumerate() {
+                if cancel_token.is_cancelled() {
+                    let _ = handle.emit(
+                        "analysis-progress",
+                        serde_json::json!({
+                            "status": "failed",
+                            "error": "Batch indexing cancelled by user."
+                        }),
+                    );
+                    break;
+                }
                 let id: String = row.get("id");
                 let current_idx = idx + 1;
 
@@ -140,6 +151,7 @@ impl BatchProcessor {
 
             let processed_count = Arc::new(AtomicUsize::new(0));
             let total_count = count;
+            let cancel_token = analysis_clone.get_cancel_token();
 
             futures::stream::iter(records)
                 .map(|row| {
@@ -147,8 +159,13 @@ impl BatchProcessor {
                     let handle = handle.clone();
                     let analysis = analysis_clone.clone();
                     let processed = processed_count.clone();
+                    let cancel_token = cancel_token.clone();
 
                     async move {
+                        if cancel_token.is_cancelled() {
+                            return Ok::<(), String>(());
+                        }
+
                         let current_idx = processed.fetch_add(1, Ordering::SeqCst) + 1;
 
                         // Emit foundation start
@@ -196,12 +213,19 @@ impl BatchProcessor {
                 .collect::<Vec<_>>()
                 .await;
 
+            let status = if cancel_token.is_cancelled() {
+                "failed"
+            } else {
+                "completed"
+            };
+
             let _ = handle.emit(
                 "analysis-progress",
                 serde_json::json!({
                     "current": total_count,
                     "total": total_count,
-                    "status": "completed",
+                    "status": status,
+                    "error": if cancel_token.is_cancelled() { Some("Batch process cancelled by user.") } else { None },
                     "record_id": null
                 }),
             );
@@ -255,6 +279,7 @@ impl BatchProcessor {
 
             let processed_count = Arc::new(AtomicUsize::new(0));
             let total_count = count;
+            let cancel_token = analysis_clone.get_cancel_token();
 
             futures::stream::iter(records)
                 .map(|row| {
@@ -262,8 +287,13 @@ impl BatchProcessor {
                     let handle = handle.clone();
                     let analysis = analysis_clone.clone();
                     let processed = processed_count.clone();
+                    let cancel_token = cancel_token.clone();
 
                     async move {
+                        if cancel_token.is_cancelled() {
+                            return Ok::<(), String>(());
+                        }
+
                         let current_idx = processed.fetch_add(1, Ordering::SeqCst) + 1;
 
                         let _ = handle.emit(
@@ -309,12 +339,19 @@ impl BatchProcessor {
                 .collect::<Vec<_>>()
                 .await;
 
+            let status = if cancel_token.is_cancelled() {
+                "failed"
+            } else {
+                "completed"
+            };
+
             let _ = handle.emit(
                 "analysis-progress",
                 serde_json::json!({
                     "current": total_count,
                     "total": total_count,
-                    "status": "completed",
+                    "status": status,
+                    "error": if cancel_token.is_cancelled() { Some("Batch process cancelled by user.") } else { None },
                     "record_id": null
                 }),
             );
@@ -368,7 +405,18 @@ impl BatchProcessor {
         let analysis_clone = analysis.clone();
 
         tauri::async_runtime::spawn(async move {
+            let cancel_token = analysis_clone.get_cancel_token();
             for (idx, row) in records.into_iter().enumerate() {
+                if cancel_token.is_cancelled() {
+                    let _ = handle.emit(
+                        "analysis-progress",
+                        serde_json::json!({
+                            "status": "failed",
+                            "error": "Batch synthesis cancelled by user."
+                        }),
+                    );
+                    break;
+                }
                 let id: String = row.get("id");
                 let current_idx = idx + 1;
 

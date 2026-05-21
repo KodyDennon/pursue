@@ -198,6 +198,17 @@ class AnalysisStore {
 			this.busy = false;
 		}
 	}
+
+	async abortAnalysis() {
+		if (!this.busy) return;
+		this.addLog('Sending abort signal to foundation engines...', 'error');
+		try {
+			await invoke('abort_analysis');
+			this.addLog('Abort signal acknowledged. Winding down tasks...', 'error');
+		} catch (e) {
+			logger.error('Failed to abort analysis:', e);
+		}
+	}
 }
 
 export const analysisStore = new AnalysisStore();

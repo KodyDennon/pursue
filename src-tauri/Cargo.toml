@@ -19,7 +19,7 @@ metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal", "o
 directml = ["ort/directml"]
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -28,6 +28,7 @@ sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-native-tls", "mac
 reqwest = { version = "0.12", default-features = false, features = ["native-tls", "stream", "cookies", "json", "gzip", "brotli", "zstd"] }
 aes-gcm = "0.10"
 tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
 sysinfo = "0.39"
 lazy_static = "1"
 sqlite-vec = "0.1"

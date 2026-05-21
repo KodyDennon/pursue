@@ -221,6 +221,13 @@ pub async fn provision_neural_runtime(
 }
 
 #[tauri::command]
+pub async fn abort_analysis(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.analysis.abort_analysis().await.map_err(to_error)
+}
+
+#[tauri::command]
 pub async fn get_model_registry() -> Vec<crate::analysis::registry::ModelDefinition> {
     crate::analysis::registry::get_model_registry()
 }

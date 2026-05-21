@@ -92,19 +92,23 @@
 	</div>
 
 	<div class="action-wrap">
-		<button
-			class="start-btn"
-			onclick={onStartAnalysis}
-			disabled={busy || status === 'completed'}
-		>
-			{#if busy}
-				<Loader2 size={18} class="spin" /> INDEXING ACTIVE
-			{:else if status === 'completed'}
-				<CheckCircle2 size={18} /> PROCESS COMPLETE
-			{:else}
-				START BATCH INDEXING
-			{/if}
-		</button>
+		{#if busy}
+			<button class="abort-btn" onclick={() => analysisStore.abortAnalysis()}>
+				<Loader2 size={18} class="spin" /> ABORT BATCH
+			</button>
+		{:else}
+			<button
+				class="start-btn"
+				onclick={onStartAnalysis}
+				disabled={busy || status === 'completed'}
+			>
+				{#if status === 'completed'}
+					<CheckCircle2 size={18} /> PROCESS COMPLETE
+				{:else}
+					START BATCH INDEXING
+				{/if}
+			</button>
+		{/if}
 	</div>
 </div>
 
@@ -258,6 +262,29 @@
 		opacity: 0.5;
 		cursor: not-allowed;
 		box-shadow: none;
+	}
+
+	.abort-btn {
+		width: 100%;
+		height: 44px;
+		background: rgba(255, 68, 68, 0.1);
+		color: #ff4444;
+		border: 1px solid rgba(255, 68, 68, 0.2);
+		border-radius: var(--radius-md);
+		font-weight: 700;
+		font-size: 13px;
+		letter-spacing: 0.05em;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		transition: all 0.2s;
+	}
+
+	.abort-btn:hover {
+		background: rgba(255, 68, 68, 0.2);
+		border-color: #ff4444;
 	}
 
 	:global(.spin) {

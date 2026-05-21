@@ -40,6 +40,7 @@ use self::pdf::PdfAnalyzer;
 use self::thumbnails::ThumbnailManager;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 
 pub struct AnalysisManager {
     db: SqlitePool,
@@ -51,6 +52,7 @@ pub struct AnalysisManager {
     models: ModelManager,
     thumbnails: ThumbnailManager,
     is_analyzing: Arc<AtomicBool>,
+    cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
     // SERIALIZED WRITER: SQLite only allows one writer at a time.
     // We use a semaphore to ensure only one thread enters the persistence phase.
     write_semaphore: Arc<Semaphore>,
@@ -72,6 +74,7 @@ impl AnalysisManager {
             models: ModelManager::new(&library),
             thumbnails: ThumbnailManager::new(),
             is_analyzing: Arc::new(AtomicBool::new(false)),
+            cancel_token: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
             write_semaphore: Arc::new(Semaphore::new(1)),
             vision,
         }
@@ -82,7 +85,27 @@ impl AnalysisManager {
     }
 
     pub fn set_busy(&self, busy: bool) {
+        if busy {
+            // Reset token when starting new work
+            if let Ok(mut token) = self.cancel_token.lock() {
+                *token = CancellationToken::new();
+            }
+        }
         self.is_analyzing.store(busy, Ordering::SeqCst);
+    }
+
+    pub fn get_cancel_token(&self) -> CancellationToken {
+        self.cancel_token.lock().unwrap().clone()
+    }
+
+    pub async fn abort_analysis(&self) -> Result<()> {
+        info!("[Analysis] ABORT REQUESTED");
+        if let Ok(token) = self.cancel_token.lock() {
+            token.cancel();
+        }
+        // Also notify the vision sidecar
+        let _ = self.vision.cancel().await;
+        Ok(())
     }
 
     pub async fn provision_models(&self, app: &tauri::AppHandle) -> Result<()> {
