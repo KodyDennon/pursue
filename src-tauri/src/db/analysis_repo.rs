@@ -1,6 +1,6 @@
-use anyhow::Result;
-use sqlx::{SqlitePool, Row};
 use crate::common::now;
+use anyhow::Result;
+use sqlx::{Row, SqlitePool};
 
 pub struct AnalysisRepository {
     db: SqlitePool,
@@ -11,26 +11,27 @@ impl AnalysisRepository {
         Self { db }
     }
 
-    pub async fn update_analysis_status(&self, record_id: &str, status: &str, error: Option<&str>) -> Result<()> {
-        sqlx::query(
-            "UPDATE records SET analysis_status = ?, analysis_error = ? WHERE id = ?",
-        )
-        .bind(status)
-        .bind(error)
-        .bind(record_id)
-        .execute(&self.db)
-        .await?;
+    pub async fn update_analysis_status(
+        &self,
+        record_id: &str,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query("UPDATE records SET analysis_status = ?, analysis_error = ? WHERE id = ?")
+            .bind(status)
+            .bind(error)
+            .bind(record_id)
+            .execute(&self.db)
+            .await?;
         Ok(())
     }
 
     pub async fn update_redaction_score(&self, record_id: &str, score: f32) -> Result<()> {
-        sqlx::query(
-            "UPDATE records SET redaction_score = ? WHERE id = ?",
-        )
-        .bind(score)
-        .bind(record_id)
-        .execute(&self.db)
-        .await?;
+        sqlx::query("UPDATE records SET redaction_score = ? WHERE id = ?")
+            .bind(score)
+            .bind(record_id)
+            .execute(&self.db)
+            .await?;
         Ok(())
     }
 
@@ -68,7 +69,14 @@ impl AnalysisRepository {
         Ok(())
     }
 
-    pub async fn insert_record_asset(&self, id: &str, record_id: &str, asset_type: &str, path: &str, mime: &str) -> Result<()> {
+    pub async fn insert_record_asset(
+        &self,
+        id: &str,
+        record_id: &str,
+        asset_type: &str,
+        path: &str,
+        mime: &str,
+    ) -> Result<()> {
         sqlx::query("INSERT INTO record_assets (id, record_id, asset_type, local_path, mime_type, created_at) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(id)
             .bind(record_id)
@@ -131,15 +139,31 @@ impl AnalysisRepository {
     pub async fn clear_all_analysis_data(&self) -> Result<()> {
         let mut tx = self.db.begin().await?;
 
-        sqlx::query("DELETE FROM analysis_results").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM vec_analysis_chunks").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM analysis_chunks").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM analysis_chunks_fts").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM record_forensics").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM record_entities").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM intelligence_logs").execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM record_assets WHERE asset_type != 'source'").execute(&mut *tx).await?;
-        
+        sqlx::query("DELETE FROM analysis_results")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM vec_analysis_chunks")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM analysis_chunks")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM analysis_chunks_fts")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM record_forensics")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM record_entities")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM intelligence_logs")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM record_assets WHERE asset_type != 'source'")
+            .execute(&mut *tx)
+            .await?;
+
         sqlx::query("UPDATE records SET analysis_status = 'pending', intelligence_json = NULL, redaction_score = NULL")
             .execute(&mut *tx)
             .await?;

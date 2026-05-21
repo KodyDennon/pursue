@@ -161,7 +161,7 @@
 		background: rgba(231, 196, 107, 0.02);
 	}
 
-	.card-icon {
+	:global(.card-icon) {
 		color: var(--text-tertiary);
 	}
 

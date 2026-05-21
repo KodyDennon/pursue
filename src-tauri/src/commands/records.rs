@@ -91,8 +91,8 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
     }
 
     let job_id = create_download_job(&state.db).await.map_err(to_error)?;
-    
-    // Prepare items but DON'T start a Rust thread. 
+
+    // Prepare items but DON'T start a Rust thread.
     // The frontend will drive the download loop.
     let candidates = sqlx::query(
         r#"
@@ -157,16 +157,14 @@ pub async fn update_download_item_status(
     error: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    sqlx::query(
-        "UPDATE download_job_items SET status = ?, error = ?, updated_at = ? WHERE id = ?",
-    )
-    .bind(status)
-    .bind(error)
-    .bind(now())
-    .bind(item_id)
-    .execute(&state.db)
-    .await
-    .map_err(to_error)?;
+    sqlx::query("UPDATE download_job_items SET status = ?, error = ?, updated_at = ? WHERE id = ?")
+        .bind(status)
+        .bind(error)
+        .bind(now())
+        .bind(item_id)
+        .execute(&state.db)
+        .await
+        .map_err(to_error)?;
     Ok(())
 }
 
@@ -211,16 +209,14 @@ pub async fn ingest_downloaded_bytes(
     .await
     .map_err(to_error)?;
 
-    sqlx::query(
-        "UPDATE download_jobs SET completed = ?, failed = ?, updated_at = ? WHERE id = ?",
-    )
-    .bind(completed)
-    .bind(failed)
-    .bind(now())
-    .bind(&job_id)
-    .execute(&state.db)
-    .await
-    .map_err(to_error)?;
+    sqlx::query("UPDATE download_jobs SET completed = ?, failed = ?, updated_at = ? WHERE id = ?")
+        .bind(completed)
+        .bind(failed)
+        .bind(now())
+        .bind(&job_id)
+        .execute(&state.db)
+        .await
+        .map_err(to_error)?;
 
     // Check if job is finished
     let remaining: i64 = sqlx::query_scalar(
@@ -232,7 +228,11 @@ pub async fn ingest_downloaded_bytes(
     .map_err(to_error)?;
 
     if remaining == 0 {
-        let final_status = if failed == 0 { "completed" } else { "completed_with_errors" };
+        let final_status = if failed == 0 {
+            "completed"
+        } else {
+            "completed_with_errors"
+        };
         let summary = serde_json::json!({
             "completed": completed,
             "failed": failed,
@@ -399,12 +399,9 @@ pub async fn create_download_job(db: &SqlitePool) -> Result<String> {
 }
 
 #[tauri::command]
-pub async fn proxy_fetch_url(
-    url: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<u8>, String> {
+pub async fn proxy_fetch_url(url: String, state: State<'_, AppState>) -> Result<Vec<u8>, String> {
     let client = state.library.client();
-    
+
     if url.contains("war.gov") {
         let _ = client.get("https://www.war.gov/UFO/").send().await;
     }
@@ -421,13 +418,14 @@ pub async fn proxy_fetch_url(
         .map_err(to_error)?;
 
     if !response.status().is_success() {
-        return Err(format!("proxy fetch failed with status {}: {}", response.status(), url));
+        return Err(format!(
+            "proxy fetch failed with status {}: {}",
+            response.status(),
+            url
+        ));
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(to_error)?;
+    let bytes = response.bytes().await.map_err(to_error)?;
 
     Ok(bytes.to_vec())
 }

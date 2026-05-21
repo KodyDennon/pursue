@@ -52,9 +52,12 @@ impl VaultCrypto {
     #[allow(dead_code)]
     pub async fn encrypt_file(&self, source_path: &Path, target_path: &Path) -> Result<()> {
         let key = self.load_or_create_key().await?;
-        let plaintext = fs::read(source_path)
-            .await
-            .with_context(|| format!("failed to read plaintext vault input {}", source_path.display()))?;
+        let plaintext = fs::read(source_path).await.with_context(|| {
+            format!(
+                "failed to read plaintext vault input {}",
+                source_path.display()
+            )
+        })?;
 
         let mut nonce_bytes = [0_u8; NONCE_LEN];
         OsRng.fill_bytes(&mut nonce_bytes);
@@ -93,9 +96,12 @@ impl VaultCrypto {
 
     #[allow(dead_code)]
     pub async fn decrypt_to_bytes(&self, source_path: &Path) -> Result<Vec<u8>> {
-        let mut input = fs::File::open(source_path)
-            .await
-            .with_context(|| format!("failed to open encrypted vault file {}", source_path.display()))?;
+        let mut input = fs::File::open(source_path).await.with_context(|| {
+            format!(
+                "failed to open encrypted vault file {}",
+                source_path.display()
+            )
+        })?;
         let mut magic = [0_u8; 8];
         input.read_exact(&mut magic).await?;
         if &magic != MAGIC {
@@ -153,7 +159,8 @@ impl VaultCrypto {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&self.key_path, std::fs::Permissions::from_mode(0o600));
+            let _ =
+                std::fs::set_permissions(&self.key_path, std::fs::Permissions::from_mode(0o600));
         }
 
         Ok(key)

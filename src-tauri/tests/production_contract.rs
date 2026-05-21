@@ -25,7 +25,8 @@ fn tauri_config_has_no_updater_endpoint() {
 
 #[test]
 fn updater_frontend_dependency_is_removed() {
-    let package_json = fs::read_to_string(repo_root().parent().unwrap().join("package.json")).unwrap();
+    let package_json =
+        fs::read_to_string(repo_root().parent().unwrap().join("package.json")).unwrap();
     assert!(
         !package_json.contains("@tauri-apps/plugin-updater"),
         "frontend updater dependency should be absent while manual releases are the product contract"

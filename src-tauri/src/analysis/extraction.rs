@@ -278,7 +278,11 @@ impl IntelligenceExtractor {
 
             // SHAPE TELEMETRY: Capture internal state
             let input_dims = input.dims().to_vec();
-            let kv_dims = kv_cache[0].k.as_ref().map(|k| k.dims().to_vec()).unwrap_or_default();
+            let kv_dims = kv_cache[0]
+                .k
+                .as_ref()
+                .map(|k| k.dims().to_vec())
+                .unwrap_or_default();
 
             let logits = ctx.model.forward(&input, pos, &mut kv_cache)?;
             let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;

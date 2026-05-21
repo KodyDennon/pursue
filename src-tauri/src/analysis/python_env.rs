@@ -19,12 +19,12 @@ pub async fn download_file(
         .send()
         .await
         .context(format!("Failed to start download from {}", url))?;
-    
+
     let total_size = response.content_length().unwrap_or(0);
     let mut file = fs::File::create(path)
         .await
         .context(format!("Failed to create file at {:?}", path))?;
-    
+
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
 
@@ -135,13 +135,13 @@ pub async fn is_provisioned(app: &tauri::AppHandle) -> bool {
     };
     let py_env_dir = app_data.join("python-runtime");
     let marker_file = py_env_dir.join("provisioned.ok");
-    
+
     let python_exe = if cfg!(windows) {
         py_env_dir.join("python.exe")
     } else {
         py_env_dir.join("python").join("bin").join("python3")
     };
-    
+
     marker_file.exists() && python_exe.exists()
 }
 
@@ -152,10 +152,7 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
     let marker_file = py_env_dir.join("provisioned.ok");
 
     let (python_exe, _pip_exe) = if cfg!(windows) {
-        (
-            py_env_dir.join("python.exe"),
-            py_env_dir.join("python.exe"),
-        )
+        (py_env_dir.join("python.exe"), py_env_dir.join("python.exe"))
     } else {
         let base = py_env_dir.join("python");
         (

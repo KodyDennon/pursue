@@ -644,87 +644,6 @@
 		color: var(--text-tertiary);
 	}
 
-	.para {
-		font-size: 14px;
-		line-height: 1.7;
-		color: var(--text-primary);
-	}
-
-	.data-grid-tactical {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 16px;
-		margin: 32px 0;
-	}
-	.t-card {
-		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
-		padding: 16px;
-		border-radius: 8px;
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-	.t-card.full { grid-column: span 2; }
-	.t-label {
-		font-size: 9px;
-		font-weight: 900;
-		color: var(--text-tertiary);
-	}
-	.t-val {
-		font-size: 14px;
-		font-weight: 600;
-	}
-	.t-tags {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		margin-top: 8px;
-	}
-
-	.fidelity-dial-wrap {
-		background: #000;
-		border: 1px solid var(--border-subtle);
-		padding: 20px;
-		border-radius: 12px;
-		text-align: center;
-	}
-	.dial {
-		font-size: 32px;
-		font-weight: 800;
-		margin-top: 12px;
-		color: var(--accent-primary);
-	}
-
-	.case-work-section {
-		display: flex;
-		flex-direction: column;
-		gap: 20px;
-	}
-	.case-status {
-		font-size: 13px;
-		font-weight: 600;
-		color: var(--accent-primary);
-	}
-	.case-work-section textarea {
-		background: rgba(0, 0, 0, 0.3);
-		border: 1px solid var(--border-subtle);
-		border-radius: 8px;
-		padding: 16px;
-		color: #fff;
-		font-family: var(--font-display);
-		resize: none;
-	}
-	.case-actions {
-		display: flex;
-		gap: 12px;
-	}
-	.path-line {
-		font-size: 11px;
-		color: var(--text-tertiary);
-		font-family: var(--font-mono);
-	}
-
 	.artifact-preview {
 		height: 600px;
 		background: #000;
@@ -778,15 +697,6 @@
 		text-align: center;
 		gap: 16px;
 		color: var(--text-tertiary);
-	}
-	.primary-btn {
-		background: var(--accent-primary);
-		color: #000;
-		border: none;
-		padding: 12px 24px;
-		border-radius: 8px;
-		font-weight: 800;
-		cursor: pointer;
 	}
 
 	.analysis-hud {

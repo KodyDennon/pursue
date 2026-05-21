@@ -1,5 +1,5 @@
-pub mod records;
 pub mod analysis_repo;
+pub mod records;
 
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::fs;
@@ -112,8 +112,12 @@ fn quarantine_incompatible_database(db_path: &std::path::Path) -> anyhow::Result
     for suffix in ["", "-wal", "-shm"] {
         let path = std::path::PathBuf::from(format!("{}{}", db_path.display(), suffix));
         if path.exists() {
-            let quarantined =
-                std::path::PathBuf::from(format!("{}.incompatible-{}{}", db_path.display(), timestamp, suffix));
+            let quarantined = std::path::PathBuf::from(format!(
+                "{}.incompatible-{}{}",
+                db_path.display(),
+                timestamp,
+                suffix
+            ));
             fs::rename(&path, quarantined)?;
         }
     }
@@ -147,11 +151,12 @@ async fn validate_required_schema(pool: &SqlitePool) -> anyhow::Result<()> {
     ];
 
     for table in required_tables {
-        let exists: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?")
-                .bind(table)
-                .fetch_one(pool)
-                .await?;
+        let exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?",
+        )
+        .bind(table)
+        .fetch_one(pool)
+        .await?;
         if exists == 0 {
             return Err(anyhow::anyhow!(
                 "database schema is missing required table `{table}`. Use Settings > Factory Reset to start with a fresh encrypted vault."

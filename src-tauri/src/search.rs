@@ -157,7 +157,7 @@ async fn vectorize_text_with_model(text: &str) -> Result<Vec<f32>> {
     let encoding = tokenizer
         .encode(text, true)
         .map_err(|e| anyhow::anyhow!("Tokenization failed: {}", e))?;
-    
+
     let mut input_ids = encoding.get_ids();
     let mut attention_mask = encoding.get_attention_mask();
 
@@ -183,10 +183,7 @@ async fn vectorize_text_with_model(text: &str) -> Result<Vec<f32>> {
             .collect::<Vec<i64>>(),
     ))?;
 
-    let token_type_ids_tensor = Value::from_array((
-        vec![1, seq_len],
-        vec![0i64; seq_len],
-    ))?;
+    let token_type_ids_tensor = Value::from_array((vec![1, seq_len], vec![0i64; seq_len]))?;
 
     let session_mutex = get_embedding_session()?;
     let mut session = session_mutex

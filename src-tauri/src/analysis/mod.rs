@@ -1,34 +1,37 @@
+pub mod batch_processor;
 pub mod diagnostics;
+pub mod entities;
 pub mod extraction;
 pub mod gemma4;
 pub mod indexer;
 pub mod model_manager;
+pub mod nn;
 pub mod ocr;
 pub mod pdf;
 pub mod persistence;
+pub mod python_env;
 pub mod registry;
 pub mod sidecar;
 pub mod thumbnails;
-pub mod python_env;
-pub mod entities;
+pub mod verifier;
 
 use anyhow::{anyhow, Result};
 use sqlx::{Row, SqlitePool};
 use std::sync::Arc;
 use tauri::Emitter;
-use tauri_plugin_log::log::{info, error};
+use tauri_plugin_log::log::{error, info};
 use tokio::fs;
 use uuid::Uuid;
 
 use crate::analysis::diagnostics::{get_hardware_specs, IntelligenceTier};
+use crate::analysis::entities::extract_entities;
 use crate::analysis::extraction::{ExtractionConfig, IntelligenceExtractor};
 use crate::analysis::indexer::TextExtractor;
 use crate::analysis::model_manager::ModelManager;
 use crate::analysis::persistence::PersistenceManager;
 use crate::analysis::sidecar::VisionSidecar;
-use crate::analysis::entities::extract_entities;
-use crate::db::records;
 use crate::db::analysis_repo::AnalysisRepository;
+use crate::db::records;
 use crate::library::LibraryManager;
 use crate::models::{AnalysisReport, RecordAsset};
 
@@ -84,7 +87,7 @@ impl AnalysisManager {
 
     pub async fn provision_models(&self, app: &tauri::AppHandle) -> Result<()> {
         info!("Starting background model provisioning...");
-        
+
         // Start Vision Sidecar (GOT-OCR-2.0)
         let _ = self.vision.start(app).await;
 
@@ -126,9 +129,11 @@ impl AnalysisManager {
         total: usize,
     ) -> Result<AnalysisReport> {
         info!("Indexing record: {} ({}/{})", record_id, current, total);
-        
+
         let permit = self.write_semaphore.acquire().await?;
-        self.repo.update_analysis_status(record_id, "indexing", None).await?;
+        self.repo
+            .update_analysis_status(record_id, "indexing", None)
+            .await?;
         drop(permit);
 
         match self
@@ -140,7 +145,10 @@ impl AnalysisManager {
                 let message = e.to_string();
                 error!("[Analysis] Indexing failed for {}: {}", record_id, message);
                 let permit = self.write_semaphore.acquire().await?;
-                let _ = self.repo.update_analysis_status(record_id, "failed", Some(&message)).await;
+                let _ = self
+                    .repo
+                    .update_analysis_status(record_id, "failed", Some(&message))
+                    .await;
                 drop(permit);
                 Err(e)
             }
@@ -155,7 +163,9 @@ impl AnalysisManager {
         info!("Synthesizing intelligence for record: {}", record_id);
 
         let permit = self.write_semaphore.acquire().await?;
-        self.repo.update_analysis_status(record_id, "synthesizing", None).await?;
+        self.repo
+            .update_analysis_status(record_id, "synthesizing", None)
+            .await?;
         drop(permit);
 
         match self.synthesize_intelligence_inner(app, record_id).await {
@@ -164,7 +174,10 @@ impl AnalysisManager {
                 let message = e.to_string();
                 error!("[Analysis] Synthesis failed for {}: {}", record_id, message);
                 let permit = self.write_semaphore.acquire().await?;
-                let _ = self.repo.update_analysis_status(record_id, "failed", Some(&message)).await;
+                let _ = self
+                    .repo
+                    .update_analysis_status(record_id, "failed", Some(&message))
+                    .await;
                 drop(permit);
                 Err(e)
             }
@@ -197,7 +210,10 @@ impl AnalysisManager {
                 "total": total
             }),
         );
-        let (text, engine) = self.indexer.extract(_app, record_id, &full_path, force_ocr).await?;
+        let (text, engine) = self
+            .indexer
+            .extract(_app, record_id, &full_path, force_ocr)
+            .await?;
 
         info!("Foundation captured for {}: used {}", record_id, engine);
 
@@ -221,7 +237,10 @@ impl AnalysisManager {
         // ACQUIRE WRITE PERMIT: We serialize the database writing phase to prevent 'database is locked' errors.
         // OCR and rendering (the slow parts) were done above in parallel.
         let _permit = self.write_semaphore.acquire().await?;
-        info!("[Analysis] Persistence permit acquired for {}. Saving results...", record_id);
+        info!(
+            "[Analysis] Persistence permit acquired for {}. Saving results...",
+            record_id
+        );
 
         let asset_dir = self.library.get_full_path(&format!("assets/{}", record_id));
         fs::create_dir_all(&asset_dir).await?;
@@ -235,8 +254,14 @@ impl AnalysisManager {
             .is_ok()
         {
             let rel_thumb_path = format!("assets/{}/{}", record_id, thumb_name);
-            let rel_thumb_path = self.library.encrypt_generated_asset(&rel_thumb_path).await?;
-            let _ = self.repo.save_thumbnail_path(record_id, &rel_thumb_path).await;
+            let rel_thumb_path = self
+                .library
+                .encrypt_generated_asset(&rel_thumb_path)
+                .await?;
+            let _ = self
+                .repo
+                .save_thumbnail_path(record_id, &rel_thumb_path)
+                .await;
         }
 
         // PDF specialized extraction
@@ -259,17 +284,23 @@ impl AnalysisManager {
                     let asset_id = Uuid::new_v4().to_string();
                     let rel_path = format!("assets/{}/{}", record_id, filename);
                     let rel_path = self.library.encrypt_generated_asset(&rel_path).await?;
-                    let _ = self.repo.insert_record_asset(&asset_id, record_id, "image", &rel_path, &mime).await;
+                    let _ = self
+                        .repo
+                        .insert_record_asset(&asset_id, record_id, "image", &rel_path, &mime)
+                        .await;
                 }
             }
         }
 
-        info!("[Analysis] Persisting foundation for {}: entities and chunks...", record_id);
+        info!(
+            "[Analysis] Persisting foundation for {}: entities and chunks...",
+            record_id
+        );
         let entities = extract_entities(&text);
         self.persistence
             .persist_entities(record_id, &entities)
             .await?;
-        
+
         let chunks_indexed = self
             .persistence
             .persist_chunks(record_id, &record.title, &text, &entities)
@@ -283,12 +314,22 @@ impl AnalysisManager {
             .ocr
             .analyze_redactions(&full_path)
             .unwrap_or(0.0);
-        
-        self.repo.update_redaction_score(record_id, redaction_score).await?;
-        self.repo.update_analysis_status(record_id, "indexed", None).await?;
 
-        info!("[Analysis] Foundation secured for {}: {} semantic associations mapped.", record_id, chunks_indexed);
-        info!("[Analysis] Syncing intelligence graph for record {}... Done.", record_id);
+        self.repo
+            .update_redaction_score(record_id, redaction_score)
+            .await?;
+        self.repo
+            .update_analysis_status(record_id, "indexed", None)
+            .await?;
+
+        info!(
+            "[Analysis] Foundation secured for {}: {} semantic associations mapped.",
+            record_id, chunks_indexed
+        );
+        info!(
+            "[Analysis] Syncing intelligence graph for record {}... Done.",
+            record_id
+        );
 
         drop(_permit); // Release the database write lock
 
@@ -326,7 +367,11 @@ impl AnalysisManager {
 
         let mut image_paths = Vec::new();
         for asset in assets.iter().filter(|a| a.asset_type == "image") {
-            image_paths.push(self.library.get_readable_artifact_path(&asset.local_path).await?);
+            image_paths.push(
+                self.library
+                    .get_readable_artifact_path(&asset.local_path)
+                    .await?,
+            );
         }
 
         let intelligence_json = self
@@ -346,7 +391,9 @@ impl AnalysisManager {
 
         let intel_str = serde_json::to_string(&intelligence_json)?;
         let _permit = self.write_semaphore.acquire().await?;
-        self.repo.save_intelligence_json(record_id, &intel_str).await?;
+        self.repo
+            .save_intelligence_json(record_id, &intel_str)
+            .await?;
         drop(_permit);
 
         self.get_analysis(record_id)
@@ -395,9 +442,11 @@ impl AnalysisManager {
         info!("[Analysis] Initiating BULK PURGE of all intelligence data...");
         self.repo.clear_all_analysis_data().await?;
         info!("[Analysis] Bulk purge complete. Database neutralized.");
-        
+
         // Optional: Vacuum to reclaim space and optimize
-        let _ = sqlx::query("PRAGMA incremental_vacuum").execute(&self.db).await;
+        let _ = sqlx::query("PRAGMA incremental_vacuum")
+            .execute(&self.db)
+            .await;
 
         drop(_permit);
         Ok(())

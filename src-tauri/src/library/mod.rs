@@ -42,7 +42,7 @@ impl LibraryManager {
         let snapshot_path = app_data_dir.join("snapshots");
         let export_path = app_data_dir.join("exports");
         let vault = VaultCrypto::new(&app_data_dir);
-        
+
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::ACCEPT,
@@ -58,18 +58,14 @@ impl LibraryManager {
             header::ACCEPT_ENCODING,
             header::HeaderValue::from_static("gzip, deflate, br, zstd"),
         );
-        headers.insert(
-            "Priority",
-            header::HeaderValue::from_static("u=0, i"),
-        );
+        headers.insert("Priority", header::HeaderValue::from_static("u=0, i"));
         headers.insert(
             "Sec-Ch-Ua",
-            header::HeaderValue::from_static("\"Chromium\";v=\"148\", \"Google Chrome\";v=\"148\", \"Not/A)Brand\";v=\"99\""),
+            header::HeaderValue::from_static(
+                "\"Chromium\";v=\"148\", \"Google Chrome\";v=\"148\", \"Not/A)Brand\";v=\"99\"",
+            ),
         );
-        headers.insert(
-            "Sec-Ch-Ua-Mobile",
-            header::HeaderValue::from_static("?0"),
-        );
+        headers.insert("Sec-Ch-Ua-Mobile", header::HeaderValue::from_static("?0"));
         headers.insert(
             "Sec-Ch-Ua-Platform",
             header::HeaderValue::from_static("\"macOS\""),
@@ -170,7 +166,8 @@ impl LibraryManager {
         url: &str,
     ) -> Result<DownloadResult> {
         let artifact = self.download_to_library(url).await?;
-        let actual_artifact_id = self.attach_artifact(pool, Some(record_id), &artifact, "official")
+        let actual_artifact_id = self
+            .attach_artifact(pool, Some(record_id), &artifact, "official")
             .await?;
 
         Ok(DownloadResult {
@@ -212,7 +209,8 @@ impl LibraryManager {
             )
             .await?;
 
-        let actual_artifact_id = self.attach_artifact(pool, Some(record_id), &artifact, "official")
+        let actual_artifact_id = self
+            .attach_artifact(pool, Some(record_id), &artifact, "official")
             .await?;
 
         Ok(DownloadResult {
@@ -232,7 +230,8 @@ impl LibraryManager {
         path: &Path,
     ) -> Result<IngestedArtifact> {
         let artifact = self.copy_file_to_library(path).await?;
-        let _ = self.attach_artifact(pool, Some(record_id), &artifact, "manual")
+        let _ = self
+            .attach_artifact(pool, Some(record_id), &artifact, "manual")
             .await?;
         Ok(artifact)
     }
@@ -246,12 +245,11 @@ impl LibraryManager {
     ) -> Result<String> {
         let mut tx = pool.begin().await?;
 
-        let existing_id: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM artifacts WHERE sha256 = ?"
-        )
-        .bind(&artifact.sha256)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let existing_id: Option<String> =
+            sqlx::query_scalar("SELECT id FROM artifacts WHERE sha256 = ?")
+                .bind(&artifact.sha256)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         let artifact_id = if let Some(id) = existing_id {
             // Update existing artifact to point to the new record (or maintain old one)
@@ -355,16 +353,16 @@ impl LibraryManager {
             ));
         }
 
-        let (mut temp_file, byte_size) = if response.status() == reqwest::StatusCode::PARTIAL_CONTENT
-        {
-            let file = fs::OpenOptions::new().append(true).open(&part_path).await?;
-            (file, downloaded_bytes as i64)
-        } else {
-            // Server doesn't support range or file didn't exist
-            let file = fs::File::create(&part_path).await?;
-            hasher = Sha256::new(); // Reset hasher
-            (file, 0_i64)
-        };
+        let (mut temp_file, byte_size) =
+            if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+                let file = fs::OpenOptions::new().append(true).open(&part_path).await?;
+                (file, downloaded_bytes as i64)
+            } else {
+                // Server doesn't support range or file didn't exist
+                let file = fs::File::create(&part_path).await?;
+                hasher = Sha256::new(); // Reset hasher
+                (file, 0_i64)
+            };
 
         let media_type = response
             .headers()

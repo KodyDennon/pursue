@@ -368,7 +368,7 @@ pub async fn cleanup_poisoned_artifacts(state: State<'_, AppState>) -> Result<us
 
     // Identify artifacts < 1KB (likely 403 error pages)
     let poisoned = sqlx::query(
-        "SELECT relative_path FROM artifacts WHERE byte_size < 1024 AND source_type = 'official'"
+        "SELECT relative_path FROM artifacts WHERE byte_size < 1024 AND source_type = 'official'",
     )
     .fetch_all(&pool)
     .await
@@ -378,7 +378,7 @@ pub async fn cleanup_poisoned_artifacts(state: State<'_, AppState>) -> Result<us
     for row in poisoned {
         let path: String = row.get("relative_path");
         let full_path = library.get_full_path(&path);
-        
+
         // Reset record
         sqlx::query("UPDATE records SET local_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE local_path = ?")
             .bind(&path)
@@ -397,7 +397,7 @@ pub async fn cleanup_poisoned_artifacts(state: State<'_, AppState>) -> Result<us
         if full_path.exists() {
             let _ = tokio::fs::remove_file(&full_path).await;
         }
-        
+
         removed += 1;
     }
 

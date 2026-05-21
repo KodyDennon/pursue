@@ -409,7 +409,7 @@
 		margin: 4px 0 0 0;
 	}
 
-	.accent-icon {
+	:global(.accent-icon) {
 		color: var(--accent-primary);
 	}
 

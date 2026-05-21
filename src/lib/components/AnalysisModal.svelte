@@ -324,7 +324,7 @@
 		font-size: 11px;
 	}
 
-	.accent-icon {
+	:global(.accent-icon) {
 		color: var(--accent-primary);
 	}
 </style>

@@ -38,7 +38,7 @@
 		<Database size={18} />
 		<div class="header-content">
 			<h3>Cognitive Models</h3>
-			{#if models.some((m) => m.status === 'missing')}
+			{#if models.some((m: IntelligenceModel) => m.status === 'missing')}
 				<button class="text-btn" onclick={onProvisionAll} disabled={!!busyModelId}>
 					<Download size={14} /> Provision All Missing
 				</button>
@@ -258,7 +258,7 @@
 		color: var(--accent-primary);
 	}
 
-	.text-success {
+	:global(.text-success) {
 		color: var(--accent-success) !important;
 	}
 

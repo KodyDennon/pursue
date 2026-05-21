@@ -1,7 +1,7 @@
+use crate::analysis::sidecar::VisionSidecar;
 use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
-use crate::analysis::sidecar::VisionSidecar;
 
 pub struct OcrEngine {
     vision: Arc<VisionSidecar>,
@@ -20,13 +20,20 @@ impl OcrEngine {
     ) -> Result<String> {
         let path = path.as_ref();
         if let Err(e) = self.vision.start(app).await {
-            return Err(anyhow::anyhow!("Failed to initialize Neural Vision Engine: {}", e));
+            return Err(anyhow::anyhow!(
+                "Failed to initialize Neural Vision Engine: {}",
+                e
+            ));
         }
         self.vision.extract_text(path).await
     }
 
     pub fn analyze_redactions(&self, image_path: &Path) -> Result<f32> {
-        let extension = image_path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+        let extension = image_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
         if extension == "pdf" {
             return Ok(0.0);
         }

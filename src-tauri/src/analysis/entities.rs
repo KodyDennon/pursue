@@ -1,7 +1,7 @@
+use crate::models::EntityHit;
 use regex::Regex;
 use std::collections::BTreeMap;
 use uuid::Uuid;
-use crate::models::EntityHit;
 
 /// Extracts known entity patterns from text.
 pub fn extract_entities(text: &str) -> Vec<EntityHit> {
@@ -77,6 +77,8 @@ mod tests {
     fn test_extract_dates() {
         let text = "Incident occurred on 2024-05-12.";
         let entities = extract_entities(text);
-        assert!(entities.iter().any(|e| e.name == "2024-05-12" && e.entity_type == "date"));
+        assert!(entities
+            .iter()
+            .any(|e| e.name == "2024-05-12" && e.entity_type == "date"));
     }
 }

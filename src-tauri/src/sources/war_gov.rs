@@ -20,8 +20,6 @@ struct ParsedOfficialRecord {
     content_hash: String,
 }
 
-
-
 pub async fn sync_official_source_from_bytes(
     pool: &SqlitePool,
     library: &LibraryManager,
@@ -178,9 +176,13 @@ async fn sync_official_source_from_bytes_inner(
 }
 
 fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
-    if bytes.starts_with(b"<!DOCTYPE") || bytes.starts_with(b"<HTML") || bytes.starts_with(b"<html") {
+    if bytes.starts_with(b"<!DOCTYPE") || bytes.starts_with(b"<HTML") || bytes.starts_with(b"<html")
+    {
         let sample = String::from_utf8_lossy(&bytes[..bytes.len().min(200)]);
-        return Err(anyhow!("Received HTML instead of CSV. Content starts with: {}", sample));
+        return Err(anyhow!(
+            "Received HTML instead of CSV. Content starts with: {}",
+            sample
+        ));
     }
 
     let mut clean_bytes = bytes;
@@ -211,16 +213,19 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
         let record = match result {
             Ok(r) => r,
             Err(e) => {
-                if first_error.is_none() { first_error = Some(e.to_string()); }
+                if first_error.is_none() {
+                    first_error = Some(e.to_string());
+                }
                 total_malformed += 1;
                 continue;
             }
         };
 
         let get_field = |name: &str| -> Option<String> {
-            header_map.get(&name.to_lowercase()).and_then(|&idx| {
-                record.get(idx).map(|val| val.trim().to_string())
-            }).filter(|s| !s.is_empty())
+            header_map
+                .get(&name.to_lowercase())
+                .and_then(|&idx| record.get(idx).map(|val| val.trim().to_string()))
+                .filter(|s| !s.is_empty())
         };
 
         let title = match get_field("Title") {
@@ -274,7 +279,10 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
         let err_msg = if let Some(e) = first_error {
             format!("WAR.gov CSV contained no usable records. First error: {} ({} malformed rows skipped)", e, total_malformed)
         } else {
-            format!("WAR.gov CSV contained no usable records ({} empty or malformed rows skipped)", total_malformed)
+            format!(
+                "WAR.gov CSV contained no usable records ({} empty or malformed rows skipped)",
+                total_malformed
+            )
         };
         return Err(anyhow!(err_msg));
     }
@@ -289,7 +297,7 @@ async fn upsert_record(
 ) -> Result<()> {
     let id = existing_record_id(pool, &record.stable_key).await?;
     let record_id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
-    
+
     let title = record.csv.title.as_deref().unwrap_or("Untitled").trim();
     let agency = record.csv.agency.as_deref().map(str::trim);
     let summary = record.csv.description.as_deref().map(str::trim);
