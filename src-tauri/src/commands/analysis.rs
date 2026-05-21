@@ -7,7 +7,6 @@ use tauri::{AppHandle, Emitter, State};
 #[tauri::command]
 pub async fn index_record(
     id: String,
-    force_ocr: bool,
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<AnalysisReport, String> {
@@ -22,7 +21,7 @@ pub async fn index_record(
     );
     state
         .analysis
-        .index_record(&app_handle, &id, force_ocr, 1, 1)
+        .index_record(&app_handle, &id, 1, 1)
         .await
         .map_err(to_error)
 }
@@ -67,7 +66,7 @@ pub async fn analyze_record(
     );
     state
         .analysis
-        .index_record(&app_handle, &id, true, 1, 1)
+        .index_record(&app_handle, &id, 1, 1)
         .await
         .map_err(to_error)?;
 

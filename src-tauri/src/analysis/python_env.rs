@@ -39,7 +39,7 @@ pub async fn download_file(
             let _ = app.emit(
                 "analysis-progress",
                 serde_json::json!({
-                    "status": "loading-model",
+                    "status": "loading-ocr-engine",
                     "progress": progress,
                     "msg": format!("{} ({:.1}%)", msg, progress)
                 }),
@@ -170,7 +170,7 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
     let _ = app.emit(
         "analysis-progress",
         serde_json::json!({
-            "status": "loading-model",
+            "status": "loading-ocr-engine",
             "msg": "Provisioning Neural Vision Runtime (First time only)..."
         }),
     );
@@ -245,8 +245,8 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
         let _ = app.emit(
             "analysis-progress",
             serde_json::json!({
-                "status": "loading-model",
-                "msg": "Installing GOT-OCR-2.0 dependencies (this may take a few minutes)..."
+                "status": "loading-ocr-engine",
+                "msg": "Installing Neural Vision dependencies (this may take a few minutes)..."
             }),
         );
 

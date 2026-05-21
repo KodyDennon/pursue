@@ -12,7 +12,7 @@ impl OcrEngine {
         Self { vision }
     }
 
-    /// Neural vision OCR using GOT-OCR-2.0 sidecar
+    /// Neural vision OCR using Neural Vision sidecar
     pub async fn extract_text_fallback<P: AsRef<Path>>(
         &self,
         app: &tauri::AppHandle,

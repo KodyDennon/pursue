@@ -46,7 +46,7 @@ impl BatchProcessor {
                 );
 
                 if let Err(e) = analysis_clone
-                    .index_record(&handle, &id, false, current_idx, count)
+                    .index_record(&handle, &id, current_idx, count)
                     .await
                 {
                     let _ = handle.emit(
@@ -164,7 +164,7 @@ impl BatchProcessor {
 
                         // 1. Foundation Phase (OCR / Vectorization)
                         if let Err(e) = analysis
-                            .index_record(&handle, &id, false, current_idx, total_count)
+                            .index_record(&handle, &id, current_idx, total_count)
                             .await
                         {
                             let _ = handle.emit(
@@ -276,9 +276,9 @@ impl BatchProcessor {
                             }),
                         );
 
-                        // MANDATORY PIXEL OCR: force_ocr set to true
+                        // Default to Neural Vision extraction
                         if let Err(e) = analysis
-                            .index_record(&handle, &id, true, current_idx, total_count)
+                            .index_record(&handle, &id, current_idx, total_count)
                             .await
                         {
                             let _ = handle.emit(

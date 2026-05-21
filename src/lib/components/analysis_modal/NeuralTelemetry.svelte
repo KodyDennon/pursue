@@ -8,6 +8,8 @@
 		progress,
 		currentRecordId,
 		busy,
+		ocrDownloadProgress = 0,
+		ocrDownloadMsg = '',
 		onStartAnalysis
 	} = $props<{
 		status: string;
@@ -16,6 +18,8 @@
 		progress: number;
 		currentRecordId: string | null;
 		busy: boolean;
+		ocrDownloadProgress?: number;
+		ocrDownloadMsg?: string;
 		onStartAnalysis: () => void;
 	}>();
 </script>
@@ -23,13 +27,34 @@
 <div class="dashboard-side">
 	<section class="progress-wrap">
 		<div class="stats-row">
-			<span class="status-label">{status === 'standby' ? 'PIPELINE IDLE' : status.toUpperCase()}</span>
+			<span class="status-label">
+				{status === 'standby'
+					? 'PIPELINE IDLE'
+					: status === 'loading-ocr-engine'
+						? 'NEURAL SETUP'
+						: status.toUpperCase().replace('-', ' ')}
+			</span>
 			<span class="count-label">{processedCount} / {totalCount} FILES</span>
 		</div>
 		<div class="progress-bar-bg">
 			<div class="progress-bar-fill" style="width: {progress}%"></div>
 			<div class="glow" style="left: {progress}%"></div>
 		</div>
+
+		{#if status === 'loading-ocr-engine' || ocrDownloadProgress > 0}
+			<div class="ocr-download-wrap">
+				<div class="ocr-stats-row">
+					<span class="ocr-status-label">NEURAL VISION ENGINE SETUP</span>
+					<span class="ocr-count-label">{ocrDownloadProgress.toFixed(1)}%</span>
+				</div>
+				<div class="progress-bar-bg sub-bar">
+					<div class="progress-bar-fill ocr-fill" style="width: {ocrDownloadProgress}%"></div>
+				</div>
+				{#if ocrDownloadMsg}
+					<div class="ocr-msg" title={ocrDownloadMsg}>{ocrDownloadMsg}</div>
+				{/if}
+			</div>
+		{/if}
 	</section>
 
 	<div class="details-cards">
@@ -56,6 +81,8 @@
 						INDEX COMPLETED
 					{:else if status === 'initializing'}
 						WAKING ENGINES
+					{:else if status === 'loading-ocr-engine'}
+						NEURAL VISION SETUP
 					{:else}
 						READY
 					{/if}
@@ -239,5 +266,49 @@
 	@keyframes spin {
 		from { transform: rotate(0deg); }
 		to { transform: rotate(360deg); }
+	}
+
+	.ocr-download-wrap {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin-top: 8px;
+		padding: 10px;
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px dashed rgba(231, 196, 107, 0.2);
+		border-radius: var(--radius-sm);
+	}
+
+	.ocr-stats-row {
+		display: flex;
+		justify-content: space-between;
+		font-size: 9px;
+		font-weight: 800;
+		letter-spacing: 0.05em;
+	}
+
+	.ocr-status-label {
+		color: var(--accent-primary);
+	}
+
+	.ocr-count-label {
+		color: var(--text-secondary);
+	}
+
+	.ocr-msg {
+		font-size: 10px;
+		color: var(--text-tertiary);
+		font-family: var(--font-mono);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.sub-bar {
+		height: 4px;
+	}
+
+	.ocr-fill {
+		background: var(--accent-primary);
 	}
 </style>

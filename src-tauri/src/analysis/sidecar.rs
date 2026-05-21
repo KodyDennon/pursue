@@ -162,13 +162,26 @@ impl VisionSidecar {
                                         let _ = app_clone.emit(
                                             "analysis-progress",
                                             serde_json::json!({
-                                                "status": "loading-model",
+                                                "status": "loading-ocr-engine",
                                                 "progress": pct,
                                                 "msg": line
                                             }),
                                         );
                                         continue;
                                     }
+                                }
+                            }
+
+                            if line.contains("Rendering PDF page") {
+                                if let Some(pos) = line.find("Rendering PDF page") {
+                                    let step_msg = line[pos..].to_string();
+                                    let _ = app_clone.emit(
+                                        "analysis-progress",
+                                        serde_json::json!({
+                                            "status": "extracting-foundation",
+                                            "step": step_msg
+                                        }),
+                                    );
                                 }
                             }
 

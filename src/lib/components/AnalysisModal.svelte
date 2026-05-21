@@ -47,6 +47,9 @@
 	let logs = $state<LogEntry[]>([]);
 	let busy = $state(false);
 
+	let ocrDownloadProgress = $state(0);
+	let ocrDownloadMsg = $state('');
+
 	$effect(() => {
 		isBusy = busy;
 	});
@@ -67,6 +70,8 @@
 		status = 'initializing';
 		progress = 0;
 		processedCount = 0;
+		ocrDownloadProgress = 0;
+		ocrDownloadMsg = '';
 		logs = [];
 		addLog('Secure Ingestion Pipeline initialized...', 'info');
 		addLog('Starting Optical Character Recognition (OCR) runtime...', 'info');
@@ -106,7 +111,8 @@
 				'foundation-indexed',
 				'indexing-vector',
 				'record-completed',
-				'record-failed'
+				'record-failed',
+				'loading-ocr-engine'
 			];
 
 			if (ocrStatuses.includes(payload.status)) {
@@ -169,7 +175,15 @@
 					addLog(`Analyzing document structures for record: ${payload.record_id?.substring(0, 12)}...`, 'info');
 				}
 			} else if (payload.status === 'foundation-indexed') {
-				addLog(`Foundation metadata mapped via ${payload.engine || 'native OCR'}.`, 'success');
+				let engineName = 'Neural Vision';
+				if (payload.engine === 'pdf-digital') {
+					engineName = 'PDF Digital';
+				} else if (payload.engine === 'text-file') {
+					engineName = 'Plaintext File';
+				} else if (payload.engine) {
+					engineName = payload.engine.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+				}
+				addLog(`Foundation metadata mapped via ${engineName}.`, 'success');
 			} else if (payload.status === 'indexing-vector') {
 				const chunkMsg = payload.chunk_count ? ` (${payload.chunk_count} semantic associations)` : '';
 				addLog(`Chunking and embedding text vectors${chunkMsg}...`, 'info');
@@ -177,6 +191,12 @@
 				addLog(`Record ${payload.record_id?.substring(0, 8)} successfully secured in the vault.`, 'success');
 			} else if (payload.status === 'record-failed') {
 				addLog(`Failed to index record ${payload.record_id?.substring(0, 8)}: ${payload.error}`, 'error');
+			} else if (payload.status === 'loading-ocr-engine') {
+				ocrDownloadProgress = payload.progress ?? ocrDownloadProgress;
+				ocrDownloadMsg = payload.msg ?? ocrDownloadMsg;
+				if (payload.msg) {
+					addLog(payload.msg, 'info');
+				}
 			}
 		}).then((u) => (unlisten = u));
 
@@ -213,6 +233,8 @@
 						{progress}
 						{currentRecordId}
 						{busy}
+						{ocrDownloadProgress}
+						{ocrDownloadMsg}
 						onStartAnalysis={startAnalysis}
 					/>
 

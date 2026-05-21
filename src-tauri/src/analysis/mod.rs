@@ -88,7 +88,7 @@ impl AnalysisManager {
     pub async fn provision_models(&self, app: &tauri::AppHandle) -> Result<()> {
         info!("Starting background model provisioning...");
 
-        // Start Vision Sidecar (GOT-OCR-2.0)
+        // Start Vision Sidecar (Neural Vision)
         let _ = self.vision.start(app).await;
 
         let registry = registry::get_model_registry();
@@ -124,7 +124,6 @@ impl AnalysisManager {
         &self,
         app: &tauri::AppHandle,
         record_id: &str,
-        force_ocr: bool,
         current: usize,
         total: usize,
     ) -> Result<AnalysisReport> {
@@ -137,7 +136,7 @@ impl AnalysisManager {
         drop(permit);
 
         match self
-            .index_record_inner(app, record_id, force_ocr, current, total)
+            .index_record_inner(app, record_id, current, total)
             .await
         {
             Ok(report) => Ok(report),
@@ -188,7 +187,6 @@ impl AnalysisManager {
         &self,
         _app: &tauri::AppHandle,
         record_id: &str,
-        force_ocr: bool,
         current: usize,
         total: usize,
     ) -> Result<AnalysisReport> {
@@ -212,7 +210,7 @@ impl AnalysisManager {
         );
         let (text, engine) = self
             .indexer
-            .extract(_app, record_id, &full_path, force_ocr)
+            .extract(_app, record_id, &full_path)
             .await?;
 
         info!("Foundation captured for {}: used {}", record_id, engine);
@@ -426,7 +424,7 @@ impl AnalysisManager {
         app: &tauri::AppHandle,
         record_id: &str,
     ) -> Result<AnalysisReport> {
-        self.index_record(app, record_id, false, 1, 1).await?;
+        self.index_record(app, record_id, 1, 1).await?;
         self.synthesize_intelligence(app, record_id).await
     }
 

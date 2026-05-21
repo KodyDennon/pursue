@@ -36,12 +36,15 @@
 				<div class="model-meta">
 					<span>BGE v1.5 (384d)</span>
 					<div class="actions">
-						<button class="text-btn" onclick={onReindexAll}>
-							<Zap size={14} /> Audit Pending
-						</button>
-						<button class="text-btn danger" onclick={onForceReprocessAll}>
-							<RefreshCw size={14} /> Force Re-Audit
-						</button>
+						{#if status && status.local_records > status.analyzed_records}
+							<button class="btn-premium" onclick={onReindexAll}>
+								<Zap size={14} /> Audit Index
+							</button>
+						{:else}
+							<button class="text-btn" onclick={onForceReprocessAll}>
+								<RefreshCw size={14} /> Re-index Foundation
+							</button>
+						{/if}
 					</div>
 				</div>
 			{/if}
@@ -67,7 +70,7 @@
 			</div>
 			<div class="metric">
 				<span>OCR Infrastructure</span>
-				<strong>Native (Vision/Media)</strong>
+				<strong>Neural Vision</strong>
 			</div>
 		</div>
 	{:else}
@@ -141,14 +144,6 @@
 
 	.text-btn:hover {
 		background: rgba(231, 196, 107, 0.1);
-	}
-
-	.text-btn.danger {
-		color: var(--accent-error, #ff4d4d);
-	}
-
-	.text-btn.danger:hover {
-		background: rgba(255, 77, 77, 0.1);
 	}
 
 	.diag-metrics {
