@@ -44,7 +44,8 @@
 		selectedCaseId = null,
 		onBack,
 		onChanged,
-		onAnalyze
+		onAnalyze,
+		onSynthesize
 	} = $props<{
 		record: RecordSummary;
 		libraryPath?: string | null;
@@ -53,6 +54,7 @@
 		onBack: () => void;
 		onChanged: () => void | Promise<void>;
 		onAnalyze?: () => void;
+		onSynthesize?: () => void;
 	}>();
 
 	function resolvePath(rel: string | null) {
@@ -176,7 +178,7 @@
 		busy = 'synthesis';
 		error = null;
 		try {
-			if (onAnalyze) onAnalyze();
+			if (onSynthesize) onSynthesize();
 			const report = await invoke<AnalysisReport>('synthesize_intelligence', { id: record.id });
 			analysis = report;
 			if (onChanged) await onChanged();

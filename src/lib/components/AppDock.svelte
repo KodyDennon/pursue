@@ -21,7 +21,7 @@
 
 <nav class="dock">
 	<div class="dock-top">
-		<div class="brand">
+		<div class="brand" data-tauri-drag-region>
 			<Logo size={32} class="brand-icon" />
 		</div>
 

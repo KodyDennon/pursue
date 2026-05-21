@@ -479,6 +479,22 @@ pub async fn search(
 }
 
 #[tauri::command]
+pub async fn check_neural_runtime_status(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+) -> Result<bool, String> {
+    Ok(state.analysis.vision.is_provisioned(&app_handle).await)
+}
+
+#[tauri::command]
+pub async fn provision_neural_runtime(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    state.analysis.vision.provision(&app_handle).await.map_err(to_error)
+}
+
+#[tauri::command]
 pub async fn get_model_registry() -> Vec<crate::analysis::registry::ModelDefinition> {
     crate::analysis::registry::get_model_registry()
 }

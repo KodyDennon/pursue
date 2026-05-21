@@ -8,6 +8,7 @@
 	viewBox="0 0 512 512"
 	xmlns="http://www.w3.org/2000/svg"
 	class={$$props.class}
+	data-tauri-drag-region
 >
 	<defs>
 		<radialGradient id="fortressBg" cx="50%" cy="50%" r="55%">

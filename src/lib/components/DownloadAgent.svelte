@@ -13,7 +13,7 @@
 	import { addToast } from '$lib/toastStore';
 	import { formatBytes } from '$lib/utils';
 
-	let { onComplete } = $props<{
+	let { onComplete, onAnalyze } = $props<{
 		onComplete?: () => void;
 		onAnalyze?: () => void;
 	}>();
@@ -68,6 +68,7 @@
 
 	async function startBatchAnalysis() {
 		try {
+			if (onAnalyze) onAnalyze();
 			await invoke('analyze_all_records');
 			addToast({
 				type: 'info',

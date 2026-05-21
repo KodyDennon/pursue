@@ -51,14 +51,16 @@
 			try {
 				specs = await invoke<HardwareDiagnostics>('get_hardware_diagnostics');
 				modelStatus = await invoke<Record<string, boolean>>('check_model_status');
+				const runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
 
 				console.log('[FirstLaunch] Diagnostics:', specs);
 				console.log('[FirstLaunch] Model Status:', modelStatus);
+				console.log('[FirstLaunch] Runtime Status:', runtimeProvisioned);
 
 				selectedTier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
 
 				const requiredIds = MODELS[selectedTier].map((m) => m.id);
-				const allPresent = requiredIds.every((id) => modelStatus[id]);
+				const allPresent = requiredIds.every((id) => modelStatus[id]) && runtimeProvisioned;
 
 				console.log('[FirstLaunch] Tier:', selectedTier, 'All present:', allPresent);
 
@@ -81,6 +83,8 @@
 
 		// Listen for progress
 		let unlisten: UnlistenFn;
+		let unlistenAnalysis: UnlistenFn;
+
 		listen<ModelProgress>('model-progress', (event) => {
 			const payload = event.payload;
 
@@ -104,19 +108,40 @@
 			}
 		}).then((u) => (unlisten = u));
 
+		listen<{ status: string; progress?: number; msg?: string }>(
+			'analysis-progress',
+			(event) => {
+				const payload = event.payload;
+				if (payload.status === 'loading-model') {
+					modelProgress = payload.progress ?? modelProgress;
+					statusText = payload.msg || statusText;
+
+					const rawOverall =
+						totalModels > 0
+							? Math.round(((modelsCompleted * 100 + modelProgress) / (totalModels * 100)) * 100)
+							: 0;
+					progressWidth = Math.min(99, rawOverall);
+					overallProgress = progressWidth;
+				}
+			}
+		).then((u) => (unlistenAnalysis = u));
+
 		return () => {
 			if (unlisten) unlisten();
+			if (unlistenAnalysis) unlistenAnalysis();
 		};
 	});
 
 	async function startProvisioning() {
 		step = 'provisioning';
 		const models = MODELS[selectedTier];
-		totalModels = models.length;
+		// We add 1 for the Neural Vision Runtime
+		totalModels = models.length + 1;
 		modelsCompleted = 0;
 		overallProgress = 0;
 		let skipped = 0;
 
+		// 1. Provision Cognitive Models
 		for (let i = 0; i < models.length; i++) {
 			const model = models[i];
 			currentModelIndex = i + 1;
@@ -128,7 +153,7 @@
 			// Re-check status
 			const currentStatus = await invoke<Record<string, boolean>>('check_model_status');
 			if (currentStatus[model.id]) {
-				statusText = `[${i + 1}/${models.length}] ${model.name} — Already cached`;
+				statusText = `[${i + 1}/${totalModels}] ${model.name} — Already cached`;
 				modelProgress = 100;
 				speedMbps = null;
 				etaSeconds = null;
@@ -139,7 +164,7 @@
 				continue;
 			}
 
-			statusText = `[${i + 1}/${models.length}] Downloading ${model.name}...`;
+			statusText = `[${i + 1}/${totalModels}] Downloading ${model.name}...`;
 			modelProgress = 0;
 
 			try {
@@ -153,11 +178,11 @@
 				etaSeconds = null;
 				modelsCompleted = i + 1;
 				overallProgress = Math.round((modelsCompleted / totalModels) * 100);
-				statusText = `[${i + 1}/${models.length}] ${model.name} downloaded`;
+				statusText = `[${i + 1}/${totalModels}] ${model.name} downloaded`;
 				await new Promise((r) => setTimeout(r, 300));
 			} catch (e) {
 				console.error(`Failed to download ${model.name}`, e);
-				statusText = `[${i + 1}/${models.length}] Error: ${model.name}. Retrying...`;
+				statusText = `[${i + 1}/${totalModels}] Error: ${model.name}. Retrying...`;
 				await new Promise((r) => setTimeout(r, 2000));
 
 				try {
@@ -172,10 +197,10 @@
 					etaSeconds = null;
 					modelsCompleted = i + 1;
 					overallProgress = Math.round((modelsCompleted / totalModels) * 100);
-					statusText = `[${i + 1}/${models.length}] ${model.name} downloaded`;
+					statusText = `[${i + 1}/${totalModels}] ${model.name} downloaded`;
 				} catch (e2) {
 					console.error(`Critical failure for ${model.name}`, e2);
-					statusText = `[${i + 1}/${models.length}] ✗ Failed: ${model.name}`;
+					statusText = `[${i + 1}/${totalModels}] ✗ Failed: ${model.name}`;
 					modelsCompleted = i + 1;
 					overallProgress = Math.round((modelsCompleted / totalModels) * 100);
 					await new Promise((r) => setTimeout(r, 1500));
@@ -183,11 +208,44 @@
 			}
 		}
 
+		// 2. Provision Neural Vision Runtime (Python)
+		currentModelIndex = totalModels;
+		currentModelName = 'Neural Vision Runtime';
+		modelProgress = 0;
+		speedMbps = null;
+		etaSeconds = null;
+
+		const runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
+		if (runtimeProvisioned) {
+			statusText = `[${totalModels}/${totalModels}] Neural Runtime — Verified`;
+			modelProgress = 100;
+			modelsCompleted = totalModels;
+			overallProgress = 100;
+			skipped++;
+			await new Promise((r) => setTimeout(r, 500));
+		} else {
+			statusText = `[${totalModels}/${totalModels}] Provisioning Neural Runtime...`;
+			try {
+				await invoke('provision_neural_runtime');
+				modelProgress = 100;
+				modelsCompleted = totalModels;
+				overallProgress = 100;
+				statusText = `[${totalModels}/${totalModels}] Neural Runtime ready`;
+				await new Promise((r) => setTimeout(r, 1000));
+			} catch (e) {
+				console.error('Failed to provision neural runtime', e);
+				statusText = `[${totalModels}/${totalModels}] ✗ Runtime Provisioning Failed: ${e}`;
+				modelsCompleted = totalModels;
+				overallProgress = 100;
+				await new Promise((r) => setTimeout(r, 3000));
+			}
+		}
+
 		step = 'ready';
-		if (skipped === models.length) {
+		if (skipped === totalModels) {
 			statusText = 'Intelligence OS already provisioned.';
 		} else {
-			statusText = `Intelligence OS initialized. (${skipped} cached, ${models.length - skipped} downloaded)`;
+			statusText = `Intelligence OS initialized. (${skipped} cached, ${totalModels - skipped} provisioned)`;
 		}
 		setTimeout(onComplete, 1500);
 	}

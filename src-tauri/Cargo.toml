@@ -60,6 +60,9 @@ candle-transformers = "0.8.2"
 tokenizers = "0.23"
 ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
 num_cpus = "1.17.0"
+zip = "0.6"
+tar = "0.4"
+flate2 = "1.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

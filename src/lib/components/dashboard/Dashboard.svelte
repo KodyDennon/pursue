@@ -16,6 +16,7 @@
 		selectedRecord = $bindable(null),
 		onChanged,
 		onAnalyze,
+		onSynthesize,
 		onViewMedia
 	} = $props<{
 		records: RecordSummary[];
@@ -26,6 +27,7 @@
 		selectedRecord: RecordSummary | null;
 		onChanged: () => void | Promise<void>;
 		onAnalyze: () => void;
+		onSynthesize?: () => void;
 		onViewMedia: (record: RecordSummary) => void;
 	}>();
 
@@ -44,6 +46,7 @@
 			onBack={() => (selectedRecord = null)}
 			{onChanged}
 			{onAnalyze}
+			{onSynthesize}
 		/>
 	{:else if viewMode === 'grid'}
 		<GridView

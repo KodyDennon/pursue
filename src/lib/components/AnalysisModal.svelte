@@ -2,11 +2,18 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { onMount } from 'svelte';
-	import { Brain, X, Loader2, CheckCircle2, AlertCircle, Terminal, Activity } from 'lucide-svelte';
+	import { Layers, X, Loader2, CheckCircle2, AlertCircle, Terminal, Activity, FileText } from 'lucide-svelte';
 	import { logger } from '$lib/logger';
 
-	let { isOpen = $bindable(false), onComplete } = $props<{
+	let {
+		isOpen = $bindable(false),
+		isBusy = $bindable(false),
+		progress = $bindable(0),
+		onComplete
+	} = $props<{
 		isOpen: boolean;
+		isBusy?: boolean;
+		progress?: number;
 		onComplete?: () => void;
 	}>();
 
@@ -17,22 +24,12 @@
 		record_id?: string;
 		error?: string;
 		chunk_count?: number;
-		token_text?: string;
 		msg?: string;
 		progress?: number;
-		telemetry?: {
-			input_shape: number[];
-			kv_cache_shape: number[];
-			device: string;
-		};
+		engine?: string;
+		step?: string;
 	}
 
-	let progress = $state(0);
-	let status = $state('standby');
-	let currentRecordId = $state<string | null>(null);
-	let processedCount = $state(0);
-	let totalCount = $state(0);
-	let neuralTelemetry = $state<AnalysisProgress['telemetry'] | null>(null);
 	interface LogEntry {
 		id: string;
 		time: string;
@@ -40,12 +37,16 @@
 		type: 'info' | 'error' | 'success';
 	}
 
+	let status = $state('standby');
+	let currentRecordId = $state<string | null>(null);
+	let processedCount = $state(0);
+	let totalCount = $state(0);
 	let logs = $state<LogEntry[]>([]);
-	let thoughtText = $state('');
 	let busy = $state(false);
-	
-	let modelDownloadProgress = $state(0);
-	let modelDownloadMsg = $state('');
+
+	$effect(() => {
+		isBusy = busy;
+	});
 
 	function addLog(msg: string, type: 'info' | 'error' | 'success' = 'info') {
 		const time = new Date().toLocaleTimeString([], {
@@ -54,7 +55,7 @@
 			minute: '2-digit',
 			second: '2-digit'
 		});
-		logs = [{ id: crypto.randomUUID(), time, msg, type }, ...logs].slice(0, 50);
+		logs = [{ id: crypto.randomUUID(), time, msg, type }, ...logs].slice(0, 100);
 	}
 
 	async function startAnalysis() {
@@ -64,24 +65,24 @@
 		progress = 0;
 		processedCount = 0;
 		logs = [];
-		addLog('Intelligence Foundation Engine starting...', 'info');
-		addLog('Waking Neural Vision Sidecar (GOT-OCR-2.0)...', 'info');
-		addLog('Binding to Apple Neural Engine (ANE)...', 'info');
+		addLog('Secure Ingestion Pipeline initialized...', 'info');
+		addLog('Starting Optical Character Recognition (OCR) runtime...', 'info');
+		addLog('Allocating vector engine indices...', 'info');
 
 		try {
 			const cmd = 'analyze_all_records';
 			const count = await invoke<number>(cmd);
 			totalCount = count;
 			if (count === 0) {
-				addLog('No pending records found. Archive is already up-to-date.', 'success');
+				addLog('Zero pending records identified. Database is fully audited.', 'success');
 				status = 'completed';
 				busy = false;
 				return;
 			}
-			addLog(`Task queued: ${count} records identified for foundation indexing.`, 'info');
+			addLog(`Batch Queued: ${count} target files registered for ingestion.`, 'info');
 			status = 'processing';
 		} catch (e) {
-			addLog(`Initialization failed: ${e}`, 'error');
+			addLog(`Ingestion failed to start: ${e}`, 'error');
 			status = 'failed';
 			busy = false;
 		}
@@ -89,47 +90,51 @@
 
 	onMount(() => {
 		let unlisten: UnlistenFn;
-		logger.debug('[AnalysisModal] Mounted, listening for progress...');
+		logger.debug('[AnalysisModal] Listening for foundation indexing events...');
 
-		listen<AnalysisProgress & { step?: string; engine?: string }>('analysis-progress', (event) => {
+		listen<AnalysisProgress>('analysis-progress', (event) => {
 			const payload = event.payload;
-			logger.debug('[AnalysisModal] Progress Event:', payload.status, payload);
 
-			// Auto-activate and open modal if an event comes in from elsewhere
-			const activeStatuses = [
-				'starting',
-				'processing',
-				'analyzing',
-				'thought',
-				'extracting-foundation',
-				'indexing-vector',
-				'synthesizing',
-				'loading-model',
-				'batch-planning',
+			// Handle foundation-specific active statuses
+			const ocrStatuses = [
 				'initializing-batch',
-				'foundation-indexed'
+				'batch-planning',
+				'extracting-foundation',
+				'foundation-indexed',
+				'indexing-vector',
+				'record-completed',
+				'record-failed'
 			];
-			if (activeStatuses.includes(payload.status)) {
-				if (!isOpen) isOpen = true;
-				busy = true;
-				// Only update status if it's not already in a more specific state
-				if (
-					payload.status !== 'processing' ||
-					(status !== 'extracting-foundation' &&
-						status !== 'indexing-vector' &&
-						status !== 'synthesizing')
-				) {
-					status =
-						payload.status === 'analyzing'
-							? 'processing'
-							: payload.status === 'thought'
-								? 'reasoning'
-								: payload.status === 'batch-planning' || payload.status === 'initializing-batch'
-									? 'processing'
-									: payload.status === 'foundation-indexed'
-										? 'indexing-vector'
-										: payload.status;
+
+			if (ocrStatuses.includes(payload.status)) {
+				if (!isOpen) {
+					isOpen = true;
 				}
+				busy = true;
+				status = payload.status === 'extracting-foundation'
+					? 'processing'
+					: payload.status === 'indexing-vector'
+						? 'vectorizing'
+						: payload.status;
+			} else if (payload.status === 'completed') {
+				// Only complete if we were actively running this modal's pipeline
+				if (busy) {
+					status = 'completed';
+					busy = false;
+					addLog('Ingestion and Vector Indexing complete.', 'success');
+					if (onComplete) onComplete();
+				}
+				return;
+			} else if (payload.status === 'failed') {
+				if (busy) {
+					status = 'failed';
+					busy = false;
+					addLog(`Process aborted: ${payload.error}`, 'error');
+				}
+				return;
+			} else {
+				// Ignore intelligence synthesis events completely in this modal
+				return;
 			}
 
 			processedCount = payload.current ?? processedCount;
@@ -141,68 +146,24 @@
 			}
 
 			if (payload.status === 'batch-planning') {
-				addLog(payload.msg || 'Batch planning...', 'info');
-				thoughtText = (payload.msg || '') + '\n' + thoughtText;
-				// Keep the thoughtText from growing indefinitely if it's just spamming download percentages
-				if (thoughtText.length > 2000) {
-					thoughtText = thoughtText.substring(0, 2000);
-				}
-			}
-
-			if (payload.status === 'completed') {
-				status = 'completed';
-				busy = false;
-				addLog('Neural Extraction Task Complete.', 'success');
-				if (onComplete) onComplete();
-			} else if (payload.status === 'thought') {
-				addLog(
-					`Initiating step-by-step reasoning for ${payload.record_id?.substring(0, 8)}...`,
-					'info'
-				);
-			} else if (payload.status === 'failed') {
-				status = 'failed';
-				busy = false;
-				addLog(`System Error: ${payload.error}`, 'error');
-			} else if (payload.status === 'record-failed') {
-				addLog(`Record ${payload.record_id?.substring(0, 8)} failed: ${payload.error}`, 'error');
-			} else if (payload.status === 'starting' || payload.status === 'processing') {
-				addLog(`Processing record: ${currentRecordId?.substring(0, 8)}...`, 'info');
-			} else if (payload.status === 'loading-model') {
-				if (status !== 'loading-model') {
-					status = 'loading-model';
-					addLog('Neural Engine initialization sequence started...', 'info');
-				}
-				modelDownloadProgress = payload.progress ?? modelDownloadProgress;
-				modelDownloadMsg = payload.msg ?? modelDownloadMsg;
+				addLog(payload.msg || 'Organizing batch execution plan...', 'info');
+			} else if (payload.status === 'initializing-batch') {
+				addLog(payload.msg || 'Resolving ingestion pipeline settings...', 'info');
 			} else if (payload.status === 'extracting-foundation') {
 				if (payload.step) {
-					addLog(`OCR Trace: ${payload.step}`, 'info');
-				} else if (status !== 'extracting-foundation') {
-					addLog(`OCR Phase: Extracting foundation data...`, 'info');
-					status = 'extracting-foundation';
+					addLog(`[OCR Trace] ${payload.step}`, 'info');
+				} else {
+					addLog(`Analyzing document structures for record: ${payload.record_id?.substring(0, 12)}...`, 'info');
 				}
 			} else if (payload.status === 'foundation-indexed') {
-				addLog(`Foundation captured via ${payload.engine}.`, 'success');
+				addLog(`Foundation metadata mapped via ${payload.engine || 'native OCR'}.`, 'success');
 			} else if (payload.status === 'indexing-vector') {
-				if (status !== 'indexing-vector') {
-					const chunkCount = payload.chunk_count ? ` (${payload.chunk_count} chunks)` : '';
-					addLog(`Vector Phase: Mapping semantic associations${chunkCount}...`, 'info');
-					status = 'indexing-vector';
-				}
-			} else if (payload.status === 'synthesizing' || payload.status === 'synthesizing-start') {
-				if (status !== 'synthesizing') {
-					if (payload.status === 'synthesizing-start') {
-						addLog(`Intelligence Phase: Gemma 4 performing deep synthesis...`, 'info');
-					}
-					status = 'synthesizing';
-					thoughtText = ''; // Reset for new record
-				}
-				if (payload.token_text) {
-					thoughtText += payload.token_text;
-				}
-				if (payload.telemetry) {
-					neuralTelemetry = payload.telemetry;
-				}
+				const chunkMsg = payload.chunk_count ? ` (${payload.chunk_count} semantic associations)` : '';
+				addLog(`Chunking and embedding text vectors${chunkMsg}...`, 'info');
+			} else if (payload.status === 'record-completed') {
+				addLog(`Record ${payload.record_id?.substring(0, 8)} successfully secured in the vault.`, 'success');
+			} else if (payload.status === 'record-failed') {
+				addLog(`Failed to index record ${payload.record_id?.substring(0, 8)}: ${payload.error}`, 'error');
 			}
 		}).then((u) => (unlisten = u));
 
@@ -212,9 +173,6 @@
 	});
 
 	function close() {
-		if (busy) {
-			if (!confirm('Analysis is running in the background. Close window?')) return;
-		}
 		isOpen = false;
 	}
 </script>
@@ -224,55 +182,62 @@
 		<div class="analysis-panel glass-panel">
 			<header class="panel-header glass-header">
 				<div class="brand">
-					<Brain size={24} class="accent-icon" />
+					<Layers size={24} class="accent-icon" />
 					<div>
-						<h2>Intelligence Foundation Engine</h2>
-						<p>High-resolution OCR and semantic vector indexing.</p>
+						<h2>Secure Ingestion & Foundation Audit</h2>
+						<p>High-resolution OCR extraction and semantic vector mapping.</p>
 					</div>
 				</div>
-				<button class="close-btn" onclick={close}><X size={20} /></button>
+				<button class="close-btn" onclick={close} aria-label="Close modal"><X size={20} /></button>
 			</header>
 
 			<div class="panel-body">
-				<section class="status-overview">
-					<div class="progress-wrap">
-						<div class="stats-row">
-							<span class="status-label">{status === 'standby' ? 'READY FOR INGESTION' : status.toUpperCase()}</span>
-							<span class="count-label">{processedCount} / {totalCount} RECORDS</span>
-						</div>
-						<div class="progress-bar-bg">
-							<div class="progress-bar-fill" style="width: {progress}%"></div>
-							<div class="glow" style="left: {progress}%"></div>
-						</div>
-					</div>
+				<div class="overhaul-grid">
+					<!-- Dashboard Column (Left) -->
+					<div class="dashboard-side">
+						<section class="progress-wrap">
+							<div class="stats-row">
+								<span class="status-label">{status === 'standby' ? 'PIPELINE IDLE' : status.toUpperCase()}</span>
+								<span class="count-label">{processedCount} / {totalCount} FILES</span>
+							</div>
+							<div class="progress-bar-bg">
+								<div class="progress-bar-fill" style="width: {progress}%"></div>
+								<div class="glow" style="left: {progress}%"></div>
+							</div>
+						</section>
 
-					<div class="control-grid">
-						<div class="info-card">
-							<Activity size={18} />
-							<div class="val">
-								<span class="l">Current Unit</span>
-								<span class="v"
-									>{currentRecordId ? currentRecordId.substring(0, 12) + '...' : 'None'}</span
-								>
+						<div class="details-cards">
+							<div class="info-card">
+								<FileText size={18} class="card-icon" />
+								<div class="val">
+									<span class="l">Current Unit</span>
+									<span class="v"
+										>{currentRecordId ? currentRecordId.substring(0, 16) + '...' : 'None'}</span
+									>
+								</div>
+							</div>
+
+							<div class="info-card" class:indexing={busy}>
+								<Activity size={18} class="card-icon pulse-active" />
+								<div class="val">
+									<span class="l">Status Engine</span>
+									<span class="v">
+										{#if status === 'processing'}
+											OCR EXTRACTION
+										{:else if status === 'vectorizing'}
+											VECTOR ENCODING
+										{:else if status === 'completed'}
+											INDEX COMPLETED
+										{:else if status === 'initializing'}
+											WAKING ENGINES
+										{:else}
+											READY
+										{/if}
+									</span>
+								</div>
 							</div>
 						</div>
-						<div class="info-card" class:thinking={status === 'reasoning' || status === 'synthesizing'}>
-							<Terminal size={18} />
-							<div class="val">
-								<span class="l">Status</span>
-								<span class="v">
-									{status === 'processing' || status === 'extracting-foundation'
-										? 'OCR / FOUNDATION'
-										: status === 'indexing-vector'
-											? 'VECTORIZING'
-											: status === 'synthesizing' || status === 'synthesizing-start' || status === 'analyzing'
-												? 'NEURAL SYNTHESIS'
-												: status === 'loading-model'
-													? 'WAKING MODEL'
-													: status.toUpperCase()}
-								</span>
-							</div>
-						</div>
+
 						<div class="action-wrap">
 							<button
 								class="start-btn"
@@ -280,69 +245,32 @@
 								disabled={busy || status === 'completed'}
 							>
 								{#if busy}
-									<Loader2 size={18} class="spin" /> IN PROGRESS
+									<Loader2 size={18} class="spin" /> INDEXING ACTIVE
 								{:else if status === 'completed'}
-									<CheckCircle2 size={18} /> TASK COMPLETE
+									<CheckCircle2 size={18} /> PROCESS COMPLETE
 								{:else}
 									START BATCH INDEXING
 								{/if}
 							</button>
 						</div>
 					</div>
-				</section>
 
-				<div class="analysis-grid">
-					<div class="log-section">
+					<!-- Terminals Logs Column (Right) -->
+					<div class="log-side">
 						<div class="section-head">
 							<Terminal size={14} />
-							<span>FOUNDATION OUTPUT LOG</span>
+							<span>Foundation Output Log</span>
 						</div>
 						<div class="log-viewport custom-scrollbar">
-							{#each logs as log (log.id)}
-								<div class="log-entry {log.type}">
-									<span class="log-time">[{log.time}]</span>
-									<span class="log-msg">{log.msg}</span>
-								</div>
-							{/each}
-						</div>
-					</div>
-
-					<div class="thought-section">
-						<div class="section-head">
-							<Activity size={14} />
-							<span>NEURAL SYNTHESIS STREAM</span>
-						</div>
-						<div class="thought-viewport custom-scrollbar">
-							{#if status === 'loading-model'}
-								<div class="model-loading-container">
-									<Brain size={48} class="accent-icon pulse-brain" />
-									<div class="loading-info">
-										<h4>INITIALIZING NEURAL ENGINE</h4>
-										<p class="custom-scrollbar" style="max-height: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{modelDownloadMsg || 'Allocating tensor blocks...'}</p>
-									</div>
-									{#if modelDownloadProgress > 0}
-									<div class="model-progress-wrap">
-										<div class="model-progress-bg">
-											<div class="model-progress-fill" style="width: {modelDownloadProgress}%"></div>
-										</div>
-										<span class="model-progress-text">{modelDownloadProgress.toFixed(1)}%</span>
-									</div>
-									{/if}
-								</div>
-							{:else if status === 'synthesizing' || status === 'reasoning'}
-								<div class="neural-stream">
-									<span class="cursor">█</span>
-									{thoughtText}
-								</div>
-								{#if neuralTelemetry}
-									<div class="neural-telemetry">
-										<div class="t-row"><span>DEVICE</span> <strong>{neuralTelemetry.device}</strong></div>
-										<div class="t-row"><span>INPUT</span> <strong>{JSON.stringify(neuralTelemetry.input_shape)}</strong></div>
-										<div class="t-row"><span>KV_CACHE</span> <strong>{JSON.stringify(neuralTelemetry.kv_cache_shape)}</strong></div>
-									</div>
-								{/if}
+							{#if logs.length === 0}
+								<div class="empty-state">Secure ingestion logs will stream here.</div>
 							{:else}
-								<div class="empty-state">Standby for intelligence synthesis (Dossier Mode only)...</div>
+								{#each logs as log (log.id)}
+									<div class="log-entry {log.type}">
+										<span class="log-time">[{log.time}]</span>
+										<span class="log-msg">{log.msg}</span>
+									</div>
+								{/each}
 							{/if}
 						</div>
 					</div>
@@ -353,7 +281,7 @@
 				<div class="notice">
 					<AlertCircle size={14} />
 					<span
-						>Indexing and OCR are hardware intensive. Do not close the application during
+						>Ingestion and OCR are hardware intensive. Do not close the application during
 						active processing.</span
 					>
 				</div>
@@ -377,16 +305,16 @@
 
 	.analysis-panel {
 		width: 100%;
-		max-width: 900px;
+		max-width: 960px;
 		height: 100%;
-		max-height: 700px;
+		max-height: 620px;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
 	}
 
 	.panel-header {
-		padding: 24px 32px;
+		padding: 20px 28px;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -395,18 +323,19 @@
 
 	.brand {
 		display: flex;
-		gap: 20px;
+		gap: 16px;
 		align-items: center;
 	}
 
 	.brand h2 {
 		margin: 0;
-		font-size: 20px;
-		letter-spacing: 0.05em;
+		font-size: 18px;
+		font-weight: 600;
+		letter-spacing: 0.02em;
 	}
 	.brand p {
-		margin: 4px 0 0 0;
-		font-size: 13px;
+		margin: 2px 0 0 0;
+		font-size: 12px;
 		color: var(--text-secondary);
 	}
 
@@ -415,7 +344,7 @@
 		border: none;
 		color: var(--text-tertiary);
 		cursor: pointer;
-		padding: 8px;
+		padding: 6px;
 		border-radius: 50%;
 		transition: all 0.2s;
 	}
@@ -427,29 +356,34 @@
 
 	.panel-body {
 		flex: 1;
-		padding: 32px;
-		display: flex;
-		flex-direction: column;
-		gap: 32px;
+		padding: 28px;
 		overflow: hidden;
 	}
 
-	.status-overview {
+	.overhaul-grid {
+		display: grid;
+		grid-template-columns: 320px 1fr;
+		gap: 28px;
+		height: 100%;
+	}
+
+	.dashboard-side {
 		display: flex;
 		flex-direction: column;
 		gap: 24px;
+		justify-content: space-between;
 	}
 
 	.progress-wrap {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: 8px;
 	}
 
 	.stats-row {
 		display: flex;
 		justify-content: space-between;
-		font-size: 11px;
+		font-size: 10px;
 		font-weight: 800;
 		letter-spacing: 0.1em;
 	}
@@ -462,9 +396,9 @@
 	}
 
 	.progress-bar-bg {
-		height: 8px;
-		background: rgba(255, 255, 255, 0.05);
-		border-radius: 4px;
+		height: 6px;
+		background: rgba(255, 255, 255, 0.04);
+		border-radius: 3px;
 		position: relative;
 		overflow: hidden;
 	}
@@ -472,119 +406,124 @@
 	.progress-bar-fill {
 		height: 100%;
 		background: var(--accent-primary);
-		box-shadow: 0 0 15px var(--accent-primary);
-		transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+		box-shadow: 0 0 12px var(--accent-primary);
+		transition: width 0.3s ease-out;
 	}
 
 	.progress-bar-bg .glow {
 		position: absolute;
 		top: 0;
-		width: 100px;
+		width: 60px;
 		height: 100%;
-		background: linear-gradient(90deg, transparent, rgba(231, 196, 107, 0.4), transparent);
+		background: linear-gradient(90deg, transparent, rgba(231, 196, 107, 0.3), transparent);
 		transform: translateX(-50%);
-		transition: left 0.4s ease;
+		transition: left 0.3s ease;
 	}
 
-	.control-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr 240px;
-		gap: 16px;
+	.details-cards {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		flex: 1;
+		justify-content: center;
 	}
 
 	.info-card {
-		background: rgba(255, 255, 255, 0.03);
+		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
-		padding: 16px;
+		padding: 14px 16px;
 		display: flex;
 		align-items: center;
-		gap: 16px;
+		gap: 14px;
 		color: var(--text-secondary);
+		transition: border-color 0.2s;
+	}
+
+	.info-card.indexing {
+		border-color: rgba(231, 196, 107, 0.2);
+		background: rgba(231, 196, 107, 0.02);
+	}
+
+	.card-icon {
+		color: var(--text-tertiary);
+	}
+
+	.info-card.indexing :global(.pulse-active) {
+		color: var(--accent-primary);
+		animation: pulse-light 1.5s infinite ease-in-out;
+	}
+
+	@keyframes pulse-light {
+		0%, 100% { opacity: 0.6; }
+		50% { opacity: 1; transform: scale(1.05); }
 	}
 
 	.info-card .val {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
+		min-width: 0;
 	}
 	.info-card .l {
-		font-size: 10px;
+		font-size: 9px;
 		text-transform: uppercase;
 		font-weight: 700;
-		opacity: 0.6;
+		opacity: 0.5;
+		letter-spacing: 0.05em;
 	}
 	.info-card .v {
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 600;
 		color: #fff;
 		font-family: var(--font-mono);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.action-wrap {
+		display: flex;
+		flex-direction: column;
 	}
 
 	.start-btn {
+		width: 100%;
+		height: 44px;
 		background: var(--accent-primary);
 		color: #000;
 		border: none;
 		border-radius: var(--radius-md);
-		font-weight: 800;
+		font-weight: 700;
 		font-size: 13px;
 		letter-spacing: 0.05em;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 10px;
+		gap: 8px;
 		transition: all 0.2s;
+		box-shadow: 0 4px 15px rgba(231, 196, 107, 0.2);
 	}
 
 	.start-btn:hover:not(:disabled) {
-		transform: scale(1.02);
+		transform: translateY(-1px);
 		filter: brightness(1.1);
+		box-shadow: 0 6px 20px rgba(231, 196, 107, 0.35);
 	}
 	.start-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+		box-shadow: none;
 	}
 
-	.action-wrap {
+	.log-side {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
-	}
-
-	.info-card.thinking {
-
-		border-color: #f3c46b;
-		background: rgba(243, 196, 107, 0.05);
-		animation: pulse-thought 2s infinite;
-	}
-
-	@keyframes pulse-thought {
-		0% {
-			box-shadow: 0 0 0 0 rgba(243, 196, 107, 0.2);
-		}
-		70% {
-			box-shadow: 0 0 0 10px rgba(243, 196, 107, 0);
-		}
-		100% {
-			box-shadow: 0 0 0 0 rgba(243, 196, 107, 0);
-		}
-	}
-
-	.analysis-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 20px;
-		flex: 1;
-		min-height: 0;
-	}
-
-	.log-section,
-	.thought-section {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
+		gap: 10px;
 		overflow: hidden;
+		border-left: 1px solid var(--border-subtle);
+		padding-left: 28px;
 	}
 
 	.section-head {
@@ -592,71 +531,24 @@
 		align-items: center;
 		gap: 8px;
 		color: var(--text-tertiary);
-		font-size: 10px;
+		font-size: 9px;
 		font-weight: 800;
 		letter-spacing: 0.15em;
 		text-transform: uppercase;
 	}
 
-	.log-viewport,
-	.thought-viewport {
+	.log-viewport {
 		flex: 1;
-		background: rgba(0, 0, 0, 0.5);
+		background: rgba(0, 0, 0, 0.4);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
 		padding: 16px;
 		font-family: var(--font-mono);
 		font-size: 11px;
-		line-height: 1.6;
+		line-height: 1.5;
 		overflow-y: auto;
-	}
-
-	.log-entry {
 		display: flex;
-		gap: 12px;
-		margin-bottom: 4px;
-	}
-
-	.log-time {
-		color: var(--text-tertiary);
-		opacity: 0.5;
-	}
-	.log-entry.success {
-		color: #4df3a9;
-	}
-	.log-entry.error {
-		color: #f34d4d;
-	}
-
-	.neural-stream {
-		color: var(--accent-primary);
-		white-space: pre-wrap;
-		word-break: break-all;
-	}
-
-	.neural-telemetry {
-		margin-top: 20px;
-		padding-top: 20px;
-		border-top: 1px solid rgba(231, 196, 107, 0.1);
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.t-row {
-		display: flex;
-		justify-content: space-between;
-		font-size: 9px;
-		color: var(--text-tertiary);
-		font-family: var(--font-mono);
-	}
-
-	.t-row span {
-		opacity: 0.5;
-	}
-
-	.t-row strong {
-		color: var(--accent-primary);
+		flex-direction: column-reverse;
 	}
 
 	.empty-state {
@@ -665,35 +557,42 @@
 		align-items: center;
 		justify-content: center;
 		color: var(--text-tertiary);
-		opacity: 0.3;
+		opacity: 0.5;
 		font-style: italic;
 	}
 
-	.cursor {
-		display: inline-block;
-		animation: blink 1s step-end infinite;
+	.log-entry {
+		display: flex;
+		gap: 12px;
+		margin-bottom: 5px;
+		word-break: break-all;
 	}
 
-	@keyframes blink {
-		from,
-		to {
-			opacity: 1;
-		}
-		50% {
-			opacity: 0;
-		}
+	.log-time {
+		color: var(--text-tertiary);
+		opacity: 0.6;
+		flex-shrink: 0;
+	}
+	.log-msg {
+		color: var(--text-secondary);
+	}
+	.log-entry.success .log-msg {
+		color: var(--accent-success);
+	}
+	.log-entry.error .log-msg {
+		color: var(--accent-danger);
 	}
 
 	.panel-footer {
-		padding: 20px 32px;
-		background: rgba(0, 0, 0, 0.3);
+		padding: 16px 28px;
+		background: rgba(0, 0, 0, 0.2);
 		border-top: 1px solid var(--border-subtle);
 	}
 
 	.notice {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: 10px;
 		color: var(--text-tertiary);
 		font-size: 11px;
 	}
@@ -705,79 +604,7 @@
 		animation: spin 1s linear infinite;
 	}
 	@keyframes spin {
-		from {
-			transform: rotate(0deg);
-		}
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	.model-loading-container {
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		text-align: center;
-		gap: 24px;
-		padding: 20px;
-	}
-
-	.pulse-brain {
-		animation: pulse-brain-anim 2s infinite ease-in-out;
-		filter: drop-shadow(0 0 15px rgba(231, 196, 107, 0.4));
-	}
-
-	@keyframes pulse-brain-anim {
-		0%, 100% { transform: scale(1); opacity: 0.8; }
-		50% { transform: scale(1.1); opacity: 1; filter: drop-shadow(0 0 25px rgba(231, 196, 107, 0.8)); }
-	}
-
-	.loading-info h4 {
-		margin: 0 0 8px 0;
-		color: var(--text-primary);
-		font-size: 14px;
-		letter-spacing: 0.1em;
-	}
-
-	.loading-info p {
-		margin: 0;
-		color: var(--text-secondary);
-		font-family: var(--font-mono);
-		font-size: 11px;
-		opacity: 0.7;
-	}
-
-	.model-progress-wrap {
-		width: 100%;
-		max-width: 300px;
-		display: flex;
-		align-items: center;
-		gap: 12px;
-	}
-
-	.model-progress-bg {
-		flex: 1;
-		height: 6px;
-		background: rgba(255, 255, 255, 0.1);
-		border-radius: 3px;
-		overflow: hidden;
-	}
-
-	.model-progress-fill {
-		height: 100%;
-		background: var(--accent-primary);
-		box-shadow: 0 0 10px var(--accent-primary);
-		transition: width 0.3s ease-out;
-	}
-
-	.model-progress-text {
-		font-family: var(--font-mono);
-		color: var(--accent-primary);
-		font-size: 11px;
-		font-weight: 700;
-		width: 45px;
-		text-align: right;
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 </style>

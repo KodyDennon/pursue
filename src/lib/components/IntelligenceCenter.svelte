@@ -52,11 +52,15 @@
 	let processedCount = $state(0);
 	let totalCount = $state(0);
 
+	let runtimeProvisioned = $state(false);
+	let runtimeBusy = $state(false);
+
 	async function loadStatus() {
 		logger.debug('[IntelligenceCenter] Syncing status...');
 		try {
 			status = await invoke<DatabaseStatus>('get_database_status');
 			diagnostics = await invoke<HardwareDiagnostics>('get_hardware_diagnostics');
+			runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
 			logger.debug('[IntelligenceCenter] Diagnostics loaded:', diagnostics);
 			if (models.length === 0) {
 				const registry = await invoke<{
@@ -86,6 +90,21 @@
 			}));
 		} catch (e) {
 			console.error(e);
+		}
+	}
+
+	async function provisionRuntime() {
+		if (runtimeBusy) return;
+		runtimeBusy = true;
+		try {
+			addToast({ type: 'info', message: 'Provisioning Neural Vision Runtime...', duration: 3000 });
+			await invoke('provision_neural_runtime');
+			await loadStatus();
+			addToast({ type: 'success', message: 'Neural Vision Runtime is ready.', duration: 3000 });
+		} catch (e) {
+			addToast({ type: 'error', message: `Provisioning failed: ${e}` });
+		} finally {
+			runtimeBusy = false;
 		}
 	}
 
@@ -197,9 +216,11 @@
 			status: string;
 			token_index?: number;
 			token_limit?: number;
+			progress?: number;
+			msg?: string;
 		}>('analysis-progress', (event) => {
-			const { current, total, status } = event.payload;
-			logger.debug('[IntelligenceCenter] Analysis Progress:', status, { current, total });
+			const { current, total, status, progress, msg } = event.payload;
+			logger.debug('[IntelligenceCenter] Analysis Progress:', status, { current, total, progress });
 
 			processedCount = current ?? processedCount;
 			totalCount = total ?? totalCount;
@@ -208,6 +229,10 @@
 				analysisActive = false;
 				analysisStatus = 'Intelligence Standby';
 				loadStatus();
+			} else if (status === 'loading-model') {
+				analysisActive = true;
+				analysisStatus = msg || 'Initializing Neural Engine...';
+				analysisProgress = progress ?? 0;
 			} else if (status === 'synthesizing' || status === 'synthesizing-start') {
 				analysisActive = true;
 				const curToken = event.payload.token_index ?? 0;
@@ -310,6 +335,26 @@
 					</div>
 				</header>
 				<div class="model-list">
+					<!-- Neural Vision Runtime (Python) -->
+					<div class="model-item" class:busy={runtimeBusy}>
+						<div class="model-info">
+							<span class="m-type">Neural Engine</span>
+							<span class="m-name">Neural Vision Runtime (Python)</span>
+							<span class="m-size">~150 MB • {runtimeProvisioned ? 'ready' : runtimeBusy ? 'provisioning' : 'missing'}</span>
+						</div>
+						<div class="model-actions">
+							{#if runtimeBusy}
+								<Loader2 class="spin" size={18} />
+							{:else if runtimeProvisioned}
+								<CheckCircle2 class="text-success" size={18} />
+							{:else}
+								<button class="icon-btn" onclick={provisionRuntime}>
+									<Download size={18} />
+								</button>
+							{/if}
+						</div>
+					</div>
+
 					{#each models as model (model.id)}
 						<div class="model-item" class:busy={busyModelId === model.id}>
 							<div class="model-info">

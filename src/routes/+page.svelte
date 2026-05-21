@@ -11,6 +11,7 @@
 	import DownloadAgent from '$lib/components/DownloadAgent.svelte';
 	import Settings from '$lib/components/Settings.svelte';
 	import AnalysisModal from '$lib/components/AnalysisModal.svelte';
+	import IntelligenceModal from '$lib/components/IntelligenceModal.svelte';
 	import MediaViewer from '$lib/components/MediaViewer.svelte';
 	import Dashboard from '$lib/components/dashboard/Dashboard.svelte';
 	import { MODELS } from '$lib/models';
@@ -20,6 +21,7 @@
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { logger } from '$lib/logger';
 	import { formatBytes } from '$lib/utils';
+	import { Brain, Layers } from 'lucide-svelte';
 
 	let isProvisioned = $state(false);
 
@@ -34,6 +36,11 @@
 	let initializing = $state(true);
 	let viewMode = $state<'grid' | 'cards' | 'list'>('grid');
 	let analysisModalOpen = $state(false);
+	let analysisBusy = $state(false);
+	let analysisProgress = $state(0);
+
+	let intelligenceModalOpen = $state(false);
+	let intelligenceBusy = $state(false);
 	let viewerOpen = $state(false);
 	let viewerRecord = $state<RecordSummary | null>(null);
 	let hasLoaded = $state(false);
@@ -332,6 +339,7 @@
 							bind:selectedRecord
 							onChanged={() => loadInitialData()}
 							onAnalyze={() => (analysisModalOpen = true)}
+							onSynthesize={() => (intelligenceModalOpen = true)}
 							onViewMedia={(r) => {
 								viewerRecord = r;
 								viewerOpen = true;
@@ -356,6 +364,7 @@
 								onBack={() => (selectedRecord = null)}
 								onChanged={() => loadInitialData()}
 								onAnalyze={() => (analysisModalOpen = true)}
+								onSynthesize={() => (intelligenceModalOpen = true)}
 							/>
 						{:else}
 							<div class="view-empty">
@@ -409,9 +418,38 @@
 		</footer>
 	</div>
 
-	<AnalysisModal bind:isOpen={analysisModalOpen} onComplete={loadInitialData} />
+	<AnalysisModal
+		bind:isOpen={analysisModalOpen}
+		bind:isBusy={analysisBusy}
+		bind:progress={analysisProgress}
+		onComplete={loadInitialData}
+	/>
+	<IntelligenceModal
+		bind:isOpen={intelligenceModalOpen}
+		bind:isBusy={intelligenceBusy}
+		onComplete={loadInitialData}
+	/>
 	{#if viewerRecord}
 		<MediaViewer record={viewerRecord} bind:isOpen={viewerOpen} />
+	{/if}
+
+	{#if (analysisBusy && !analysisModalOpen) || (intelligenceBusy && !intelligenceModalOpen)}
+		<div class="active-pipelines-floating">
+			{#if analysisBusy && !analysisModalOpen}
+				<button class="pipeline-pill" onclick={() => (analysisModalOpen = true)}>
+					<span class="indicator-glow pulse-active yellow"></span>
+					<Layers size={14} style="color: var(--accent-primary)" />
+					<span class="label">Ingestion In Progress ({analysisProgress.toFixed(0)}%)</span>
+				</button>
+			{/if}
+			{#if intelligenceBusy && !intelligenceModalOpen}
+				<button class="pipeline-pill" onclick={() => (intelligenceModalOpen = true)}>
+					<span class="indicator-glow pulse-active blue"></span>
+					<Brain size={14} style="color: #50b3ff" />
+					<span class="label">Neural Synthesis Active</span>
+				</button>
+			{/if}
+		</div>
 	{/if}
 {/if}
 
@@ -685,5 +723,81 @@
 	.os-container.blur {
 		filter: blur(8px);
 		pointer-events: none;
+	}
+
+	.active-pipelines-floating {
+		position: fixed;
+		bottom: 24px;
+		right: 24px;
+		z-index: 1500;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		pointer-events: auto;
+		animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.pipeline-pill {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 16px;
+		background: rgba(10, 12, 16, 0.75);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+		border: 1px solid var(--border-subtle);
+		border-radius: 30px;
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		cursor: pointer;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+		transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.pipeline-pill:hover {
+		transform: translateY(-2px);
+		border-color: rgba(255, 255, 255, 0.15);
+		box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+	}
+
+	.indicator-glow {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		display: inline-block;
+	}
+
+	.indicator-glow.yellow {
+		background: var(--accent-primary);
+		box-shadow: 0 0 10px var(--accent-primary);
+	}
+
+	.indicator-glow.blue {
+		background: #50b3ff;
+		box-shadow: 0 0 10px #50b3ff;
+	}
+
+	.indicator-glow.pulse-active {
+		animation: floating-glow-pulse 1.5s infinite ease-in-out;
+	}
+
+	@keyframes floating-glow-pulse {
+		0%, 100% { opacity: 0.6; transform: scale(1); }
+		50% { opacity: 1; transform: scale(1.2); }
+	}
+
+	@keyframes slideIn {
+		from {
+			opacity: 0;
+			transform: translateY(16px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 </style>

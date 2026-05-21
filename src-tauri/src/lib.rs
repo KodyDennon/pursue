@@ -111,7 +111,9 @@ pub fn run() {
             get_intelligence_logs,
             index_record,
             synthesize_intelligence,
-            reprocess_all_records
+            reprocess_all_records,
+            check_neural_runtime_status,
+            provision_neural_runtime
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
