@@ -1,7 +1,7 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "PURSUE Data Analyzer",
-	"version": "0.8.3",
+	"version": "0.8.5",
 	"identifier": "com.pursue-data-analyzer",
 	"build": {
 		"beforeDevCommand": "bun run dev",
@@ -34,7 +34,7 @@
 	"bundle": {
 		"active": true,
 		"licenseFile": "../src-tauri/license.txt",
-		"targets": ["nsis", "msi"],
+		"targets": "all",
 		"windows": {
 			"nsis": {
 				"installMode": "perMachine",

@@ -163,6 +163,18 @@ impl VaultCrypto {
                 std::fs::set_permissions(&self.key_path, std::fs::Permissions::from_mode(0o600));
         }
 
+        #[cfg(target_os = "windows")]
+        {
+            // Strip inheritance and grant exclusive Full Control to the current authenticated user
+            let username = std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string());
+            let _ = std::process::Command::new("icacls")
+                .arg(&self.key_path)
+                .arg("/inheritance:r")
+                .arg("/grant:r")
+                .arg(format!("{}:F", username))
+                .output();
+        }
+
         Ok(key)
     }
 }
