@@ -78,7 +78,7 @@ impl ThumbnailManager {
             let input_path = _input.to_path_buf();
             let output_path = _output.to_path_buf();
 
-            return tokio::task::spawn_blocking(move || -> Result<()> {
+            let result = tokio::task::spawn_blocking(move || -> Result<()> {
                 use windows::core::HSTRING;
                 use windows::Data::Pdf::PdfDocument;
                 use windows::Storage::StorageFile;
@@ -118,7 +118,11 @@ impl ThumbnailManager {
 
                 Ok(())
             })
-            .await?;
+            .await;
+
+            if let Ok(Ok(())) = result {
+                return Ok(());
+            }
         }
 
         // Fallback or non-mac/win: use image crate if it's already an image-based PDF or failed
