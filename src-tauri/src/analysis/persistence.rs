@@ -1,6 +1,5 @@
 use crate::common::now;
 use crate::models::EntityHit;
-use crate::search::{chunk_text, vectorize_text};
 use anyhow::Result;
 use sqlx::SqlitePool;
 use uuid::Uuid;
