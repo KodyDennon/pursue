@@ -54,6 +54,12 @@ pub fn get_hardware_specs() -> HardwareSpecs {
         recommended_tier,
     }
 }
+use std::sync::Mutex;
+
+lazy_static::lazy_static! {
+    static ref GLOBAL_SYS: Mutex<System> = Mutex::new(System::new_all());
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SystemStats {
     pub cpu_usage: f32,
@@ -63,7 +69,7 @@ pub struct SystemStats {
 }
 
 pub fn get_system_stats() -> SystemStats {
-    let mut sys = System::new();
+    let mut sys = GLOBAL_SYS.lock().unwrap();
     sys.refresh_cpu_all();
     sys.refresh_memory();
 
