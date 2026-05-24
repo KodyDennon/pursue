@@ -1,24 +1,18 @@
 #[cfg(feature = "cpp")]
-#[cfg(not(target_os = "macos"))]
 fn main() {
-    cc::Build::new()
-        .cpp(true)
-        .flag("-std=c++11")
+    let mut build = cc::Build::new();
+    build.cpp(true)
         .file("src/esaxx.cpp")
-        .include("src")
-        .compile("esaxx");
-}
+        .include("src");
 
-#[cfg(feature = "cpp")]
-#[cfg(target_os = "macos")]
-fn main() {
-    cc::Build::new()
-        .cpp(true)
-        .flag("-std=c++11")
-        .flag("-stdlib=libc++")
-        .file("src/esaxx.cpp")
-        .include("src")
-        .compile("esaxx");
+    if cfg!(target_os = "macos") {
+        build.flag("-std=c++11")
+             .flag("-stdlib=libc++");
+    } else {
+        build.flag_if_supported("-std=c++11");
+    }
+
+    build.compile("esaxx");
 }
 
 #[cfg(not(feature = "cpp"))]
