@@ -14,7 +14,6 @@ use std::path::Path;
 use tauri::State;
 use uuid::Uuid;
 
-
 #[tauri::command]
 pub async fn sync_official_source_with_csv(
     csv: String,
@@ -777,4 +776,3 @@ fn host_from_url(raw: &str) -> Option<String> {
         .ok()
         .and_then(|url| url.host_str().map(str::to_string))
 }
-

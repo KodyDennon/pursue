@@ -174,10 +174,13 @@ impl VisionSidecar {
                             }
 
                             // Capture PDF rendering and OCR progress
-                            if line.contains("Rendering PDF page") || line.contains("Processing neural vision task") {
+                            if line.contains("Rendering PDF page")
+                                || line.contains("Processing neural vision task")
+                            {
                                 let step_msg = if let Some(pos) = line.find("Rendering PDF page") {
                                     &line[pos..]
-                                } else if let Some(pos) = line.find("Processing neural vision task") {
+                                } else if let Some(pos) = line.find("Processing neural vision task")
+                                {
                                     &line[pos..]
                                 } else {
                                     &line

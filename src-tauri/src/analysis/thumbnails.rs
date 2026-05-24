@@ -77,42 +77,45 @@ impl ThumbnailManager {
         {
             let input_path = _input.to_path_buf();
             let output_path = _output.to_path_buf();
-            
+
             return tokio::task::spawn_blocking(move || -> Result<()> {
                 use windows::core::HSTRING;
                 use windows::Data::Pdf::PdfDocument;
                 use windows::Storage::StorageFile;
                 use windows::Storage::Streams::{DataReader, InMemoryRandomAccessStream};
-                
+
                 let input_hstring = HSTRING::from(input_path.to_str().unwrap());
-                
+
                 // Load PDF via WinRT
                 let file = StorageFile::GetFileFromPathAsync(&input_hstring)?.get()?;
                 let pdf = PdfDocument::LoadFromFileAsync(&file)?.get()?;
-                
+
                 if pdf.PageCount()? == 0 {
                     return Err(anyhow!("PDF has no pages"));
                 }
-                
+
                 // Render Page 0 to stream
                 let page = pdf.GetPage(0)?;
                 let stream = InMemoryRandomAccessStream::new()?;
                 page.RenderToStreamAsync(&stream)?.get()?;
-                
+
                 // Read stream bytes
                 let size = stream.Size()? as u32;
                 let input_stream = stream.GetInputStreamAt(0)?;
                 let reader = DataReader::CreateDataReader(&input_stream)?;
                 reader.LoadAsync(size)?.get()?;
-                
+
                 let mut buffer = vec![0u8; size as usize];
                 reader.ReadBytes(&mut buffer)?;
-                
+
                 // Resize to 512x512 to exactly match macOS qlmanage constraints
-                let img = image::load_from_memory(&buffer).map_err(|e| anyhow!("Failed to parse WinRT PNG bytes: {}", e))?;
+                let img = image::load_from_memory(&buffer)
+                    .map_err(|e| anyhow!("Failed to parse WinRT PNG bytes: {}", e))?;
                 let thumbnail = img.thumbnail(512, 512);
-                thumbnail.save(&output_path).map_err(|e| anyhow!("Failed to save Windows PDF thumbnail: {}", e))?;
-                
+                thumbnail
+                    .save(&output_path)
+                    .map_err(|e| anyhow!("Failed to save Windows PDF thumbnail: {}", e))?;
+
                 Ok(())
             })
             .await?;

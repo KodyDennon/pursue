@@ -166,7 +166,8 @@ impl VaultCrypto {
         #[cfg(target_os = "windows")]
         {
             // Strip inheritance and grant exclusive Full Control to the current authenticated user
-            let username = std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string());
+            let username =
+                std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string());
             let _ = std::process::Command::new("icacls")
                 .arg(&self.key_path)
                 .arg("/inheritance:r")

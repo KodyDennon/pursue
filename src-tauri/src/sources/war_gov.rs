@@ -12,8 +12,7 @@ use uuid::Uuid;
 use crate::library::LibraryManager;
 use crate::models::{CsvRecord, SnapshotDiff, SyncReport};
 
-pub const WAR_GOV_CSV_URL: &str =
-    "https://www.war.gov/Portals/1/Interactive/2026/UFO/uap-data.csv";
+pub const WAR_GOV_CSV_URL: &str = "https://www.war.gov/Portals/1/Interactive/2026/UFO/uap-data.csv";
 
 #[derive(Debug, Clone)]
 struct ParsedOfficialRecord {
@@ -716,7 +715,12 @@ fn canonical_document_identity(raw: &str) -> Option<String> {
     let host = url.host_str()?.to_ascii_lowercase();
     let decoded_path = percent_decode_str(url.path()).decode_utf8_lossy();
     let path = normalize_identity_text(&decoded_path);
-    Some(format!("{}://{}{}", url.scheme().to_ascii_lowercase(), host, path))
+    Some(format!(
+        "{}://{}{}",
+        url.scheme().to_ascii_lowercase(),
+        host,
+        path
+    ))
 }
 
 fn normalize_identity_text(value: &str) -> String {
@@ -920,7 +924,10 @@ FALSE,5/22/26,\"DOW-UAP-D017, UAP Reported at Sandia Base, 1948-1950\",PDF,,,PDF
             agency: Some("Department of War".to_string()),
             incident_date: None,
             incident_location: None,
-            document_url: Some("https://www.war.gov/medialink/ufo/release_1/18_100754_ general 1946-7_vol_2.pdf".to_string()),
+            document_url: Some(
+                "https://www.war.gov/medialink/ufo/release_1/18_100754_ general 1946-7_vol_2.pdf"
+                    .to_string(),
+            ),
             modal_image: None,
             image_alt_text: None,
             image_virin: None,

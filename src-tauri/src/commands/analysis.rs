@@ -221,9 +221,7 @@ pub async fn provision_neural_runtime(
 }
 
 #[tauri::command]
-pub async fn abort_analysis(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn abort_analysis(state: State<'_, AppState>) -> Result<(), String> {
     state.analysis.abort_analysis().await.map_err(to_error)
 }
 
