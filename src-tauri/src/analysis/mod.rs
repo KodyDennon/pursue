@@ -251,47 +251,29 @@ impl AnalysisManager {
             }),
         );
 
-        // 2. Persistence & Asset Extraction
-        // ACQUIRE WRITE PERMIT: We serialize the database writing phase to prevent 'database is locked' errors.
-        // OCR and rendering (the slow parts) were done above in parallel.
-        let _permit = self.write_semaphore.acquire().await?;
-        info!(
-            "[Analysis] Persistence permit acquired for {}. Saving results...",
-            record_id
-        );
-
+        // 2. Heavy Extraction (Outside lock)
         let asset_dir = self.library.get_full_path(&format!("assets/{}", record_id));
         fs::create_dir_all(&asset_dir).await?;
         let thumb_name = "thumb_main.png";
         let thumb_path = asset_dir.join(thumb_name);
 
+        let mut thumbnail_rel_path = None;
         if self
             .thumbnails
             .generate_thumbnail(&full_path, &thumb_path)
             .await
             .is_ok()
         {
-            let rel_thumb_path = format!("assets/{}/{}", record_id, thumb_name);
-            let rel_thumb_path = self
-                .library
-                .encrypt_generated_asset(&rel_thumb_path)
-                .await?;
-            let _ = self
-                .repo
-                .save_thumbnail_path(record_id, &rel_thumb_path)
-                .await;
+            let rel_path = format!("assets/{}/{}", record_id, thumb_name);
+            thumbnail_rel_path = Some(self.library.encrypt_generated_asset(&rel_path).await?);
         }
 
-        // PDF specialized extraction
+        let mut pdf_forensics = Vec::new();
+        let mut pdf_images = Vec::new();
         if full_path.extension().and_then(|e| e.to_str()) == Some("pdf") {
-            // Forensic layers
             if let Ok(forensics) = self.indexer.pdf.extract_forensics(&full_path) {
-                let _ = self
-                    .persistence
-                    .persist_forensics(record_id, &forensics)
-                    .await;
+                pdf_forensics = forensics;
             }
-            // Images
             if let Ok(extracted) = self
                 .indexer
                 .pdf
@@ -302,36 +284,60 @@ impl AnalysisManager {
                     let asset_id = Uuid::new_v4().to_string();
                     let rel_path = format!("assets/{}/{}", record_id, filename);
                     let rel_path = self.library.encrypt_generated_asset(&rel_path).await?;
-                    let _ = self
-                        .repo
-                        .insert_record_asset(&asset_id, record_id, "image", &rel_path, &mime)
-                        .await;
+                    pdf_images.push((asset_id, rel_path, mime));
                 }
             }
         }
 
-        info!(
-            "[Analysis] Persisting foundation for {}: entities and chunks...",
-            record_id
-        );
         let entities = extract_entities(&text);
-        self.persistence
-            .persist_entities(record_id, &entities)
-            .await?;
-
-        let chunks_indexed = self
-            .persistence
-            .persist_chunks(record_id, &record.title, &text, &entities)
-            .await?;
-
-        // Raw OCR storage for synthesis phase
-        self.repo.save_ocr_result(record_id, &text).await?;
+        let chunks = crate::search::chunk_text(&text, 1200);
+        let mut embeddings = Vec::with_capacity(chunks.len());
+        for chunk in &chunks {
+            embeddings.push(crate::search::vectorize_text(chunk).await?);
+        }
 
         let redaction_score = self
             .indexer
             .ocr
             .analyze_redactions(&full_path)
             .unwrap_or(0.0);
+
+        // 3. Persistence (Inside lock)
+        let _permit = self.write_semaphore.acquire().await?;
+        info!(
+            "[Analysis] Persistence permit acquired for {}. Saving results...",
+            record_id
+        );
+
+        if let Some(path) = thumbnail_rel_path {
+            let _ = self.repo.save_thumbnail_path(record_id, &path).await;
+        }
+
+        if !pdf_forensics.is_empty() {
+            let _ = self
+                .persistence
+                .persist_forensics(record_id, &pdf_forensics)
+                .await;
+        }
+
+        for (asset_id, rel_path, mime) in pdf_images {
+            let _ = self
+                .repo
+                .insert_record_asset(&asset_id, record_id, "image", &rel_path, &mime)
+                .await;
+        }
+
+        self.persistence
+            .persist_entities(record_id, &entities)
+            .await?;
+
+        let chunks_indexed = self
+            .persistence
+            .persist_chunks(record_id, &record.title, &chunks, &embeddings, &entities)
+            .await?;
+
+        // Raw OCR storage for synthesis phase
+        self.repo.save_ocr_result(record_id, &text).await?;
 
         self.repo
             .update_redaction_score(record_id, redaction_score)

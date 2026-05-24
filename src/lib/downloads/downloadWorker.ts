@@ -265,7 +265,7 @@ async function streamBody(
 			request: {
 				item_id: itemId,
 				offset,
-				bytes: Array.from(merged)
+				bytes: merged
 			}
 		})) as AppendResponse;
 		offset = result.offset;

@@ -56,7 +56,8 @@ impl PersistenceManager {
         &self,
         record_id: &str,
         title: &str,
-        text: &str,
+        chunks: &[String],
+        embeddings: &[Vec<f32>],
         entities: &[EntityHit],
     ) -> Result<usize> {
         let mut tx = self.db.begin().await?;
@@ -70,16 +71,14 @@ impl PersistenceManager {
             .execute(&mut *tx)
             .await?;
 
-        let chunks = chunk_text(text, 1200);
         let etext = entities
             .iter()
             .map(|e| e.name.as_str())
             .collect::<Vec<_>>()
             .join(" ");
 
-        for (i, chunk) in chunks.iter().enumerate() {
+        for (i, (chunk, emb)) in chunks.iter().zip(embeddings.iter()).enumerate() {
             let cid = Uuid::new_v4().to_string();
-            let emb = vectorize_text(chunk).await?;
             let vblob: &[u8] =
                 unsafe { std::slice::from_raw_parts(emb.as_ptr() as *const u8, emb.len() * 4) };
 
