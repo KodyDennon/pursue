@@ -6,7 +6,6 @@ import {
 } from './downloadWorkerCore';
 import type { BulkDownloadItem } from '$lib/types';
 
-const DVIDS_API_KEY = 'key-68bb60d16b35e';
 const DEFAULT_CONCURRENCY = 3;
 const MAX_CHUNK_BYTES = 512 * 1024;
 
@@ -15,7 +14,8 @@ type HostCommand =
 	| 'append_download_chunk'
 	| 'finalize_download_item'
 	| 'fail_download_item'
-	| 'reset_download_item_part';
+	| 'reset_download_item_part'
+	| 'resolve_dvids_metadata';
 
 interface StartMessage {
 	type: 'start';
@@ -214,17 +214,18 @@ async function downloadItem(jobId: string, item: BulkDownloadItem) {
 
 async function resolveSource(
 	rawUrl: string,
-	signal: AbortSignal
+	_signal: AbortSignal
 ): Promise<{ url: string; host: string }> {
 	if (!rawUrl.startsWith('dvids://asset/')) {
 		return { url: rawUrl, host: new URL(rawUrl).host };
 	}
 
 	const assetId = rawUrl.slice('dvids://asset/'.length);
-	const metadataUrl = `https://api.dvidshub.net/asset?api_key=${DVIDS_API_KEY}&id=video:${encodeURIComponent(assetId)}&thumb_width=720`;
-	const response = await fetch(metadataUrl, { signal, cache: 'no-store' });
-	if (!response.ok) throw new Error(`HTTP ${response.status}: DVIDS metadata failed`);
-	const payload = await response.json();
+	// We use the host resolver (hidden webview) to bypass WAF
+	const payload = (await hostCall('resolve_dvids_metadata', {
+		video_id: assetId
+	})) as unknown;
+
 	const mediaUrl = selectDvidsFileUrl(payload);
 	if (!mediaUrl)
 		throw new Error(`DVIDS asset ${assetId} did not include a downloadable media file`);

@@ -22,6 +22,7 @@ pub struct AppState {
     pub db: sqlx::SqlitePool,
     pub library: Arc<LibraryManager>,
     pub analysis: Arc<AnalysisManager>,
+    pub dvids_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -47,6 +48,16 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // Create hidden resolver webview for WAF bypass
+            let _ = tauri::WebviewWindowBuilder::new(
+                &handle,
+                "dvids-resolver",
+                tauri::WebviewUrl::External("https://www.war.gov/UFO/".parse().unwrap()),
+            )
+            .visible(false)
+            .build();
+
             tauri::async_runtime::block_on(async move {
                 let pool = db::init_db(&handle).await?;
 
@@ -62,6 +73,7 @@ pub fn run() {
                     db: pool,
                     library,
                     analysis,
+                    dvids_semaphore: Arc::new(tokio::sync::Semaphore::new(4)), // Limit concurrent DVIDS fetches
                 });
                 anyhow::Ok(())
             })?;
@@ -87,6 +99,7 @@ pub fn run() {
             fail_download_item,
             reset_download_item_part,
             cancel_bulk_download,
+            resolve_dvids_metadata,
             import_manual_file,
             ingest_web_page,
             analyze_record,

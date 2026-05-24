@@ -26,6 +26,16 @@ export default tseslint.config(
 		files: ['**/*.ts', '**/*.svelte.ts'],
 		languageOptions: {
 			parser: tseslint.parser
+		},
+		rules: {
+			'@typescript-eslint/no-unused-vars': [
+				'error',
+				{
+					argsIgnorePattern: '^_',
+					varsIgnorePattern: '^_',
+					caughtErrorsIgnorePattern: '^_'
+				}
+			]
 		}
 	},
 	{

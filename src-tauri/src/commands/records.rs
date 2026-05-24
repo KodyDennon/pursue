@@ -755,6 +755,71 @@ pub async fn create_download_job(db: &SqlitePool) -> Result<String> {
     Ok(job_id)
 }
 
+#[tauri::command]
+pub async fn resolve_dvids_metadata(
+    video_id: String,
+    state: State<'_, AppState>,
+    handle: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    use tauri::Listener;
+    use tauri::Manager;
+    use tokio::sync::oneshot;
+
+    // Acquire permit to respect concurrency limit (prevents Akamai flagging)
+    let _permit = state.dvids_semaphore.acquire().await.map_err(to_error)?;
+
+    let window = handle
+        .get_webview_window("dvids-resolver")
+        .ok_or_else(|| "DVIDS resolver webview not found".to_string())?;
+
+    let request_id = Uuid::new_v4().to_string();
+    let (tx, rx) = oneshot::channel();
+    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+
+    let handler_id = handle.listen(format!("dvids-resolved-{}", request_id), move |event| {
+        if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
+            if let Ok(mut guard) = tx.lock() {
+                if let Some(sender) = guard.take() {
+                    let _ = sender.send(payload);
+                }
+            }
+        }
+    });
+
+    let script = format!(
+        r#"
+        (async () => {{
+            try {{
+                const DVIDS_API_KEY = 'key-68bb60d16b35e';
+                const res = await fetch(`https://api.dvidshub.net/asset?api_key=${{DVIDS_API_KEY}}&id=video:{video_id}&thumb_width=720`);
+                if (!res.ok) throw new Error(`HTTP ${{res.status}}`);
+                const data = await res.json();
+                window.__TAURI__.emit('dvids-resolved-{request_id}', data);
+            }} catch (e) {{
+                window.__TAURI__.emit('dvids-resolved-{request_id}', {{ error: e.toString() }});
+            }}
+        }})()
+        "#
+    );
+
+    window
+        .eval(&script)
+        .map_err(|e| format!("failed to execute script: {e}"))?;
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), rx)
+        .await
+        .map_err(|_| "DVIDS resolution timed out".to_string())?
+        .map_err(|_| "DVIDS resolution channel closed".to_string())?;
+
+    handle.unlisten(handler_id);
+
+    if let Some(error) = result.get("error") {
+        return Err(error.as_str().unwrap_or("unknown error").to_string());
+    }
+
+    Ok(result)
+}
+
 fn downloadable_source_url(
     document_url: Option<&str>,
     dvids_video_id: Option<&str>,

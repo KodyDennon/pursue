@@ -33,8 +33,7 @@
 		"@tauri-apps/plugin-shell": "^2.3.5",
 		"@tauri-apps/plugin-sql": "^2.4.0",
 		"leaflet": "^1.9.4",
-		"lucide-svelte": "^1.0.1",
-		"puppeteer": "^25.0.2"
+		"lucide-svelte": "^1.0.1"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
