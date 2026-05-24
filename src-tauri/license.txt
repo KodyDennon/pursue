@@ -1,0 +1,48 @@
+MIT License with Supplemental End User License Agreement (EULA)
+
+Copyright (c) 2026 PURSUE Data Analyzer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+SUPPLEMENTAL TERMS AND CONDITIONS:
+
+1. LOCAL-FIRST AND ZERO TELEMETRY
+PURSUE Data Analyzer is strictly a local-first, offline-capable application. 
+The Software is explicitly designed to collect zero telemetry, analytics, or 
+usage tracking. All data ingested, processed, and analyzed remains entirely 
+on your local host machine.
+
+2. CLASSIFIED AND SENSITIVE OSINT DATA
+By using the Software, the user assumes absolute and sole responsibility for 
+the security, handling, storage, and classification of all data ingested into 
+the system. The creators of the Software assume no liability for the 
+mishandling or unauthorized spillage of sensitive, classified, or controlled 
+Open Source Intelligence (OSINT) data.
+
+3. PROHIBITION OF MALICIOUS USE
+The Software is provided strictly for lawful data analysis, intelligence 
+gathering, and archival purposes. You are strictly prohibited from using the 
+Software to engage in illegal activities, unauthorized exploitation, harassment, 
+or malicious operations against civilian, corporate, or government entities.
+
+4. MASS EVIDENCE DOWNLOADS & DATA LOSS
+The Software includes features for bulk downloading gigabytes of evidence 
+data. The creators shall not be held liable for any data loss, filesystem 
+corruption, bandwidth overages, or hardware failure resulting from the 
+execution of mass downloading operations.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
