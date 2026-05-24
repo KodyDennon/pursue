@@ -16,7 +16,6 @@ use std::path::Path;
 use tauri::State;
 use uuid::Uuid;
 
-const DVIDS_API_KEY: &str = "key-68bb60d16b35e";
 
 #[tauri::command]
 pub async fn sync_official_source_with_csv(
@@ -96,20 +95,6 @@ pub async fn get_record_artifact_path(
         .map_err(to_error)?
         .to_string_lossy()
         .into_owned())
-}
-
-#[tauri::command]
-pub async fn download_record_with_bytes(
-    id: String,
-    url: String,
-    bytes: Vec<u8>,
-    state: State<'_, AppState>,
-) -> Result<DownloadResult, String> {
-    state
-        .library
-        .ingest_from_bytes(&state.db, &id, &url, &bytes)
-        .await
-        .map_err(to_error)
 }
 
 #[tauri::command]
@@ -258,90 +243,6 @@ pub async fn update_download_item_status(
         .await
         .map_err(to_error)?;
     Ok(())
-}
-
-#[tauri::command]
-pub async fn ingest_downloaded_bytes(
-    job_id: String,
-    item_id: String,
-    record_id: String,
-    url: String,
-    bytes: Vec<u8>,
-    state: State<'_, AppState>,
-) -> Result<DownloadResult, String> {
-    let result = state
-        .library
-        .ingest_from_bytes(&state.db, &record_id, &url, &bytes)
-        .await
-        .map_err(to_error)?;
-
-    // Update item as completed
-    sqlx::query(
-        r#"
-        UPDATE download_job_items
-        SET status = 'completed', bytes_downloaded = ?, byte_size = ?, artifact_id = ?, updated_at = ?
-        WHERE id = ?
-        "#,
-    )
-    .bind(result.byte_size)
-    .bind(result.byte_size)
-    .bind(&result.artifact_id)
-    .bind(now())
-    .bind(&item_id)
-    .execute(&state.db)
-    .await
-    .map_err(to_error)?;
-
-    // Update job counters
-    let (completed, failed): (i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*) FILTER (WHERE status = 'completed'), COUNT(*) FILTER (WHERE status = 'failed') FROM download_job_items WHERE job_id = ?"
-    )
-    .bind(&job_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(to_error)?;
-
-    sqlx::query("UPDATE download_jobs SET completed = ?, failed = ?, updated_at = ? WHERE id = ?")
-        .bind(completed)
-        .bind(failed)
-        .bind(now())
-        .bind(&job_id)
-        .execute(&state.db)
-        .await
-        .map_err(to_error)?;
-
-    // Check if job is finished
-    let remaining: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM download_job_items WHERE job_id = ? AND status IN ('queued', 'downloading')"
-    )
-    .bind(&job_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(to_error)?;
-
-    if remaining == 0 {
-        let final_status = if failed == 0 {
-            "completed"
-        } else {
-            "completed_with_errors"
-        };
-        let summary = serde_json::json!({
-            "completed": completed,
-            "failed": failed,
-        });
-        sqlx::query(
-            "UPDATE download_jobs SET status = ?, summary_json = ?, updated_at = ? WHERE id = ?",
-        )
-        .bind(final_status)
-        .bind(summary.to_string())
-        .bind(now())
-        .bind(&job_id)
-        .execute(&state.db)
-        .await
-        .map_err(to_error)?;
-    }
-
-    Ok(result)
 }
 
 #[tauri::command]
@@ -857,44 +758,6 @@ pub async fn create_download_job(db: &SqlitePool) -> Result<String> {
     Ok(job_id)
 }
 
-#[tauri::command]
-pub async fn proxy_fetch_url(url: String, state: State<'_, AppState>) -> Result<Vec<u8>, String> {
-    let client = state.library.client();
-
-    if let Some(asset_id) = url.strip_prefix("dvids://asset/") {
-        return fetch_dvids_asset_bytes(client, asset_id)
-            .await
-            .map_err(to_error);
-    }
-
-    if url.contains("war.gov") {
-        let _ = client.get("https://www.war.gov/UFO/").send().await;
-    }
-
-    let response = client
-        .get(&url)
-        .header(reqwest::header::REFERER, "https://www.war.gov/UFO/")
-        .header("Sec-Fetch-Dest", "empty")
-        .header("Sec-Fetch-Mode", "cors")
-        .header("Sec-Fetch-Site", "same-origin")
-        .header(reqwest::header::ACCEPT, "*/*")
-        .send()
-        .await
-        .map_err(to_error)?;
-
-    if !response.status().is_success() {
-        return Err(format!(
-            "proxy fetch failed with status {}: {}",
-            response.status(),
-            url
-        ));
-    }
-
-    let bytes = response.bytes().await.map_err(to_error)?;
-
-    Ok(bytes.to_vec())
-}
-
 fn downloadable_source_url(
     document_url: Option<&str>,
     dvids_video_id: Option<&str>,
@@ -917,97 +780,3 @@ fn host_from_url(raw: &str) -> Option<String> {
         .and_then(|url| url.host_str().map(str::to_string))
 }
 
-async fn fetch_dvids_asset_bytes(client: &reqwest::Client, asset_id: &str) -> Result<Vec<u8>> {
-    let metadata_url = format!(
-        "https://api.dvidshub.net/asset?api_key={DVIDS_API_KEY}&id=video:{asset_id}&thumb_width=720"
-    );
-    let metadata = client
-        .get(&metadata_url)
-        .header(reqwest::header::REFERER, "https://www.war.gov/UFO/")
-        .send()
-        .await?;
-    if !metadata.status().is_success() {
-        return Err(anyhow!(
-            "DVIDS metadata fetch failed with status {} for asset {}",
-            metadata.status(),
-            asset_id
-        ));
-    }
-
-    let payload = metadata.json::<Value>().await?;
-    let asset_url = select_dvids_file_url(&payload).ok_or_else(|| {
-        anyhow!(
-            "DVIDS asset {} did not include a downloadable media file",
-            asset_id
-        )
-    })?;
-
-    let response = client
-        .get(&asset_url)
-        .header(reqwest::header::REFERER, "https://www.war.gov/UFO/")
-        .send()
-        .await?;
-    if !response.status().is_success() {
-        return Err(anyhow!(
-            "DVIDS media fetch failed with status {} for asset {}",
-            response.status(),
-            asset_id
-        ));
-    }
-
-    Ok(response.bytes().await?.to_vec())
-}
-
-fn select_dvids_file_url(payload: &Value) -> Option<String> {
-    let mut candidates = Vec::new();
-    collect_dvids_file_candidates(payload, &mut candidates);
-    candidates
-        .into_iter()
-        .max_by_key(|candidate| candidate.0)
-        .map(|candidate| candidate.1)
-}
-
-fn collect_dvids_file_candidates(value: &Value, candidates: &mut Vec<(i64, String)>) {
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                collect_dvids_file_candidates(item, candidates);
-            }
-        }
-        Value::Object(map) => {
-            if let Some(url) = ["src", "url", "download_url", "file"]
-                .iter()
-                .find_map(|key| map.get(*key).and_then(Value::as_str))
-                .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
-            {
-                let media_type = map
-                    .get("type")
-                    .or_else(|| map.get("mime_type"))
-                    .or_else(|| map.get("mime"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
-                let height = map
-                    .get("height")
-                    .or_else(|| map.get("h"))
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0);
-                let score = if media_type.contains("mp4") {
-                    20_000
-                } else if media_type.contains("video") {
-                    10_000
-                } else if media_type.contains("audio") {
-                    8_000
-                } else {
-                    1_000
-                } + height;
-                candidates.push((score, url.to_string()));
-            }
-
-            for item in map.values() {
-                collect_dvids_file_candidates(item, candidates);
-            }
-        }
-        _ => {}
-    }
-}
