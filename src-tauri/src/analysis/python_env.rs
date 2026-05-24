@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use tauri::Emitter;
 use tauri::Manager;
 use tokio::fs;
+use tokio::io::AsyncBufReadExt;
 
 /// Downloads a file with progress reporting via Tauri events.
 pub async fn download_file(
