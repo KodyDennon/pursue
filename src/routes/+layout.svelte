@@ -6,11 +6,18 @@
 	import AppDock from '$lib/components/AppDock.svelte';
 	import GlobalSearch from '$lib/components/GlobalSearch.svelte';
 	import Toasts from '$lib/components/Toasts.svelte';
+	import { settingsStore } from '$lib/stores/settingsStore.svelte';
 
 	let { children } = $props();
 
 	onMount(() => {
 		logger.debug('[Layout] Layout mounted.');
+	});
+
+	$effect(() => {
+		if (typeof document !== 'undefined') {
+			document.documentElement.classList.toggle('performance-mode', settingsStore.performanceMode);
+		}
 	});
 </script>
 

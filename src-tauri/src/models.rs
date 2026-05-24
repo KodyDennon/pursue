@@ -68,6 +68,14 @@ pub struct RecordFilter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordPage {
+    pub records: Vec<RecordSummary>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CsvRecord {
     #[serde(rename = "Redaction", default)]
     pub redaction: Option<String>,
@@ -163,12 +171,81 @@ pub struct BulkDownloadItem {
     pub error: Option<String>,
     pub artifact_id: Option<String>,
     pub updated_at: String,
+    pub expected_size: Option<i64>,
+    pub content_type: Option<String>,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+    pub part_path: Option<String>,
+    pub error_class: Option<String>,
+    pub retry_count: i64,
+    pub source_host: Option<String>,
+    pub last_progress_at: Option<String>,
+    pub resolved_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BulkDownloadReport {
     pub job: BulkDownloadStatus,
     pub items: Vec<BulkDownloadItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadJobWindow {
+    pub job: BulkDownloadStatus,
+    pub items: Vec<BulkDownloadItem>,
+    pub total_items: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeginDownloadItemRequest {
+    pub job_id: String,
+    pub item_id: String,
+    pub url: String,
+    pub resolved_url: Option<String>,
+    pub expected_size: Option<i64>,
+    pub content_type: Option<String>,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+    pub source_host: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeginDownloadItemResponse {
+    pub offset: u64,
+    pub part_path: String,
+    pub cancel_requested: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppendDownloadChunkRequest {
+    pub item_id: String,
+    pub offset: u64,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppendDownloadChunkResponse {
+    pub offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinalizeDownloadItemRequest {
+    pub job_id: String,
+    pub item_id: String,
+    pub record_id: String,
+    pub url: String,
+    pub resolved_url: Option<String>,
+    pub expected_size: Option<i64>,
+    pub content_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailDownloadItemRequest {
+    pub job_id: String,
+    pub item_id: String,
+    pub error: String,
+    pub error_class: String,
+    pub retryable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

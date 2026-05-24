@@ -15,7 +15,7 @@
 	import MediaViewer from '$lib/components/MediaViewer.svelte';
 	import Dashboard from '$lib/components/dashboard/Dashboard.svelte';
 	import { MODELS } from '$lib/models';
-	import type { CaseSummary, RecordSummary } from '$lib/types';
+	import type { CaseSummary, RecordPage, RecordSummary } from '$lib/types';
 	import { addToast, updateToast } from '$lib/toastStore';
 	import { appStore } from '$lib/stores/appStore.svelte';
 	import { intelligenceStore } from '$lib/stores/intelligenceStore.svelte';
@@ -33,6 +33,8 @@
 	let isProvisioned = $state(false);
 
 	let records = $state<RecordSummary[]>([]);
+	let recordsTotal = $state(0);
+	let recordsLimit = $state(250);
 	let cases = $state<CaseSummary[]>([]);
 	let selectedRecord = $state<RecordSummary | null>(null);
 	let selectedCaseId = $state<string | null>(null);
@@ -56,19 +58,27 @@
 		initializing = true;
 		try {
 			if (query.trim()) {
-				const results = await invoke<{ results: RecordSummary[] }>('search', {
-					request: { query: query.trim(), filters: null }
-				});
+				const results = await invoke<{ total: number; results: Array<Partial<RecordSummary>> }>(
+					'search',
+					{
+						request: { query: query.trim(), filters: null }
+					}
+				);
 				records = results.results.map((r) => ({
 					...r,
 					source_type: r.source_type || 'official',
 					entity_count: 0,
 					incident_date: r.release_date
-				}));
+				})) as RecordSummary[];
+				recordsTotal = results.total;
 			} else {
-				records = await invoke<RecordSummary[]>('list_records', {
-					filter: { source_type: null, local_only: null, query: null }
+				const page = await invoke<RecordPage>('list_records_page', {
+					filter: { source_type: null, local_only: null, query: null },
+					limit: recordsLimit,
+					offset: 0
 				});
+				records = page.records;
+				recordsTotal = page.total;
 			}
 
 			const [nextCases] = await Promise.all([
@@ -79,13 +89,21 @@
 			if (!selectedCaseId && nextCases.length > 0) {
 				selectedCaseId = nextCases[0].id;
 			}
-
-			if (initializing) await new Promise((resolve) => setTimeout(resolve, 800));
 		} catch (e) {
 			addToast({ type: 'error', message: `Failed to load data: ${e}`, duration: 5000 });
 		} finally {
 			initializing = false;
 		}
+	}
+
+	async function loadMoreRecords() {
+		const page = await invoke<RecordPage>('list_records_page', {
+			filter: { source_type: null, local_only: null, query: null },
+			limit: recordsLimit,
+			offset: records.length
+		});
+		records = [...records, ...page.records];
+		recordsTotal = page.total;
 	}
 
 	async function sync() {
@@ -160,7 +178,9 @@
 		(async () => {
 			try {
 				const modelStatus = await invoke<Record<string, boolean>>('check_model_status');
-				const specs = await invoke<{ recommended_tier: 'Standard' | 'Elite' }>('get_hardware_diagnostics');
+				const specs = await invoke<{ recommended_tier: 'Standard' | 'Elite' }>(
+					'get_hardware_diagnostics'
+				);
 
 				logger.debug('[App] Specs:', specs);
 				const tier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
@@ -228,11 +248,11 @@
 	});
 
 	$effect(() => {
-		logger.debug('[App] Provisioned/View effect:', { 
-			isProvisioned: $state.snapshot(isProvisioned), 
-			hasLoaded: $state.snapshot(hasLoaded), 
-			initializing: $state.snapshot(initializing), 
-			activeView: $state.snapshot(appStore.activeView) 
+		logger.debug('[App] Provisioned/View effect:', {
+			isProvisioned: $state.snapshot(isProvisioned),
+			hasLoaded: $state.snapshot(hasLoaded),
+			initializing: $state.snapshot(initializing),
+			activeView: $state.snapshot(appStore.activeView)
 		});
 		if (isProvisioned && !hasLoaded && !initializing) {
 			if (appStore.activeView === 'dashboard') {
@@ -362,6 +382,14 @@
 								onAnalyze={() => (analysisModalOpen = true)}
 								onSynthesize={() => (intelligenceModalOpen = true)}
 							/>
+							{#if records.length < recordsTotal}
+								<div class="load-more-row">
+									<button class="load-more-btn" onclick={loadMoreRecords}>
+										Load {Math.min(recordsLimit, recordsTotal - records.length)} more records
+									</button>
+									<span>{records.length} / {recordsTotal}</span>
+								</div>
+							{/if}
 						{:else}
 							<div class="view-empty">
 								<Map {records} onSelect={(r) => (selectedRecord = r)} />
@@ -473,6 +501,28 @@
 		width: 100%;
 	}
 
+	.load-more-row {
+		position: absolute;
+		left: 50%;
+		bottom: 18px;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 8px 12px;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		background: var(--bg-surface);
+		font-size: 12px;
+		color: var(--text-secondary);
+		z-index: 20;
+	}
+
+	.load-more-btn {
+		color: var(--accent-primary);
+		font-weight: 700;
+	}
+
 	.view-empty {
 		height: 100%;
 		width: 100%;
@@ -513,14 +563,18 @@
 		letter-spacing: 0.05em;
 		text-transform: uppercase;
 		cursor: pointer;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+		box-shadow:
+			0 4px 20px rgba(0, 0, 0, 0.4),
+			inset 0 1px 0 rgba(255, 255, 255, 0.05);
 		transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.pipeline-pill:hover {
 		transform: translateY(-2px);
 		border-color: rgba(255, 255, 255, 0.15);
-		box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+		box-shadow:
+			0 6px 24px rgba(0, 0, 0, 0.5),
+			inset 0 1px 0 rgba(255, 255, 255, 0.1);
 	}
 
 	.indicator-glow {
@@ -545,8 +599,15 @@
 	}
 
 	@keyframes floating-glow-pulse {
-		0%, 100% { opacity: 0.6; transform: scale(1); }
-		50% { opacity: 1; transform: scale(1.2); }
+		0%,
+		100% {
+			opacity: 0.6;
+			transform: scale(1);
+		}
+		50% {
+			opacity: 1;
+			transform: scale(1.2);
+		}
 	}
 
 	@keyframes slideIn {

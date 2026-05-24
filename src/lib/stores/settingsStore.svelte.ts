@@ -12,7 +12,8 @@ type AgentSettings = {
 class SettingsStore {
 	status = $state<DatabaseStatus | null>(null);
 	busy = $state<string | null>(null);
-	agentSettings = $state<AgentSettings>({ auto_sync: true, auto_analyze: true });
+	agentSettings = $state<AgentSettings>({ auto_sync: true, auto_analyze: false });
+	performanceMode = $state(false);
 	hfToken = $state('');
 	personaModifier = $state('');
 	appVersion = $state('...');
@@ -51,6 +52,9 @@ class SettingsStore {
 
 			const t = await invoke<string>('get_app_settings', { key: 'huggingface_token' });
 			if (typeof t === 'string') this.hfToken = t;
+
+			const perf = await invoke<boolean | null>('get_app_settings', { key: 'performance_mode' });
+			if (typeof perf === 'boolean') this.performanceMode = perf;
 		} catch (e) {
 			logger.error('Failed to load app settings:', e);
 		}
@@ -62,6 +66,15 @@ class SettingsStore {
 			addToast({ type: 'success', message: 'Agent Configuration Saved', duration: 2000 });
 		} catch (e) {
 			addToast({ type: 'error', message: `Failed to save settings: ${e}` });
+		}
+	}
+
+	async savePerformanceMode() {
+		try {
+			await invoke('set_app_settings', { key: 'performance_mode', value: this.performanceMode });
+			addToast({ type: 'success', message: 'Performance Mode Updated', duration: 2000 });
+		} catch (e) {
+			addToast({ type: 'error', message: `Failed to save performance mode: ${e}` });
 		}
 	}
 
@@ -80,7 +93,10 @@ class SettingsStore {
 	async savePersona() {
 		this.busy = 'persona';
 		try {
-			await invoke('set_app_settings', { key: 'intelligence_persona', value: this.personaModifier });
+			await invoke('set_app_settings', {
+				key: 'intelligence_persona',
+				value: this.personaModifier
+			});
 			addToast({ type: 'success', message: 'Intelligence Persona Updated', duration: 2000 });
 		} catch (e) {
 			addToast({ type: 'error', message: `Failed to save persona: ${e}` });

@@ -1,6 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { addToast } from '$lib/toastStore';
-import type { BulkDownloadReport } from '$lib/types';
+import type {
+	BulkDownloadItem,
+	BulkDownloadReport,
+	DownloadJobWindow,
+	RecordSummary
+} from '$lib/types';
 import { logger } from '$lib/logger';
 import { settingsStore } from './settingsStore.svelte';
 
@@ -9,9 +14,12 @@ class DownloadStore {
 	report = $state<BulkDownloadReport | null>(null);
 	polling = $state(false);
 	downloading = $state(false);
+	itemProgress = $state<Record<string, { bytes: number; total: number | null }>>({});
 	private pollInterval: ReturnType<typeof setInterval> | null = null;
+	private worker: Worker | null = null;
+	private workerJobId: string | null = null;
 
-	async init(onComplete?: () => void) {
+	async init(onComplete?: () => void | Promise<void>) {
 		try {
 			const latest = await invoke<BulkDownloadReport | null>('get_latest_download_job');
 			if (latest) {
@@ -26,9 +34,14 @@ class DownloadStore {
 
 	destroy() {
 		this.stopPolling();
+		if (this.worker) {
+			this.worker.postMessage({ type: 'cancel' });
+			this.worker.terminate();
+			this.worker = null;
+		}
 	}
 
-	async startBulkDownload(onComplete?: () => void) {
+	async startBulkDownload(onComplete?: () => void | Promise<void>) {
 		try {
 			this.activeJobId = await invoke<string>('download_missing_records');
 			this.startPolling(onComplete);
@@ -42,27 +55,41 @@ class DownloadStore {
 		}
 	}
 
+	async startRecordDownload(record: RecordSummary, onComplete?: () => void | Promise<void>) {
+		try {
+			this.activeJobId = await invoke<string>('queue_record_download', { id: record.id });
+			this.startPolling(onComplete);
+			addToast({
+				type: 'info',
+				message: 'Evidence retrieval queued.',
+				duration: 3000
+			});
+		} catch (e) {
+			addToast({ type: 'error', message: `Download failed: ${e}` });
+			throw e;
+		}
+	}
+
 	async cancelDownload() {
 		if (!this.activeJobId) return;
 		try {
 			await invoke('cancel_bulk_download', { id: this.activeJobId });
+			if (this.worker) this.worker.postMessage({ type: 'cancel', jobId: this.activeJobId });
 		} catch (e) {
 			logger.error('Failed to cancel download:', e);
 		}
 	}
 
-	async fetchStatus(onComplete?: () => void) {
+	async fetchStatus(onComplete?: () => void | Promise<void>) {
 		if (!this.activeJobId) return;
 		try {
-			this.report = await invoke<BulkDownloadReport>('get_bulk_download_status', {
-				id: this.activeJobId
+			this.report = await invoke<DownloadJobWindow>('get_download_job_window', {
+				id: this.activeJobId,
+				limit: 75,
+				offset: 0
 			});
 
-			if (
-				this.report.items.some((i) => i.status === 'queued') &&
-				!this.downloading &&
-				this.report.job.status === 'running'
-			) {
+			if (!this.downloading && this.report.job.status === 'running') {
 				this.runDownloadWorker();
 			}
 
@@ -73,7 +100,7 @@ class DownloadStore {
 				this.report.job.status === 'completed_with_errors'
 			) {
 				this.stopPolling();
-				if (onComplete) onComplete();
+				if (onComplete) await onComplete();
 				if (
 					(this.report.job.status === 'completed' ||
 						this.report.job.status === 'completed_with_errors') &&
@@ -96,59 +123,90 @@ class DownloadStore {
 	async runDownloadWorker() {
 		if (this.downloading || !this.activeJobId || !this.report) return;
 
-		const queued = this.report.items.filter((i) => i.status === 'queued');
+		const queued = await invoke<BulkDownloadItem[]>('get_next_download_items', {
+			jobId: this.activeJobId,
+			limit: 4
+		});
 		if (queued.length === 0) return;
 
 		this.downloading = true;
+		this.workerJobId = this.activeJobId;
+		this.ensureWorker();
+		this.worker?.postMessage({
+			type: 'start',
+			jobId: this.activeJobId,
+			items: queued,
+			concurrency: settingsStore.performanceMode ? 2 : 3
+		});
+	}
 
-		for (const item of queued) {
-			if (this.report.job.status === 'cancelled' || this.report.job.cancel_requested) break;
+	private ensureWorker() {
+		if (this.worker) return;
+		this.worker = new Worker(new URL('../downloads/downloadWorker.ts', import.meta.url), {
+			type: 'module'
+		});
+		this.worker.onmessage = (event) => this.handleWorkerMessage(event.data);
+		this.worker.onerror = (event) => {
+			logger.error('Download worker crashed', event.message);
+			this.downloading = false;
+			addToast({ type: 'error', message: `Download worker crashed: ${event.message}` });
+		};
+	}
 
+	private async handleWorkerMessage(message: {
+		type: string;
+		id?: number;
+		command?: string;
+		args?: Record<string, unknown>;
+		jobId?: string;
+		itemId?: string;
+		bytesDownloaded?: number;
+		totalBytes?: number | null;
+		error?: string;
+	}) {
+		if (message.type === 'host-call' && message.id && message.command) {
 			try {
-				if (!item.url) {
-					await invoke('update_download_item_status', {
-						itemId: item.id,
-						status: 'failed',
-						error: 'No document URL available'
-					});
-					continue;
-				}
-
-				await invoke('update_download_item_status', {
-					itemId: item.id,
-					status: 'downloading'
-				});
-
-				const bytes = await invoke<number[]>('proxy_fetch_url', {
-					url: item.url
-				});
-
-				await invoke('ingest_downloaded_bytes', {
-					jobId: this.activeJobId,
-					itemId: item.id,
-					recordId: item.record_id,
-					url: item.url,
-					bytes: bytes
-				});
+				const value = await invoke(message.command, message.args ?? {});
+				this.worker?.postMessage({ type: 'host-result', id: message.id, ok: true, value });
 			} catch (e) {
-				logger.error(`Failed to download ${item.title}:`, e);
-				await invoke('update_download_item_status', {
-					itemId: item.id,
-					status: 'failed',
+				this.worker?.postMessage({
+					type: 'host-result',
+					id: message.id,
+					ok: false,
 					error: String(e)
 				});
 			}
-
-			await new Promise((r) => setTimeout(r, 500));
-			this.report = await invoke<BulkDownloadReport>('get_bulk_download_status', {
-				id: this.activeJobId
-			});
+			return;
 		}
 
-		this.downloading = false;
+		if (
+			message.type === 'progress' &&
+			message.itemId &&
+			typeof message.bytesDownloaded === 'number'
+		) {
+			this.itemProgress[message.itemId] = {
+				bytes: message.bytesDownloaded,
+				total: message.totalBytes ?? null
+			};
+			return;
+		}
+
+		if (message.type === 'item-completed' || message.type === 'item-failed') {
+			if (message.type === 'item-failed') logger.error('Download item failed', message.error);
+			if (this.activeJobId) await this.fetchStatus();
+			return;
+		}
+
+		if (message.type === 'idle') {
+			this.downloading = false;
+			if (this.workerJobId === this.activeJobId && this.activeJobId) {
+				await this.fetchStatus();
+				this.runDownloadWorker();
+			}
+		}
 	}
 
-	startPolling(onComplete?: () => void) {
+	startPolling(onComplete?: () => void | Promise<void>) {
 		if (this.polling) return;
 		this.polling = true;
 		this.fetchStatus(onComplete);

@@ -223,6 +223,62 @@ impl LibraryManager {
         })
     }
 
+    pub async fn ingest_part_file(
+        &self,
+        pool: &SqlitePool,
+        record_id: &str,
+        url: &str,
+        part_path: PathBuf,
+        byte_size: i64,
+        sha256: String,
+        media_type: Option<String>,
+    ) -> Result<DownloadResult> {
+        let original_filename = filename_from_url(url);
+        let extension = original_filename
+            .as_deref()
+            .and_then(|name| Path::new(name).extension())
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase());
+        let final_path = self.path_for_hash(&sha256, extension.as_deref());
+        let skipped_existing = final_path.exists();
+
+        if let Some(parent) = final_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
+        if skipped_existing {
+            fs::remove_file(&part_path).await?;
+        } else {
+            fs::rename(&part_path, &final_path).await?;
+        }
+
+        let relative_path = self
+            .get_relative_path(&final_path)
+            .ok_or_else(|| anyhow!("failed to produce library-relative path"))?;
+        let artifact = IngestedArtifact {
+            artifact_id: Uuid::new_v4().to_string(),
+            sha256,
+            original_filename,
+            media_type,
+            byte_size,
+            source_url: Some(url.to_string()),
+            relative_path,
+            skipped_existing,
+        };
+        let actual_artifact_id = self
+            .attach_artifact(pool, Some(record_id), &artifact, "official")
+            .await?;
+
+        Ok(DownloadResult {
+            record_id: record_id.to_string(),
+            artifact_id: actual_artifact_id,
+            sha256: artifact.sha256,
+            relative_path: artifact.relative_path,
+            byte_size: artifact.byte_size,
+            skipped_existing: artifact.skipped_existing,
+        })
+    }
+
     pub async fn ingest_manual_file(
         &self,
         pool: &SqlitePool,

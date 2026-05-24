@@ -1,4 +1,4 @@
-use crate::models::{Record, RecordFilter, RecordSummary};
+use crate::models::{Record, RecordFilter, RecordPage, RecordSummary};
 use sqlx::SqlitePool;
 
 pub async fn list(
@@ -79,6 +79,122 @@ pub async fn list(
     }
 
     Ok(rows)
+}
+
+pub async fn list_page(
+    pool: &SqlitePool,
+    filter: Option<RecordFilter>,
+    limit: i64,
+    offset: i64,
+) -> sqlx::Result<RecordPage> {
+    let filter = filter.unwrap_or(RecordFilter {
+        source_type: None,
+        agency: None,
+        local_only: None,
+        query: None,
+    });
+    let limit = limit.clamp(25, 500);
+    let offset = offset.max(0);
+    let local_only = if filter.local_only.unwrap_or(false) {
+        1
+    } else {
+        0
+    };
+
+    let total: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM records r
+        WHERE (?1 IS NULL OR r.source_type = ?1)
+          AND (?2 IS NULL OR r.agency = ?2)
+          AND (?3 = 0 OR r.local_path IS NOT NULL)
+          AND (
+            ?4 IS NULL OR
+            lower(r.title) LIKE '%' || lower(?4) || '%' OR
+            lower(COALESCE(r.summary, '')) LIKE '%' || lower(?4) || '%' OR
+            lower(COALESCE(r.agency, '')) LIKE '%' || lower(?4) || '%' OR
+            lower(COALESCE(r.incident_location, '')) LIKE '%' || lower(?4) || '%'
+          )
+        "#,
+    )
+    .bind(filter.source_type.clone())
+    .bind(filter.agency.clone())
+    .bind(local_only)
+    .bind(filter.query.clone())
+    .fetch_one(pool)
+    .await?;
+
+    let mut records = sqlx::query_as::<_, RecordSummary>(
+        r#"
+        SELECT
+            r.id,
+            r.title,
+            r.agency,
+            r.release_date,
+            r.incident_date,
+            r.incident_location,
+            r.document_url,
+            r.release_label,
+            r.source_asset_class,
+            r.dvids_video_id,
+            r.video_title,
+            r.video_pairing,
+            r.pdf_pairing,
+            r.modal_image,
+            r.image_alt_text,
+            r.image_virin,
+            r.local_path,
+            r.file_type,
+            r.source_type,
+            r.summary,
+            r.stable_key,
+            r.content_hash,
+            r.removed_from_source_at,
+            a.sha256 AS artifact_sha256,
+            COALESCE(a.byte_size, 0) AS artifact_size,
+            r.analysis_status,
+            NULL AS intelligence_json,
+            r.redaction_score,
+            r.analysis_error,
+            0 AS entity_count,
+            r.thumbnail_path AS thumbnail_path
+        FROM records r
+        LEFT JOIN artifacts a ON a.record_id = r.id
+        WHERE (?1 IS NULL OR r.source_type = ?1)
+          AND (?2 IS NULL OR r.agency = ?2)
+          AND (?3 = 0 OR r.local_path IS NOT NULL)
+          AND (
+            ?4 IS NULL OR
+            lower(r.title) LIKE '%' || lower(?4) || '%' OR
+            lower(COALESCE(r.summary, '')) LIKE '%' || lower(?4) || '%' OR
+            lower(COALESCE(r.agency, '')) LIKE '%' || lower(?4) || '%' OR
+            lower(COALESCE(r.incident_location, '')) LIKE '%' || lower(?4) || '%'
+          )
+        ORDER BY COALESCE(r.release_date, r.created_at) DESC, r.title ASC
+        LIMIT ?5 OFFSET ?6
+        "#,
+    )
+    .bind(filter.source_type)
+    .bind(filter.agency)
+    .bind(local_only)
+    .bind(filter.query)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    for row in &mut records {
+        if row.artifact_size.is_none() && row.local_path.is_some() {
+            row.artifact_size = Some(0);
+        }
+    }
+
+    Ok(RecordPage {
+        records,
+        total,
+        limit,
+        offset,
+    })
 }
 
 pub async fn find_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Record>> {

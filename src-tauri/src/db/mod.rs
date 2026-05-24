@@ -76,11 +76,17 @@ async fn initialize_schema(pool: &SqlitePool) -> anyhow::Result<()> {
 }
 
 async fn finish_db_startup(pool: SqlitePool) -> anyhow::Result<SqlitePool> {
-    // Cleanup stalled jobs from previous sessions
-    let _ = sqlx::query("UPDATE download_jobs SET status = 'failed', summary_json = '{\"error\": \"Application interrupted\"}' WHERE status IN ('running', 'queued')")
+    // Preserve interrupted download jobs for browser-side resume instead of marking them failed.
+    let _ = sqlx::query("UPDATE download_jobs SET status = 'running', summary_json = '{\"resume_available\": true, \"reason\": \"Application interrupted\"}' WHERE status IN ('running', 'queued')")
         .execute(&pool)
         .await;
-    let _ = sqlx::query("UPDATE download_job_items SET status = 'failed', error = 'Application interrupted' WHERE status IN ('downloading', 'queued')")
+    let _ = sqlx::query("UPDATE download_job_items SET status = 'queued', error = 'Application interrupted; ready to resume', error_class = 'interrupted' WHERE status IN ('downloading', 'queued')")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("UPDATE records SET analysis_status = 'pending', analysis_error = 'Previous analysis was interrupted; ready to retry' WHERE analysis_status IN ('indexing', 'extracting-foundation', 'synthesizing')")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("UPDATE records SET analysis_status = 'pending', analysis_error = 'Neural OCR sidecar failed previously; ready to retry after runtime health check' WHERE analysis_status = 'failed' AND analysis_error LIKE '%127.0.0.1:8374/ocr%'")
         .execute(&pool)
         .await;
 

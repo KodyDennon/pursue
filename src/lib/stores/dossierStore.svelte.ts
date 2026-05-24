@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { addToast } from '$lib/toastStore';
 import { logger } from '$lib/logger';
+import { downloadStore } from './downloadStore.svelte';
 import type {
 	AnalysisReport,
 	RecordSummary,
@@ -63,7 +64,10 @@ class DossierStore {
 				id: this.record.id
 			});
 
-			if (this.record.analysis_status === 'completed' || this.record.analysis_status === 'indexed') {
+			if (
+				this.record.analysis_status === 'completed' ||
+				this.record.analysis_status === 'indexed'
+			) {
 				await Promise.all([this.loadForensics(), this.loadChunks()]);
 			}
 		} catch (e) {
@@ -74,7 +78,9 @@ class DossierStore {
 	async loadForensics() {
 		if (!this.record) return;
 		try {
-			this.forensics = await invoke<RecordForensics[]>('get_forensic_report', { id: this.record.id });
+			this.forensics = await invoke<RecordForensics[]>('get_forensic_report', {
+				id: this.record.id
+			});
 			this.intelLogs = await invoke<IntelligenceLog[]>('get_intelligence_logs', {
 				id: this.record.id
 			});
@@ -97,24 +103,10 @@ class DossierStore {
 		this.busy = 'download';
 		this.error = null;
 		try {
-			const sourceUrl =
-				this.record.document_url ||
-				(this.record.dvids_video_id ? `dvids://asset/${this.record.dvids_video_id}` : null);
-			if (!sourceUrl) throw new Error('No source URL available');
-
-			const bytes = await invoke<number[]>('proxy_fetch_url', {
-				url: sourceUrl
+			await downloadStore.startRecordDownload(this.record, async () => {
+				if (onChanged) await onChanged();
+				await this.loadAnalysis();
 			});
-
-			await invoke('download_record_with_bytes', {
-				id: this.record.id,
-				url: sourceUrl,
-				bytes: bytes
-			});
-
-			if (onChanged) await onChanged();
-			await this.loadAnalysis();
-			addToast({ type: 'success', message: 'Evidence retrieved and vaulted.', duration: 3000 });
 		} catch (e) {
 			this.error = String(e);
 			addToast({ type: 'error', message: `Download failed: ${e}` });
@@ -146,7 +138,9 @@ class DossierStore {
 		this.error = null;
 		try {
 			if (onSynthesize) onSynthesize();
-			const report = await invoke<AnalysisReport>('synthesize_intelligence', { id: this.record.id });
+			const report = await invoke<AnalysisReport>('synthesize_intelligence', {
+				id: this.record.id
+			});
 			this.analysis = report;
 			if (onChanged) await onChanged();
 			await this.loadForensics();

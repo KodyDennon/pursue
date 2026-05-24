@@ -41,6 +41,13 @@ export interface RecordFilter {
 	query?: string | null;
 }
 
+export interface RecordPage {
+	records: RecordSummary[];
+	total: number;
+	limit: number;
+	offset: number;
+}
+
 export interface SnapshotDiff {
 	change_type: string;
 	title: string;
@@ -96,11 +103,25 @@ export interface BulkDownloadItem {
 	error: string | null;
 	artifact_id: string | null;
 	updated_at: string;
+	expected_size?: number | null;
+	content_type?: string | null;
+	etag?: string | null;
+	last_modified?: string | null;
+	part_path?: string | null;
+	error_class?: string | null;
+	retry_count?: number;
+	source_host?: string | null;
+	last_progress_at?: string | null;
+	resolved_url?: string | null;
 }
 
 export interface BulkDownloadReport {
 	job: BulkDownloadStatus;
 	items: BulkDownloadItem[];
+}
+
+export interface DownloadJobWindow extends BulkDownloadReport {
+	total_items: number;
 }
 
 export interface DatabaseStatus {

@@ -2,6 +2,7 @@
 	import { Loader2, CheckCircle2, AlertCircle } from 'lucide-svelte';
 	import { formatBytes } from '$lib/utils';
 	import type { BulkDownloadReport } from '$lib/types';
+	import { downloadStore } from '$lib/stores/downloadStore.svelte';
 
 	let { report } = $props<{
 		report: BulkDownloadReport;
@@ -28,7 +29,13 @@
 					{#if item.status === 'completed'}
 						{formatBytes(item.bytes_downloaded)} • Verified
 					{:else if item.status === 'failed'}
-						Error: {item.error || 'Unknown failure'}
+						{item.error_class ? `${item.error_class}: ` : 'Error: '}{item.error ||
+							'Unknown failure'}
+					{:else if item.status === 'downloading' && downloadStore.itemProgress[item.id]}
+						{formatBytes(downloadStore.itemProgress[item.id].bytes)}
+						{#if downloadStore.itemProgress[item.id].total}
+							/ {formatBytes(downloadStore.itemProgress[item.id].total)}
+						{/if}
 					{:else}
 						{item.status}...
 					{/if}

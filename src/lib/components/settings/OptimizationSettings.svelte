@@ -15,8 +15,21 @@
 		</p>
 		<div class="data-item">
 			<span class="d-label">Neural Model Cache</span>
-			<span class="d-val">{(settingsStore.status?.artifact_bytes || 0) > 0 ? 'Active' : 'Standby'}</span>
+			<span class="d-val"
+				>{(settingsStore.status?.artifact_bytes || 0) > 0 ? 'Active' : 'Standby'}</span
+			>
 		</div>
+		<label class="perf-toggle">
+			<input
+				type="checkbox"
+				bind:checked={settingsStore.performanceMode}
+				onchange={() => settingsStore.savePerformanceMode()}
+			/>
+			<span>
+				<strong>Performance Mode</strong>
+				<small>Reduce expensive blur, glow, and animation effects for Windows workstations.</small>
+			</span>
+		</label>
 	</div>
 	<footer class="s-footer">
 		<button
@@ -71,6 +84,38 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
+	}
+
+	.perf-toggle {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 12px;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		background: rgba(255, 255, 255, 0.03);
+		cursor: pointer;
+	}
+
+	.perf-toggle input {
+		margin-top: 3px;
+	}
+
+	.perf-toggle span {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.perf-toggle strong {
+		font-size: 13px;
+		color: var(--text-primary);
+	}
+
+	.perf-toggle small {
+		font-size: 11px;
+		line-height: 1.4;
+		color: var(--text-tertiary);
 	}
 
 	.d-label {

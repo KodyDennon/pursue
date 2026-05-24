@@ -3,6 +3,7 @@ mod cases;
 mod commands;
 mod common;
 mod db;
+mod downloads;
 mod exports;
 mod library;
 mod models;
@@ -70,6 +71,7 @@ pub fn run() {
             sync_official_source_with_csv,
             repair_official_source_records,
             list_records,
+            list_records_page,
             get_record,
             get_database_status,
             get_record_artifact_path,
@@ -78,7 +80,15 @@ pub fn run() {
             ingest_downloaded_bytes,
             update_download_item_status,
             download_missing_records,
+            queue_record_download,
             get_bulk_download_status,
+            get_download_job_window,
+            get_next_download_items,
+            begin_download_item,
+            append_download_chunk,
+            finalize_download_item,
+            fail_download_item,
+            reset_download_item_part,
             cancel_bulk_download,
             import_manual_file,
             ingest_web_page,
@@ -99,7 +109,6 @@ pub fn run() {
             get_record_chunks,
             get_model_registry,
             verify_vault_integrity,
-
             get_vault_encryption_status,
             clear_evidence_cache,
             get_latest_download_job,
