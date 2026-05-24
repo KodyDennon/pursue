@@ -41,8 +41,29 @@ class DownloadStore {
 		}
 	}
 
+	async checkDiskSpace(requiredBytes: number): Promise<boolean> {
+		try {
+			const diskSpace = await invoke<{ available_bytes: number; total_bytes: number }>('get_disk_space_info');
+			if (diskSpace.available_bytes < requiredBytes) {
+				const availableGb = (diskSpace.available_bytes / (1024 * 1024 * 1024)).toFixed(1);
+				const requiredGb = (requiredBytes / (1024 * 1024 * 1024)).toFixed(1);
+				addToast({
+					type: 'error',
+					message: `Insufficient disk space: ${availableGb}GB available, need at least ${requiredGb}GB.`
+				});
+				return false;
+			}
+			return true;
+		} catch (e) {
+			logger.warn('Failed to check disk space:', e);
+			return true;
+		}
+	}
+
 	async startBulkDownload(onComplete?: () => void | Promise<void>) {
 		try {
+			if (!(await this.checkDiskSpace(5 * 1024 * 1024 * 1024))) return; // 5GB for bulk
+
 			this.activeJobId = await invoke<string>('download_missing_records');
 			this.startPolling(onComplete);
 			addToast({
@@ -57,6 +78,8 @@ class DownloadStore {
 
 	async startRecordDownload(record: RecordSummary, onComplete?: () => void | Promise<void>) {
 		try {
+			if (!(await this.checkDiskSpace(1024 * 1024 * 1024))) return; // 1GB for single record
+
 			this.activeJobId = await invoke<string>('queue_record_download', { id: record.id });
 			this.startPolling(onComplete);
 			addToast({

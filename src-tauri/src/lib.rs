@@ -98,6 +98,7 @@ pub fn run() {
             add_record_to_case,
             export_case,
             get_hardware_diagnostics,
+            get_disk_space_info,
             provision_model,
             check_model_status,
             get_system_stats,

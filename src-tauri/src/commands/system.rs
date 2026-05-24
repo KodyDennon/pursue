@@ -445,3 +445,40 @@ fn remove_dir_all_robust(path: &std::path::Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct DiskSpaceInfo {
+    pub available_bytes: u64,
+    pub total_bytes: u64,
+}
+
+#[tauri::command]
+pub async fn get_disk_space_info(state: State<'_, AppState>) -> Result<DiskSpaceInfo, String> {
+    use sysinfo::Disks;
+    let disks = Disks::new_with_refreshed_list();
+    let app_dir = state.library.app_data_dir();
+    
+    let mut best_match = None;
+    let mut best_match_len = 0;
+    
+    for disk in &disks {
+        if app_dir.starts_with(disk.mount_point()) {
+            let path_len = disk.mount_point().as_os_str().len();
+            if path_len > best_match_len {
+                best_match = Some(disk);
+                best_match_len = path_len;
+            }
+        }
+    }
+    
+    if let Some(disk) = best_match {
+        Ok(DiskSpaceInfo {
+            available_bytes: disk.available_space(),
+            total_bytes: disk.total_space(),
+        })
+    } else {
+        Err("Could not determine disk space for application directory".to_string())
+    }
+}
+
