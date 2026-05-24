@@ -22,6 +22,15 @@ pub async fn list(
             r.incident_date,
             r.incident_location,
             r.document_url,
+            r.release_label,
+            r.source_asset_class,
+            r.dvids_video_id,
+            r.video_title,
+            r.video_pairing,
+            r.pdf_pairing,
+            r.modal_image,
+            r.image_alt_text,
+            r.image_virin,
             r.local_path,
             r.file_type,
             r.source_type,
@@ -76,7 +85,9 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Reco
     sqlx::query_as::<_, Record>(
         r#"
         SELECT id, title, agency, release_date, incident_date, incident_location,
-               document_url, local_path, file_type, source_type, summary
+               document_url, release_label, source_asset_class, dvids_video_id,
+               video_title, video_pairing, pdf_pairing, modal_image, image_alt_text,
+               image_virin, local_path, file_type, source_type, summary
         FROM records
         WHERE id = ?
         "#,
@@ -100,6 +111,15 @@ pub async fn find_summary_by_id(
             r.incident_date,
             r.incident_location,
             r.document_url,
+            r.release_label,
+            r.source_asset_class,
+            r.dvids_video_id,
+            r.video_title,
+            r.video_pairing,
+            r.pdf_pairing,
+            r.modal_image,
+            r.image_alt_text,
+            r.image_virin,
             r.local_path,
             r.file_type,
             r.source_type,

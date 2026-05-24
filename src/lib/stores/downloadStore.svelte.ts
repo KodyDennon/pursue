@@ -9,7 +9,7 @@ class DownloadStore {
 	report = $state<BulkDownloadReport | null>(null);
 	polling = $state(false);
 	downloading = $state(false);
-	private pollInterval: any = null;
+	private pollInterval: ReturnType<typeof setInterval> | null = null;
 
 	async init(onComplete?: () => void) {
 		try {
@@ -158,6 +158,7 @@ class DownloadStore {
 	stopPolling() {
 		this.polling = false;
 		if (this.pollInterval) clearInterval(this.pollInterval);
+		this.pollInterval = null;
 	}
 }
 

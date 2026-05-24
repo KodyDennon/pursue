@@ -15,7 +15,7 @@
 	import MediaViewer from '$lib/components/MediaViewer.svelte';
 	import Dashboard from '$lib/components/dashboard/Dashboard.svelte';
 	import { MODELS } from '$lib/models';
-	import type { CaseSummary, DatabaseStatus, RecordSummary } from '$lib/types';
+	import type { CaseSummary, RecordSummary } from '$lib/types';
 	import { addToast, updateToast } from '$lib/toastStore';
 	import { appStore } from '$lib/stores/appStore.svelte';
 	import { intelligenceStore } from '$lib/stores/intelligenceStore.svelte';
@@ -28,6 +28,7 @@
 	import AmbientBackground from '$lib/components/layout/AmbientBackground.svelte';
 	import StatsBar from '$lib/components/layout/StatsBar.svelte';
 	import Footer from '$lib/components/layout/Footer.svelte';
+	import { discoverWarGovCsvUrl, validateWarGovCsv } from '$lib/warGovSource';
 
 	let isProvisioned = $state(false);
 
@@ -95,12 +96,20 @@
 			duration: 0
 		});
 		try {
-			const response = await fetch('https://www.war.gov/Portals/1/Interactive/2026/UFO/uap-release001.csv');
+			const sourcePageUrl = 'https://www.war.gov/UFO/';
+			const sourcePage = await fetch(sourcePageUrl, { cache: 'no-store' });
+			if (!sourcePage.ok) {
+				throw new Error(`WAR.gov UFO page HTTP ${sourcePage.status}: ${sourcePage.statusText}`);
+			}
+			const sourceHtml = await sourcePage.text();
+			const csvUrl = discoverWarGovCsvUrl(sourceHtml);
+			const response = await fetch(csvUrl, { cache: 'no-store' });
 			if (!response.ok) {
 				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 			}
 			const csvText = await response.text();
-			await invoke('sync_official_source_with_csv', { csv: csvText });
+			validateWarGovCsv(csvText);
+			await invoke('sync_official_source_with_csv', { csv: csvText, upstreamUrl: csvUrl });
 			const agentSettings = await invoke<{ auto_sync: boolean; auto_analyze: boolean }>(
 				'get_app_settings',
 				{ key: 'ingestion_agent' }

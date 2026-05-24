@@ -46,7 +46,7 @@ async fn kill_port_owner(port: u16) {
 #[cfg(not(target_os = "windows"))]
 async fn kill_port_owner(port: u16) {
     if let Ok(output) = tokio::process::Command::new("sh")
-        .args(&["-c", &format!("lsof -t -i:{} | xargs kill -9", port)])
+        .args(["-c", &format!("lsof -t -i:{} | xargs kill -9", port)])
         .output()
         .await
     {
@@ -142,7 +142,7 @@ impl VisionSidecar {
                         let chunk = String::from_utf8_lossy(&data);
                         buffer.push_str(&chunk);
 
-                        while let Some(idx) = buffer.find(|c| c == '\n' || c == '\r') {
+                        while let Some(idx) = buffer.find(['\n', '\r']) {
                             let line = buffer[..idx].trim().to_string();
                             buffer.drain(..=idx); // Remove the line and the newline char
 

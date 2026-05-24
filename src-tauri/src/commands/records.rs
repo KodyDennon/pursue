@@ -5,19 +5,40 @@ use crate::models::{
     RecordFilter, RecordSummary, SyncReport,
 };
 use crate::sources::war_gov;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
+use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 use std::path::Path;
 use tauri::State;
 use uuid::Uuid;
 
+const DVIDS_API_KEY: &str = "key-68bb60d16b35e";
+
 #[tauri::command]
 pub async fn sync_official_source_with_csv(
     csv: String,
+    upstream_url: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<SyncReport, String> {
-    war_gov::sync_official_source_from_bytes(&state.db, &state.library, csv.as_bytes())
+    let upstream_url = upstream_url.as_deref().unwrap_or(war_gov::WAR_GOV_CSV_URL);
+    let report = war_gov::sync_official_source_from_bytes_with_url(
+        &state.db,
+        &state.library,
+        csv.as_bytes(),
+        upstream_url,
+    )
+    .await
+    .map_err(to_error)?;
+    war_gov::repair_official_record_identities(&state.db)
+        .await
+        .map_err(to_error)?;
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn repair_official_source_records(state: State<'_, AppState>) -> Result<usize, String> {
+    war_gov::repair_official_record_identities(&state.db)
         .await
         .map_err(to_error)
 }
@@ -96,7 +117,7 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
     // The frontend will drive the download loop.
     let candidates = sqlx::query(
         r#"
-        SELECT id, title, document_url, local_path
+        SELECT id, title, document_url, dvids_video_id, local_path
         FROM records
         WHERE source_type = 'official'
         ORDER BY COALESCE(release_date, created_at) DESC, title ASC
@@ -111,9 +132,11 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
     for row in &candidates {
         let record_id = row.get::<String, _>("id");
         let title = row.get::<String, _>("title");
-        let url = row.get::<Option<String>, _>("document_url");
+        let document_url = row.get::<Option<String>, _>("document_url");
+        let dvids_video_id = row.get::<Option<String>, _>("dvids_video_id");
         let local_path = row.get::<Option<String>, _>("local_path");
-        if local_path.is_some() || url.as_deref().unwrap_or("").is_empty() {
+        let url = downloadable_source_url(document_url.as_deref(), dvids_video_id.as_deref());
+        if local_path.is_some() || url.is_none() {
             skipped += 1;
             continue;
         }
@@ -402,6 +425,12 @@ pub async fn create_download_job(db: &SqlitePool) -> Result<String> {
 pub async fn proxy_fetch_url(url: String, state: State<'_, AppState>) -> Result<Vec<u8>, String> {
     let client = state.library.client();
 
+    if let Some(asset_id) = url.strip_prefix("dvids://asset/") {
+        return fetch_dvids_asset_bytes(client, asset_id)
+            .await
+            .map_err(to_error);
+    }
+
     if url.contains("war.gov") {
         let _ = client.get("https://www.war.gov/UFO/").send().await;
     }
@@ -428,4 +457,108 @@ pub async fn proxy_fetch_url(url: String, state: State<'_, AppState>) -> Result<
     let bytes = response.bytes().await.map_err(to_error)?;
 
     Ok(bytes.to_vec())
+}
+
+fn downloadable_source_url(document_url: Option<&str>, dvids_video_id: Option<&str>) -> Option<String> {
+    document_url
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            dvids_video_id
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(|id| format!("dvids://asset/{id}"))
+        })
+}
+
+async fn fetch_dvids_asset_bytes(client: &reqwest::Client, asset_id: &str) -> Result<Vec<u8>> {
+    let metadata_url = format!(
+        "https://api.dvidshub.net/asset?api_key={DVIDS_API_KEY}&id=video:{asset_id}&thumb_width=720"
+    );
+    let metadata = client
+        .get(&metadata_url)
+        .header(reqwest::header::REFERER, "https://www.war.gov/UFO/")
+        .send()
+        .await?;
+    if !metadata.status().is_success() {
+        return Err(anyhow!(
+            "DVIDS metadata fetch failed with status {} for asset {}",
+            metadata.status(),
+            asset_id
+        ));
+    }
+
+    let payload = metadata.json::<Value>().await?;
+    let asset_url = select_dvids_file_url(&payload)
+        .ok_or_else(|| anyhow!("DVIDS asset {} did not include a downloadable media file", asset_id))?;
+
+    let response = client
+        .get(&asset_url)
+        .header(reqwest::header::REFERER, "https://www.war.gov/UFO/")
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "DVIDS media fetch failed with status {} for asset {}",
+            response.status(),
+            asset_id
+        ));
+    }
+
+    Ok(response.bytes().await?.to_vec())
+}
+
+fn select_dvids_file_url(payload: &Value) -> Option<String> {
+    let mut candidates = Vec::new();
+    collect_dvids_file_candidates(payload, &mut candidates);
+    candidates
+        .into_iter()
+        .max_by_key(|candidate| candidate.0)
+        .map(|candidate| candidate.1)
+}
+
+fn collect_dvids_file_candidates(value: &Value, candidates: &mut Vec<(i64, String)>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_dvids_file_candidates(item, candidates);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(url) = ["src", "url", "download_url", "file"]
+                .iter()
+                .find_map(|key| map.get(*key).and_then(Value::as_str))
+                .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
+            {
+                let media_type = map
+                    .get("type")
+                    .or_else(|| map.get("mime_type"))
+                    .or_else(|| map.get("mime"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let height = map
+                    .get("height")
+                    .or_else(|| map.get("h"))
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0);
+                let score = if media_type.contains("mp4") {
+                    20_000
+                } else if media_type.contains("video") {
+                    10_000
+                } else if media_type.contains("audio") {
+                    8_000
+                } else {
+                    1_000
+                } + height;
+                candidates.push((score, url.to_string()));
+            }
+
+            for item in map.values() {
+                collect_dvids_file_candidates(item, candidates);
+            }
+        }
+        _ => {}
+    }
 }

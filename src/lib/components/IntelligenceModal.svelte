@@ -1,4 +1,5 @@
 <script lang="ts">
+	/* eslint-disable no-useless-assignment -- bindable props propagate modal progress to the page shell */
 	import { onMount } from 'svelte';
 	import { AlertCircle } from 'lucide-svelte';
 	import { synthesisStore } from '$lib/stores/synthesisStore.svelte';

@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { Brain, Terminal, Activity, Loader2, Cpu, CheckCircle2 } from 'lucide-svelte';
 
+	type NeuralTelemetry = {
+		device: string;
+		input_shape: unknown;
+		kv_cache_shape: unknown;
+	};
+
 	let {
 		status,
 		busy,
@@ -19,7 +25,7 @@
 		totalBatchCount: number;
 		modelDownloadProgress: number;
 		modelDownloadMsg: string;
-		neuralTelemetry: any | null;
+			neuralTelemetry: NeuralTelemetry | null | undefined;
 		onDismiss: () => void;
 	}>();
 </script>

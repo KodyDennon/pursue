@@ -4,10 +4,15 @@ import { addToast } from '$lib/toastStore';
 import { logger } from '$lib/logger';
 import type { DatabaseStatus } from '$lib/types';
 
+type AgentSettings = {
+	auto_sync: boolean;
+	auto_analyze: boolean;
+};
+
 class SettingsStore {
 	status = $state<DatabaseStatus | null>(null);
 	busy = $state<string | null>(null);
-	agentSettings = $state({ auto_sync: true, auto_analyze: true });
+	agentSettings = $state<AgentSettings>({ auto_sync: true, auto_analyze: true });
 	hfToken = $state('');
 	personaModifier = $state('');
 	appVersion = $state('...');
@@ -38,7 +43,7 @@ class SettingsStore {
 
 	async loadAppSettings() {
 		try {
-			const s = await invoke<any>('get_app_settings', { key: 'ingestion_agent' });
+			const s = await invoke<AgentSettings | null>('get_app_settings', { key: 'ingestion_agent' });
 			if (s) this.agentSettings = s;
 
 			const p = await invoke<string>('get_app_settings', { key: 'intelligence_persona' });
@@ -94,7 +99,7 @@ class SettingsStore {
 			);
 			addToast({
 				type: 'success',
-				message: `Evidence cache cleared.`,
+				message: `Evidence cache cleared: ${report.files_removed} files removed.`,
 				duration: 4000
 			});
 			await this.loadStatus();

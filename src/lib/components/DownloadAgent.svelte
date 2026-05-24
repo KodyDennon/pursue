@@ -8,6 +8,7 @@
 	import { downloadStore } from '$lib/stores/downloadStore.svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
 	import { intelligenceStore } from '$lib/stores/intelligenceStore.svelte';
+	import type { BulkDownloadStatus } from '$lib/types';
 	import AssetList from './agent/AssetList.svelte';
 
 	let { onComplete, onAnalyze } = $props<{
@@ -23,9 +24,10 @@
 
 	onDestroy(() => downloadStore.destroy());
 
-	function getProgress(job: any) {
-		if (job.total === 0) return 0;
-		return ((job.completed + job.failed) / (job.total - job.skipped)) * 100;
+	function getProgress(job: BulkDownloadStatus) {
+		const actionable = job.total - job.skipped;
+		if (actionable <= 0) return 0;
+		return ((job.completed + job.failed) / actionable) * 100;
 	}
 </script>
 

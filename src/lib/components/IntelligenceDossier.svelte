@@ -129,7 +129,6 @@
 			{#if activeTab === 'synthesis'}
 				<SynthesisTab
 					{record}
-					analysis={dossierStore.analysis}
 					{images}
 					busy={dossierStore.busy}
 					onRunDeepSynthesis={() => dossierStore.runDeepSynthesis(onChanged, onSynthesize)}

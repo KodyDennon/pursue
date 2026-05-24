@@ -1,17 +1,15 @@
 <script lang="ts">
 	import { Brain } from 'lucide-svelte';
 	import { convertFileSrc } from '@tauri-apps/api/core';
-	import type { RecordSummary, AnalysisReport, RecordAsset } from '$lib/types';
+	import type { RecordSummary, RecordAsset } from '$lib/types';
 
 	let {
 		record,
-		analysis,
 		images,
 		busy,
 		onRunDeepSynthesis
 	} = $props<{
 		record: RecordSummary;
-		analysis: AnalysisReport | null;
 		images: RecordAsset[];
 		busy: string | null;
 		onRunDeepSynthesis: () => void;

@@ -175,7 +175,7 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
         }),
     );
 
-    if let Err(e) = (|| async {
+    let provisioning_result: Result<()> = async {
         if !py_env_dir.exists() {
             fs::create_dir_all(&py_env_dir).await?;
         }
@@ -252,7 +252,7 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
 
         // Always use python -m pip to avoid shebang path issues with spaces
         let out = tokio::process::Command::new(&python_exe)
-            .args(&["-m", "pip", "install", "--no-cache-dir", "-r"])
+            .args(["-m", "pip", "install", "--no-cache-dir", "-r"])
             .arg(&req_file)
             .output()
             .await?;
@@ -268,9 +268,10 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
         std::fs::write(&marker_file, "provisioned")?;
 
         anyhow::Ok(())
-    })()
-    .await
-    {
+    }
+    .await;
+
+    if let Err(e) = provisioning_result {
         log::error!("Python provisioning failed: {}", e);
         let _ = app.emit(
             "analysis-progress",

@@ -5,7 +5,6 @@ import { logger } from '$lib/logger';
 import type {
 	AnalysisReport,
 	RecordSummary,
-	RecordAsset,
 	RecordForensics,
 	IntelligenceLog,
 	AnalysisChunk
@@ -98,15 +97,18 @@ class DossierStore {
 		this.busy = 'download';
 		this.error = null;
 		try {
-			if (!this.record.document_url) throw new Error('No source URL available');
+			const sourceUrl =
+				this.record.document_url ||
+				(this.record.dvids_video_id ? `dvids://asset/${this.record.dvids_video_id}` : null);
+			if (!sourceUrl) throw new Error('No source URL available');
 
 			const bytes = await invoke<number[]>('proxy_fetch_url', {
-				url: this.record.document_url
+				url: sourceUrl
 			});
 
 			await invoke('download_record_with_bytes', {
 				id: this.record.id,
-				url: this.record.document_url,
+				url: sourceUrl,
 				bytes: bytes
 			});
 

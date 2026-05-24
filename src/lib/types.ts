@@ -6,6 +6,15 @@ export interface RecordSummary {
 	incident_date: string | null;
 	incident_location: string | null;
 	document_url: string | null;
+	release_label: string | null;
+	source_asset_class: string | null;
+	dvids_video_id: string | null;
+	video_title: string | null;
+	video_pairing: string | null;
+	pdf_pairing: string | null;
+	modal_image: string | null;
+	image_alt_text: string | null;
+	image_virin: string | null;
 	local_path: string | null;
 	file_type: string | null;
 	source_type: string;

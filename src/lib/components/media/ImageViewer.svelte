@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { ZoomIn, ZoomOut, RotateCw } from 'lucide-svelte';
-
 	let { zoom = $bindable(), rotation = $bindable(), position = $bindable(), assetUrl, title } = $props<{
 		zoom: number;
 		rotation: number;

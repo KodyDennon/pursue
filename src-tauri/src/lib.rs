@@ -68,6 +68,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             sync_official_source_with_csv,
+            repair_official_source_records,
             list_records,
             get_record,
             get_database_status,

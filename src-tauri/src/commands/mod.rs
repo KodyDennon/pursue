@@ -53,7 +53,10 @@ pub async fn database_status(db: &SqlitePool, library: &LibraryManager) -> Resul
             (SELECT COUNT(*) FROM entities) as entity_count,
             (SELECT COUNT(*) FROM cases) as case_count,
             (SELECT COUNT(*) FROM source_snapshots) as source_snapshots,
-            (SELECT COUNT(*) FROM records WHERE source_type = 'official' AND document_url IS NOT NULL AND document_url != '') as downloadable_records
+            (SELECT COUNT(*) FROM records WHERE source_type = 'official' AND (
+                (document_url IS NOT NULL AND document_url != '') OR
+                (dvids_video_id IS NOT NULL AND dvids_video_id != '')
+            )) as downloadable_records
         "#
     )
     .fetch_one(db)

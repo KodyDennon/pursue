@@ -39,7 +39,7 @@ class IntelligenceStore {
 	runtimeProvisioned = $state(false);
 	runtimeBusy = $state(false);
 
-	private intervalId: any;
+	private intervalId: ReturnType<typeof setInterval> | null = null;
 	private unlistenProgress: UnlistenFn | null = null;
 	private unlistenAnalysis: UnlistenFn | null = null;
 

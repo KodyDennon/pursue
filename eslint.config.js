@@ -6,6 +6,9 @@ import prettier from 'eslint-config-prettier';
 import svelteParser from 'svelte-eslint-parser';
 
 export default tseslint.config(
+	{
+		ignores: ['build/**', '.svelte-kit/**', 'dist/**', 'src-tauri/target/**', 'src-python/venv/**']
+	},
 	eslint.configs.recommended,
 	...tseslint.configs.recommended,
 	...svelte.configs['flat/recommended'],
@@ -20,6 +23,12 @@ export default tseslint.config(
 		}
 	},
 	{
+		files: ['**/*.ts', '**/*.svelte.ts'],
+		languageOptions: {
+			parser: tseslint.parser
+		}
+	},
+	{
 		files: ['**/*.svelte'],
 		languageOptions: {
 			parser: svelteParser,
@@ -30,8 +39,5 @@ export default tseslint.config(
 		rules: {
 			'svelte/no-navigation-without-resolve': 'off'
 		}
-	},
-	{
-		ignores: ['build/', '.svelte-kit/', 'dist/', 'src-tauri/target/']
 	}
 );

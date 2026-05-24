@@ -243,7 +243,7 @@ impl ModelManager {
         hf_token: Option<String>,
     ) -> Result<PathBuf> {
         if target_path.exists() {
-            if !super::verifier::is_model_corrupted(&target_path, model_name).await {
+            if !super::verifier::is_model_corrupted(target_path, model_name).await {
                 return Ok(target_path.clone());
             }
             let _ = fs::remove_file(&target_path).await;

@@ -201,7 +201,7 @@
 
 		<button
 			class="btn-premium accent"
-			onclick={() => document.getElementById('local-upload')?.click()}
+			onclick={importFile}
 			disabled={busy === 'import'}
 			title="Ingest Local File"
 		>
