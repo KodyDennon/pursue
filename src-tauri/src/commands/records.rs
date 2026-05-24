@@ -8,9 +8,7 @@ use crate::models::{
     ManualImportRequest, RecordFilter, RecordPage, RecordSummary, SyncReport,
 };
 use crate::sources::war_gov;
-use anyhow::{anyhow, Result};
-
-use serde_json::Value;
+use anyhow::Result;
 use sqlx::{Row, SqlitePool};
 use std::path::Path;
 use tauri::State;
