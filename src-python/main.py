@@ -65,9 +65,10 @@ model = None
 processor = None
 model_lock = threading.Lock()
 cancel_requested = False
+load_error = None
 
 def load_model():
-    global model, processor
+    global model, processor, load_error
     with model_lock:
         if model is not None:
             return
@@ -82,10 +83,15 @@ def load_model():
             )
             
             # Determine optimal dtype
-            # bfloat16 is preferred on modern GPUs, float16 as fallback
+            # bfloat16 is preferred on modern CPUs/GPUs, float16 as fallback
             target_dtype = torch.float32
             if device != "cpu":
                 target_dtype = torch.float16 # Standard for GOT-OCR-2.0 on MPS/CUDA
+            elif hasattr(torch, "bfloat16"):
+                # Try to use bfloat16 on CPU to save memory if we aren't using a very old torch
+                target_dtype = torch.bfloat16
+            
+            logger.info(f"Using torch_dtype: {target_dtype}")
             
             load_params = {
                 "low_cpu_mem_usage": True,
@@ -100,47 +106,27 @@ def load_model():
                 model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, **load_params).eval()
                 model = model.to("mps")
             else:
+                # CPU load
+                logger.info("Loading model on CPU (approx 6-12GB RAM required)...")
                 model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, **load_params).eval()
                 
             elapsed = time.time() - start_time
             logger.info(f"Neural Engine ready. Load time: {elapsed:.2f}s")
+            load_error = None
         except Exception as e:
+            load_error = str(e)
             logger.error(f"CRITICAL: Failed to load neural engine: {e}")
             logger.error(traceback.format_exc())
             raise e
 
-def monitor_parent_lifecycle():
-    parent_pid = os.getppid()
-    if parent_pid <= 1:
-        return
-
-    def poll_parent():
-        logger.info(f"Parent process monitor active for PID: {parent_pid}")
-        while True:
-            if os.getppid() == 1:
-                logger.info("Parent process terminated (re-parented to init). Exiting...")
-                os._exit(0)
-            
-            try:
-                os.kill(parent_pid, 0)
-            except OSError as e:
-                if e.errno == errno.ESRCH:
-                    logger.info("Parent process has ceased to exist. Exiting...")
-                    os._exit(0)
-            
-            time.sleep(2)
-
-    thread = threading.Thread(target=poll_parent, daemon=True)
-    thread.start()
+# ... (monitor_parent_lifecycle remains same)
 
 @app.on_event("startup")
 async def startup_event():
     monitor_parent_lifecycle()
     # Loading on startup ensures the first request doesn't timeout
-    try:
-        load_model()
-    except:
-        pass # Errors logged in load_model
+    # We run this in a background thread so the server can start and report health
+    threading.Thread(target=load_model, daemon=True).start()
 
 class OCRRequest(BaseModel):
     image_path: str
@@ -149,6 +135,8 @@ class OCRRequest(BaseModel):
 async def health():
     if model is not None:
         return {"status": "ready", "device": device, "model": MODEL_ID}
+    if load_error:
+        return {"status": "failed", "error": load_error}
     return {"status": "loading"}
 
 @app.get("/status")

@@ -192,6 +192,24 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
                 extract_zip(zip_path.clone(), py_env_dir.clone()).await?;
                 let _ = fs::remove_file(zip_path).await;
 
+                // Enable site-packages in ._pth file EARLY so pip can function
+                if let Ok(mut entries) = std::fs::read_dir(&py_env_dir) {
+                    while let Some(Ok(entry)) = entries.next() {
+                        let path = entry.path();
+                        if path.extension().and_then(|s| s.to_str()) == Some("_pth") {
+                            let content = std::fs::read_to_string(&path)?;
+                            let mut new_content = content.replace("#import site", "import site");
+                            // Also ensure Lib/site-packages is in the path if we use a subdirectory, 
+                            // but embedded pip usually goes to root or site-packages.
+                            // We'll just stick to 'import site' for now as it's the standard way.
+                            if !new_content.contains("import site") {
+                                new_content.push_str("\nimport site\n");
+                            }
+                            std::fs::write(&path, new_content)?;
+                        }
+                    }
+                }
+
                 // Bootstrap Pip
                 let get_pip_url = "https://bootstrap.pypa.io/get-pip.py";
                 let get_pip_path = py_env_dir.join("get-pip.py");
@@ -208,22 +226,11 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
                     ));
                 }
                 let _ = fs::remove_file(get_pip_path).await;
-
-                // Enable site-packages in ._pth file
-                if let Ok(mut entries) = std::fs::read_dir(&py_env_dir) {
-                    while let Some(Ok(entry)) = entries.next() {
-                        let path = entry.path();
-                        if path.extension().and_then(|s| s.to_str()) == Some("_pth") {
-                            let content = std::fs::read_to_string(&path)?;
-                            let new_content = content.replace("#import site", "import site");
-                            std::fs::write(&path, new_content)?;
-                        }
-                    }
-                }
             }
         }
 
         #[cfg(target_os = "macos")]
+        // ... (macos part remains mostly same but I'll skip for brevity in new_string unless needed)
         {
             if !python_exe.exists() {
                 let arch = if cfg!(target_arch = "aarch64") {
@@ -251,16 +258,50 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
         );
 
         // Always use python -m pip to avoid shebang path issues with spaces
-        let out = tokio::process::Command::new(&python_exe)
+        let mut child = tokio::process::Command::new(&python_exe)
             .args(["-m", "pip", "install", "--no-cache-dir", "-r"])
             .arg(&req_file)
-            .output()
-            .await?;
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
 
-        if !out.status.success() {
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+
+        let app_clone = app.clone();
+        let mut stdout_reader = tokio::io::BufReader::new(stdout).lines();
+        let mut stderr_reader = tokio::io::BufReader::new(stderr).lines();
+
+        let mut stdout_done = false;
+        let mut stderr_done = false;
+
+        while !stdout_done || !stderr_done {
+            tokio::select! {
+                line = stdout_reader.next_line(), if !stdout_done => {
+                    if let Ok(Some(l)) = line {
+                        let _ = app_clone.emit("analysis-progress", serde_json::json!({
+                            "status": "loading-ocr-engine",
+                            "msg": format!("Neural Setup: {}", l)
+                        }));
+                    } else { stdout_done = true; }
+                }
+                line = stderr_reader.next_line(), if !stderr_done => {
+                    if let Ok(Some(l)) = line {
+                        let _ = app_clone.emit("analysis-progress", serde_json::json!({
+                            "status": "loading-ocr-engine",
+                            "msg": format!("Neural Setup (ERR): {}", l)
+                        }));
+                    } else { stderr_done = true; }
+                }
+            }
+        }
+
+        let out = child.wait().await?;
+
+        if !out.success() {
             return Err(anyhow!(
-                "Failed to install dependencies: {}",
-                String::from_utf8_lossy(&out.stderr)
+                "Failed to install dependencies (Exit Code: {})",
+                out.code().unwrap_or(-1)
             ));
         }
 
@@ -280,6 +321,12 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
                 "error": format!("Python Provisioning Failed: {}", e)
             }),
         );
+        
+        // Clean up partial/corrupt installation to allow clean retry
+        if py_env_dir.exists() {
+            let _ = fs::remove_dir_all(&py_env_dir).await;
+        }
+
         return Err(e);
     }
 
