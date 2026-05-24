@@ -139,7 +139,7 @@ async function downloadItem(jobId: string, item: BulkDownloadItem) {
 		})) as BeginResponse;
 		if (begin.cancel_requested) throw new DOMException('Download cancelled', 'AbortError');
 
-		let response = await fetchWithResume(source.url, begin.offset, controller.signal);
+		const response = await fetchWithResume(source.url, begin.offset, controller.signal);
 		if (begin.offset > 0 && response.status === 200) {
 			await hostCall('reset_download_item_part', { itemId: item.id });
 			begin = { ...begin, offset: 0 };
