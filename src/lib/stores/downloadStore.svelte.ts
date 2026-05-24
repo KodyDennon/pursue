@@ -55,7 +55,7 @@ class DownloadStore {
 			}
 			return true;
 		} catch (e) {
-			logger.warn('Failed to check disk space:', e);
+			logger.error('Failed to check disk space:', e);
 			return true;
 		}
 	}
