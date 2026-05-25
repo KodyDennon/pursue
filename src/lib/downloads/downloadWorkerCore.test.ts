@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { classifyDownloadError, getProgressUpdate, selectDvidsFileUrl } from './downloadWorkerCore';
+import {
+	buildResolveDvidsMetadataArgs,
+	classifyDownloadError,
+	getDownloadDriver,
+	getProgressUpdate,
+	selectDvidsFileUrl
+} from './downloadWorkerCore';
 
 describe('download worker core', () => {
 	test('classifies retryable and permanent failures', () => {
@@ -10,6 +16,30 @@ describe('download worker core', () => {
 		expect(classifyDownloadError('offset mismatch at byte 1024')).toBe('corrupt');
 		expect(classifyDownloadError('No space left on device')).toBe('disk');
 		expect(classifyDownloadError('connection reset')).toBe('network');
+		expect(classifyDownloadError('Load failed')).toBe('network');
+	});
+
+	test('builds the Tauri camelCase payload for DVIDS metadata resolution', () => {
+		expect(buildResolveDvidsMetadataArgs('1007879').videoId).toBe('1007879');
+	});
+
+	test('routes WAR.gov medialink assets to the WAR.gov-origin webview downloader', () => {
+		const discoveredWarGovUrls = [
+			new URL('/medialink/ufo/discovered-release/discovered-file.pdf', 'https://www.war.gov')
+				.href,
+			new URL('/Portals/1/Interactive/2099/UFO/discovered-data.csv', 'https://www.war.gov')
+				.href
+		];
+
+		for (const url of discoveredWarGovUrls) {
+			expect(getDownloadDriver(url)).toBe('war-gov-webview');
+		}
+	});
+
+	test('keeps CloudFront assets on the normal browser worker path', () => {
+		expect(getDownloadDriver('https://discovered-distribution.cloudfront.net/discovered.zip')).toBe(
+			'browser-worker'
+		);
 	});
 
 	test('throttles progress by elapsed time or meaningful byte delta', () => {

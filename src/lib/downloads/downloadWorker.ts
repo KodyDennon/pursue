@@ -1,5 +1,7 @@
 import {
+	buildResolveDvidsMetadataArgs,
 	classifyDownloadError,
+	getDownloadDriver,
 	getProgressUpdate,
 	selectDvidsFileUrl,
 	type DownloadErrorClass
@@ -15,7 +17,8 @@ type HostCommand =
 	| 'finalize_download_item'
 	| 'fail_download_item'
 	| 'reset_download_item_part'
-	| 'resolve_dvids_metadata';
+	| 'resolve_dvids_metadata'
+	| 'download_war_gov_item_with_webview';
 
 interface StartMessage {
 	type: 'start';
@@ -139,7 +142,23 @@ async function downloadItem(jobId: string, item: BulkDownloadItem) {
 		})) as BeginResponse;
 		if (begin.cancel_requested) throw new DOMException('Download cancelled', 'AbortError');
 
-		const response = await fetchWithResume(source.url, begin.offset, controller.signal);
+		if (getDownloadDriver(source.url) === 'war-gov-webview') {
+			await hostCall('download_war_gov_item_with_webview', {
+				request: {
+					job_id: jobId,
+					item_id: item.id,
+					record_id: item.record_id,
+					url: item.url,
+					resolved_url: source.url,
+					content_type: item.content_type ?? null
+				}
+			});
+			post({ type: 'item-completed', jobId, itemId: item.id });
+			return;
+		}
+
+		let response: Response;
+		response = await fetchWithResume(source.url, begin.offset, controller.signal);
 		if (begin.offset > 0 && response.status === 200) {
 			await hostCall('reset_download_item_part', { itemId: item.id });
 			begin = { ...begin, offset: 0 };
@@ -222,9 +241,10 @@ async function resolveSource(
 
 	const assetId = rawUrl.slice('dvids://asset/'.length);
 	// We use the host resolver (hidden webview) to bypass WAF
-	const payload = (await hostCall('resolve_dvids_metadata', {
-		video_id: assetId
-	})) as unknown;
+	const payload = (await hostCall(
+		'resolve_dvids_metadata',
+		buildResolveDvidsMetadataArgs(assetId)
+	)) as unknown;
 
 	const mediaUrl = selectDvidsFileUrl(payload);
 	if (!mediaUrl)

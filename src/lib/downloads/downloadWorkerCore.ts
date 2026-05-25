@@ -17,6 +17,8 @@ export interface ProgressUpdateInput {
 	minByteDelta?: number;
 }
 
+export type DownloadDriver = 'browser-worker' | 'war-gov-webview';
+
 export function classifyDownloadError(error: unknown): DownloadErrorClass {
 	const message = String(error instanceof Error ? error.message : error).toLowerCase();
 
@@ -40,11 +42,23 @@ export function classifyDownloadError(error: unknown): DownloadErrorClass {
 	if (
 		message.includes('network') ||
 		message.includes('connection') ||
-		message.includes('fetch failed')
+		message.includes('fetch failed') ||
+		message.includes('failed to fetch') ||
+		message.includes('load failed')
 	) {
 		return 'network';
 	}
 	return 'unknown';
+}
+
+export function buildResolveDvidsMetadataArgs(assetId: string): { videoId: string } {
+	return { videoId: assetId };
+}
+
+export function getDownloadDriver(rawUrl: string): DownloadDriver {
+	const url = new URL(rawUrl);
+	const host = url.hostname.toLowerCase();
+	return host === 'war.gov' || host === 'www.war.gov' ? 'war-gov-webview' : 'browser-worker';
 }
 
 export function getProgressUpdate(input: ProgressUpdateInput): boolean {

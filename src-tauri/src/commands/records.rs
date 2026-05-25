@@ -6,13 +6,38 @@ use crate::models::{
     BeginDownloadItemResponse, BulkDownloadItem, BulkDownloadReport, BulkDownloadStatus,
     DownloadJobWindow, DownloadResult, FailDownloadItemRequest, FinalizeDownloadItemRequest,
     ManualImportRequest, RecordFilter, RecordPage, RecordSummary, SyncReport,
+    WarGovWebviewDownloadRequest,
 };
 use crate::sources::war_gov;
 use anyhow::Result;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use serde::Deserialize;
 use sqlx::{Row, SqlitePool};
 use std::path::Path;
-use tauri::State;
+use tauri::{Listener, Manager, State};
+use tokio::sync::mpsc;
 use uuid::Uuid;
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind")]
+enum WarGovDownloadEvent {
+    #[serde(rename = "headers")]
+    Headers {
+        status: u16,
+        status_text: String,
+        expected_size: Option<i64>,
+        content_type: Option<String>,
+        etag: Option<String>,
+        last_modified: Option<String>,
+        reset_part: bool,
+    },
+    #[serde(rename = "chunk")]
+    Chunk { offset: u64, bytes_base64: String },
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "error")]
+    Error { error: String },
+}
 
 #[tauri::command]
 pub async fn sync_official_source_with_csv(
@@ -495,6 +520,220 @@ pub async fn finalize_download_item(
 }
 
 #[tauri::command]
+pub async fn download_war_gov_item_with_webview(
+    request: WarGovWebviewDownloadRequest,
+    state: State<'_, AppState>,
+    handle: tauri::AppHandle,
+) -> Result<DownloadResult, String> {
+    let source_url = request.resolved_url.as_deref().unwrap_or(&request.url);
+    ensure_war_gov_url(source_url)?;
+    let source_host = host_from_url(source_url);
+    let writer = download_part_writer(&state, &request.item_id)
+        .await
+        .map_err(to_error)?;
+    let mut offset = writer.offset().await.map_err(to_error)?;
+    let part_path = writer.path().to_string_lossy().into_owned();
+
+    sqlx::query(
+        r#"
+        UPDATE download_job_items
+        SET status = 'downloading',
+            error = NULL,
+            error_class = NULL,
+            content_type = COALESCE(?, content_type),
+            source_host = COALESCE(?, source_host),
+            resolved_url = COALESCE(?, resolved_url),
+            part_path = ?,
+            bytes_downloaded = ?,
+            last_progress_at = ?,
+            updated_at = ?
+        WHERE id = ? AND job_id = ?
+        "#,
+    )
+    .bind(&request.content_type)
+    .bind(source_host)
+    .bind(&request.resolved_url)
+    .bind(&part_path)
+    .bind(i64::try_from(offset).unwrap_or(i64::MAX))
+    .bind(now())
+    .bind(now())
+    .bind(&request.item_id)
+    .bind(&request.job_id)
+    .execute(&state.db)
+    .await
+    .map_err(to_error)?;
+
+    let window = handle
+        .get_webview_window("war-gov-resolver")
+        .ok_or_else(|| "WAR.gov resolver webview not found".to_string())?;
+    let request_id = Uuid::new_v4().to_string();
+    let event_name = format!("war-gov-download-{request_id}");
+    let (tx, mut rx) = mpsc::unbounded_channel::<WarGovDownloadEvent>();
+    let handler_id = handle.listen(event_name.clone(), move |event| {
+        if let Ok(payload) = serde_json::from_str::<WarGovDownloadEvent>(event.payload()) {
+            let _ = tx.send(payload);
+        }
+    });
+
+    let script = build_war_gov_download_script(source_url, offset, &request_id);
+    if let Err(error) = window.eval(&script) {
+        handle.unlisten(handler_id);
+        return Err(format!(
+            "failed to execute WAR.gov download script: {error}"
+        ));
+    }
+
+    let download_result = async {
+        let mut expected_size: Option<i64> = None;
+        let mut content_type = request.content_type.clone();
+
+        loop {
+            let event = tokio::time::timeout(std::time::Duration::from_secs(120), rx.recv())
+                .await
+                .map_err(|_| "WAR.gov webview download timed out".to_string())?
+                .ok_or_else(|| "WAR.gov webview download channel closed".to_string())?;
+
+            match event {
+                WarGovDownloadEvent::Headers {
+                    status,
+                    status_text,
+                    expected_size: next_expected_size,
+                    content_type: next_content_type,
+                    etag,
+                    last_modified,
+                    reset_part,
+                } => {
+                    if status >= 400 {
+                        return Err(format!("HTTP {status}: {status_text}"));
+                    }
+                    if reset_part {
+                        if writer.path().exists() {
+                            tokio::fs::remove_file(writer.path())
+                                .await
+                                .map_err(to_error)?;
+                        }
+                        offset = 0;
+                    }
+                    expected_size = next_expected_size;
+                    if next_content_type.is_some() {
+                        content_type = next_content_type.clone();
+                    }
+                    sqlx::query(
+                        r#"
+                        UPDATE download_job_items
+                        SET expected_size = COALESCE(?, expected_size),
+                            content_type = COALESCE(?, content_type),
+                            etag = COALESCE(?, etag),
+                            last_modified = COALESCE(?, last_modified),
+                            bytes_downloaded = ?,
+                            last_progress_at = ?,
+                            updated_at = ?
+                        WHERE id = ? AND job_id = ?
+                        "#,
+                    )
+                    .bind(expected_size)
+                    .bind(&content_type)
+                    .bind(etag)
+                    .bind(last_modified)
+                    .bind(i64::try_from(offset).unwrap_or(i64::MAX))
+                    .bind(now())
+                    .bind(now())
+                    .bind(&request.item_id)
+                    .bind(&request.job_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(to_error)?;
+                }
+                WarGovDownloadEvent::Chunk {
+                    offset: chunk_offset,
+                    bytes_base64,
+                } => {
+                    let bytes = BASE64
+                        .decode(bytes_base64)
+                        .map_err(|e| format!("invalid WAR.gov chunk payload: {e}"))?;
+                    offset = writer
+                        .append(chunk_offset, &bytes)
+                        .await
+                        .map_err(to_error)?;
+                    sqlx::query(
+                        r#"
+                        UPDATE download_job_items
+                        SET bytes_downloaded = ?, last_progress_at = ?, updated_at = ?
+                        WHERE id = ? AND job_id = ?
+                        "#,
+                    )
+                    .bind(i64::try_from(offset).unwrap_or(i64::MAX))
+                    .bind(now())
+                    .bind(now())
+                    .bind(&request.item_id)
+                    .bind(&request.job_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(to_error)?;
+                }
+                WarGovDownloadEvent::Done => break,
+                WarGovDownloadEvent::Error { error } => return Err(error),
+            }
+        }
+
+        let finalized = writer.finalize().await.map_err(to_error)?;
+        if let Some(expected) = expected_size {
+            if expected >= 0 && finalized.byte_size != expected {
+                return Err(format!(
+                    "download size mismatch: expected {}, got {}",
+                    expected, finalized.byte_size
+                ));
+            }
+        }
+        state
+            .library
+            .ingest_part_file(
+                &state.db,
+                &request.record_id,
+                source_url,
+                finalized.path,
+                finalized.byte_size,
+                finalized.sha256,
+                content_type,
+            )
+            .await
+            .map_err(to_error)
+    }
+    .await;
+
+    handle.unlisten(handler_id);
+    let result = download_result?;
+
+    sqlx::query(
+        r#"
+        UPDATE download_job_items
+        SET status = 'completed',
+            bytes_downloaded = ?,
+            byte_size = ?,
+            artifact_id = ?,
+            error = NULL,
+            error_class = NULL,
+            updated_at = ?
+        WHERE id = ? AND job_id = ?
+        "#,
+    )
+    .bind(result.byte_size)
+    .bind(result.byte_size)
+    .bind(&result.artifact_id)
+    .bind(now())
+    .bind(&request.item_id)
+    .bind(&request.job_id)
+    .execute(&state.db)
+    .await
+    .map_err(to_error)?;
+    refresh_download_job_counters(&state.db, &request.job_id)
+        .await
+        .map_err(to_error)?;
+
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn fail_download_item(
     request: FailDownloadItemRequest,
     state: State<'_, AppState>,
@@ -761,16 +1000,14 @@ pub async fn resolve_dvids_metadata(
     state: State<'_, AppState>,
     handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
-    use tauri::Listener;
-    use tauri::Manager;
     use tokio::sync::oneshot;
 
     // Acquire permit to respect concurrency limit (prevents Akamai flagging)
     let _permit = state.dvids_semaphore.acquire().await.map_err(to_error)?;
 
     let window = handle
-        .get_webview_window("dvids-resolver")
-        .ok_or_else(|| "DVIDS resolver webview not found".to_string())?;
+        .get_webview_window("war-gov-resolver")
+        .ok_or_else(|| "WAR.gov resolver webview not found".to_string())?;
 
     let request_id = Uuid::new_v4().to_string();
     let (tx, rx) = oneshot::channel();
@@ -786,21 +1023,7 @@ pub async fn resolve_dvids_metadata(
         }
     });
 
-    let script = format!(
-        r#"
-        (async () => {{
-            try {{
-                const DVIDS_API_KEY = 'key-68bb60d16b35e';
-                const res = await fetch(`https://api.dvidshub.net/asset?api_key=${{DVIDS_API_KEY}}&id=video:{video_id}&thumb_width=720`);
-                if (!res.ok) throw new Error(`HTTP ${{res.status}}`);
-                const data = await res.json();
-                window.__TAURI__.emit('dvids-resolved-{request_id}', data);
-            }} catch (e) {{
-                window.__TAURI__.emit('dvids-resolved-{request_id}', {{ error: e.toString() }});
-            }}
-        }})()
-        "#
-    );
+    let script = build_dvids_resolver_script(&video_id, &request_id);
 
     window
         .eval(&script)
@@ -818,6 +1041,123 @@ pub async fn resolve_dvids_metadata(
     }
 
     Ok(result)
+}
+
+fn build_dvids_resolver_script(video_id: &str, request_id: &str) -> String {
+    let video_id = serde_json::to_string(video_id).unwrap_or_else(|_| "\"\"".to_string());
+    let event_name = serde_json::to_string(&format!("dvids-resolved-{request_id}"))
+        .unwrap_or_else(|_| "\"dvids-resolved-invalid\"".to_string());
+
+    format!(
+        r#"
+        (async () => {{
+            const emitResult = async (payload) => {{
+                await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {{
+                    event: {event_name},
+                    payload
+                }});
+            }};
+            try {{
+                const DVIDS_API_KEY = 'key-68bb60d16b35e';
+                const videoId = {video_id};
+                const res = await fetch(`https://api.dvidshub.net/asset?api_key=${{DVIDS_API_KEY}}&id=video:${{encodeURIComponent(videoId)}}&thumb_width=720`);
+                if (!res.ok) throw new Error(`HTTP ${{res.status}}`);
+                const data = await res.json();
+                await emitResult(data);
+            }} catch (e) {{
+                await emitResult({{ error: e && e.stack ? e.stack : String(e) }});
+            }}
+        }})()
+        "#
+    )
+}
+
+fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str) -> String {
+    let source_url = serde_json::to_string(source_url).unwrap_or_else(|_| "\"\"".to_string());
+    let event_name = serde_json::to_string(&format!("war-gov-download-{request_id}"))
+        .unwrap_or_else(|_| "\"war-gov-download-invalid\"".to_string());
+
+    format!(
+        r#"
+        (async () => {{
+            const eventName = {event_name};
+            const sourceUrl = {source_url};
+            const startOffset = {offset};
+            const emitResult = async (payload) => {{
+                await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {{
+                    event: eventName,
+                    payload
+                }});
+            }};
+            const bytesToBase64 = (bytes) => {{
+                let binary = '';
+                const stride = 0x8000;
+                for (let i = 0; i < bytes.length; i += stride) {{
+                    binary += String.fromCharCode(...bytes.subarray(i, i + stride));
+                }}
+                return btoa(binary);
+            }};
+            const emitChunk = async (bytes, offset) => {{
+                const maxChunk = 64 * 1024;
+                let writeOffset = offset;
+                for (let i = 0; i < bytes.length; i += maxChunk) {{
+                    const slice = bytes.subarray(i, i + maxChunk);
+                    await emitResult({{
+                        kind: 'chunk',
+                        offset: writeOffset,
+                        bytes_base64: bytesToBase64(slice)
+                    }});
+                    writeOffset += slice.byteLength;
+                }}
+                return writeOffset;
+            }};
+            const expectedSizeFromHeaders = (res, baseOffset) => {{
+                const contentRange = res.headers.get('content-range');
+                const rangeMatch = contentRange && contentRange.match(/\/(\d+)$/);
+                if (rangeMatch) return Number.parseInt(rangeMatch[1], 10);
+                const contentLength = res.headers.get('content-length');
+                if (!contentLength) return null;
+                const parsedLength = Number.parseInt(contentLength, 10);
+                if (!Number.isFinite(parsedLength)) return null;
+                return res.status === 206 ? parsedLength + baseOffset : parsedLength;
+            }};
+
+            try {{
+                const headers = {{}};
+                if (startOffset > 0) headers.Range = `bytes=${{startOffset}}-`;
+                const res = await fetch(sourceUrl, {{ headers, cache: 'no-store' }});
+                const resetPart = startOffset > 0 && res.status === 200;
+                const baseOffset = resetPart ? 0 : startOffset;
+                await emitResult({{
+                    kind: 'headers',
+                    status: res.status,
+                    status_text: res.statusText,
+                    expected_size: expectedSizeFromHeaders(res, baseOffset),
+                    content_type: res.headers.get('content-type'),
+                    etag: res.headers.get('etag'),
+                    last_modified: res.headers.get('last-modified'),
+                    reset_part: resetPart
+                }});
+                if (!res.ok && res.status !== 206) {{
+                    await emitResult({{ kind: 'error', error: `HTTP ${{res.status}}: ${{res.statusText}}` }});
+                    return;
+                }}
+                if (!res.body) throw new Error('Response body is not streamable');
+
+                const reader = res.body.getReader();
+                let writeOffset = baseOffset;
+                while (true) {{
+                    const next = await reader.read();
+                    if (next.done) break;
+                    writeOffset = await emitChunk(next.value, writeOffset);
+                }}
+                await emitResult({{ kind: 'done' }});
+            }} catch (e) {{
+                await emitResult({{ kind: 'error', error: e && e.stack ? e.stack : String(e) }});
+            }}
+        }})()
+        "#
+    )
 }
 
 fn downloadable_source_url(
@@ -840,4 +1180,62 @@ fn host_from_url(raw: &str) -> Option<String> {
     url::Url::parse(raw)
         .ok()
         .and_then(|url| url.host_str().map(str::to_string))
+}
+
+fn ensure_war_gov_url(raw: &str) -> Result<(), String> {
+    let url = url::Url::parse(raw).map_err(|e| format!("invalid WAR.gov URL: {e}"))?;
+    match url.host_str().map(str::to_ascii_lowercase).as_deref() {
+        Some("war.gov") | Some("www.war.gov") => Ok(()),
+        _ => Err(format!(
+            "WAR.gov webview downloader rejected non-WAR.gov URL: {raw}"
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_dvids_resolver_script, build_war_gov_download_script, downloadable_source_url,
+    };
+
+    #[test]
+    fn dvids_resolver_script_uses_internal_event_ipc_instead_of_global_tauri_api() {
+        let script = build_dvids_resolver_script("1006087", "request-1");
+
+        assert!(script.contains("window.__TAURI_INTERNALS__.invoke('plugin:event|emit'"));
+        assert!(script.contains("\"dvids-resolved-request-1\""));
+        assert!(script.contains("\"1006087\""));
+        assert!(!script.contains("window.__TAURI__.emit"));
+    }
+
+    #[test]
+    fn dvids_resolver_script_json_escapes_ids_before_injecting_javascript() {
+        let script = build_dvids_resolver_script("100\";throw new Error('x')//", "request-2");
+
+        assert!(script.contains(r#""100\";throw new Error('x')//""#));
+        assert!(!script.contains("const videoId = 100\";throw"));
+    }
+
+    #[test]
+    fn dvids_asset_url_is_used_when_record_has_no_document_url() {
+        assert_eq!(
+            downloadable_source_url(None, Some("1006087")).as_deref(),
+            Some("dvids://asset/1006087")
+        );
+    }
+
+    #[test]
+    fn war_gov_download_script_uses_the_discovered_url_without_hardcoded_release_assets() {
+        let discovered = "https://www.war.gov/medialink/ufo/dynamic-release/dynamic-file.pdf";
+        let script = build_war_gov_download_script(discovered, 1024, "download-1");
+
+        assert!(script.contains("window.__TAURI_INTERNALS__.invoke('plugin:event|emit'"));
+        assert!(script.contains("\"war-gov-download-download-1\""));
+        assert!(script
+            .contains("\"https://www.war.gov/medialink/ufo/dynamic-release/dynamic-file.pdf\""));
+        assert!(script.contains("Range"));
+        assert!(!script.contains("052226"));
+        assert!(!script.contains("release_02"));
+        assert!(!script.contains("DOW-UAP-D017"));
+    }
 }

@@ -240,6 +240,16 @@ pub struct FinalizeDownloadItemRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WarGovWebviewDownloadRequest {
+    pub job_id: String,
+    pub item_id: String,
+    pub record_id: String,
+    pub url: String,
+    pub resolved_url: Option<String>,
+    pub content_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailDownloadItemRequest {
     pub job_id: String,
     pub item_id: String,
