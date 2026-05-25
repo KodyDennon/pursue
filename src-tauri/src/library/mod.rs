@@ -1,6 +1,4 @@
-use anyhow::{anyhow, Context, Result};
-use futures_util::StreamExt;
-use reqwest::{header, Client};
+use anyhow::{anyhow, Result};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
@@ -20,7 +18,6 @@ pub struct LibraryManager {
     snapshot_path: PathBuf,
     export_path: PathBuf,
     vault: VaultCrypto,
-    client: Client,
 }
 
 #[derive(Debug, Clone)]
@@ -43,56 +40,13 @@ impl LibraryManager {
         let export_path = app_data_dir.join("exports");
         let vault = VaultCrypto::new(&app_data_dir);
 
-        let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::ACCEPT,
-            header::HeaderValue::from_static(
-                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            ),
-        );
-        headers.insert(
-            header::ACCEPT_LANGUAGE,
-            header::HeaderValue::from_static("en-US,en;q=0.9"),
-        );
-        headers.insert(
-            header::ACCEPT_ENCODING,
-            header::HeaderValue::from_static("gzip, deflate, br, zstd"),
-        );
-        headers.insert("Priority", header::HeaderValue::from_static("u=0, i"));
-        headers.insert(
-            "Sec-Ch-Ua",
-            header::HeaderValue::from_static(
-                "\"Chromium\";v=\"148\", \"Google Chrome\";v=\"148\", \"Not/A)Brand\";v=\"99\"",
-            ),
-        );
-        headers.insert("Sec-Ch-Ua-Mobile", header::HeaderValue::from_static("?0"));
-        headers.insert(
-            "Sec-Ch-Ua-Platform",
-            header::HeaderValue::from_static("\"macOS\""),
-        );
-        headers.insert(
-            "Upgrade-Insecure-Requests",
-            header::HeaderValue::from_static("1"),
-        );
-
-        let client = Client::builder()
-            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
-            .default_headers(headers)
-            .cookie_store(true) // Crucial for Akamai sessions
-            .build()?;
-
         Ok(Self {
             app_data_dir,
             library_path,
             snapshot_path,
             export_path,
             vault,
-            client,
         })
-    }
-
-    pub fn client(&self) -> &Client {
-        &self.client
     }
 
     pub async fn init(&self) -> Result<()> {
@@ -157,27 +111,6 @@ impl LibraryManager {
             .strip_prefix(&self.library_path)
             .ok()
             .map(|path| path.to_string_lossy().into_owned())
-    }
-
-    pub async fn ingest_from_url(
-        &self,
-        pool: &SqlitePool,
-        record_id: &str,
-        url: &str,
-    ) -> Result<DownloadResult> {
-        let artifact = self.download_to_library(url).await?;
-        let actual_artifact_id = self
-            .attach_artifact(pool, Some(record_id), &artifact, "official")
-            .await?;
-
-        Ok(DownloadResult {
-            record_id: record_id.to_string(),
-            artifact_id: actual_artifact_id,
-            sha256: artifact.sha256,
-            relative_path: artifact.relative_path,
-            byte_size: artifact.byte_size,
-            skipped_existing: artifact.skipped_existing,
-        })
     }
 
     pub async fn ingest_from_bytes(
@@ -356,106 +289,6 @@ impl LibraryManager {
 
         tx.commit().await?;
         Ok(artifact_id)
-    }
-
-    async fn download_to_library(&self, url: &str) -> Result<IngestedArtifact> {
-        let parsed_url = Url::parse(url).with_context(|| format!("failed to parse URL: {url}"))?;
-
-        // Deterministic temp path for resuming
-        let mut url_hasher = Sha256::new();
-        url_hasher.update(url.as_bytes());
-        let url_hash = hex::encode(url_hasher.finalize());
-        let part_path = self
-            .app_data_dir
-            .join(format!("dl-{}.part", &url_hash[..16]));
-
-        let mut downloaded_bytes = 0_u64;
-        let mut hasher = Sha256::new();
-
-        if part_path.exists() {
-            if let Ok(metadata) = fs::metadata(&part_path).await {
-                let size = metadata.len();
-                if size > 0 {
-                    // Re-read existing content to initialize hasher
-                    let mut file = fs::File::open(&part_path).await?;
-                    let mut buffer = [0u8; 64 * 1024];
-                    loop {
-                        let n = file.read(&mut buffer).await?;
-                        if n == 0 {
-                            break;
-                        }
-                        hasher.update(&buffer[..n]);
-                    }
-                    downloaded_bytes = size;
-                }
-            }
-        }
-
-        let mut request = self.client.get(parsed_url);
-        if downloaded_bytes > 0 {
-            request = request.header(header::RANGE, format!("bytes={}-", downloaded_bytes));
-        }
-
-        let response = request
-            .send()
-            .await
-            .with_context(|| format!("failed to request {url}"))?;
-
-        if !response.status().is_success() {
-            return Err(anyhow!(
-                "download failed with status {}: {}",
-                response.status(),
-                url
-            ));
-        }
-
-        let (mut temp_file, byte_size) =
-            if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
-                let file = fs::OpenOptions::new().append(true).open(&part_path).await?;
-                (file, downloaded_bytes as i64)
-            } else {
-                // Server doesn't support range or file didn't exist
-                let file = fs::File::create(&part_path).await?;
-                hasher = Sha256::new(); // Reset hasher
-                (file, 0_i64)
-            };
-
-        let media_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
-        let original_filename = filename_from_url(url);
-
-        let mut total_downloaded = byte_size;
-        let mut stream = response.bytes_stream();
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            total_downloaded += i64::try_from(chunk.len()).unwrap_or(0);
-            hasher.update(&chunk);
-            temp_file.write_all(&chunk).await?;
-        }
-        temp_file.flush().await?;
-        drop(temp_file);
-
-        let artifact = self
-            .commit_temp_file(
-                part_path.clone(),
-                hasher,
-                total_downloaded,
-                original_filename,
-                media_type,
-                Some(url.to_string()),
-            )
-            .await?;
-
-        // Clean up part file if it wasn't renamed (commit_temp_file might skip if existing)
-        if part_path.exists() {
-            let _ = fs::remove_file(&part_path).await;
-        }
-
-        Ok(artifact)
     }
 
     async fn copy_file_to_library(&self, path: &Path) -> Result<IngestedArtifact> {

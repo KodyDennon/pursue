@@ -322,7 +322,7 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
                 "error": format!("Python Provisioning Failed: {}", e)
             }),
         );
-        
+
         // Clean up partial/corrupt installation to allow clean retry
         if py_env_dir.exists() {
             let _ = fs::remove_dir_all(&py_env_dir).await;

@@ -234,7 +234,10 @@ impl VisionSidecar {
                         let error_msg = body["error"]
                             .as_str()
                             .unwrap_or("Unknown model loading error");
-                        return Err(anyhow!("Neural Vision Engine failed to load: {}", error_msg));
+                        return Err(anyhow!(
+                            "Neural Vision Engine failed to load: {}",
+                            error_msg
+                        ));
                     }
                 }
             }

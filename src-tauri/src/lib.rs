@@ -16,6 +16,7 @@ use std::sync::Arc;
 use crate::commands::*;
 use analysis::AnalysisManager;
 use library::LibraryManager;
+use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::Manager;
 
 pub struct AppState {
@@ -49,12 +50,13 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
-            // Create hidden resolver webview for WAF bypass
+            // Create a hidden WAR.gov-origin webview for same-origin source access.
             let _ = tauri::WebviewWindowBuilder::new(
                 &handle,
-                "dvids-resolver",
+                "war-gov-resolver",
                 tauri::WebviewUrl::External("https://www.war.gov/UFO/".parse().unwrap()),
             )
+            .background_throttling(BackgroundThrottlingPolicy::Disabled)
             .visible(false)
             .build();
 
@@ -96,6 +98,7 @@ pub fn run() {
             begin_download_item,
             append_download_chunk,
             finalize_download_item,
+            download_war_gov_item_with_webview,
             fail_download_item,
             reset_download_item_part,
             cancel_bulk_download,

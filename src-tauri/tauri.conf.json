@@ -25,7 +25,7 @@
 		],
 		"security": {
 			"csp": null,
-			"capabilities": ["default"],
+			"capabilities": ["default", "war-gov-resolver"],
 			"assetProtocol": {
 				"enable": true,
 				"scope": ["**"]

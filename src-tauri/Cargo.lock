@@ -5200,6 +5200,7 @@ dependencies = [
  "accelerate-src",
  "aes-gcm",
  "anyhow",
+ "base64 0.22.1",
  "candle-core",
  "candle-nn",
  "candle-transformers",

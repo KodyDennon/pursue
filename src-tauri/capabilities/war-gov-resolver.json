@@ -1,0 +1,11 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "war-gov-resolver",
+	"description": "Minimal capability for the hidden WAR.gov-origin source resolver and downloader.",
+	"windows": ["war-gov-resolver"],
+	"local": false,
+	"remote": {
+		"urls": ["https://www.war.gov/*"]
+	},
+	"permissions": ["core:event:allow-emit"]
+}
