@@ -104,8 +104,9 @@ def load_model():
             load_params = {
                 "low_cpu_mem_usage": True,
                 "trust_remote_code": True,
-                "torch_dtype": target_dtype,
+                "dtype": target_dtype,
             }
+
 
             if device == "cuda":
                 load_params["device_map"] = "auto"
