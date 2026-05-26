@@ -59,6 +59,17 @@ elif torch.backends.mps.is_available():
 
 logger.info(f"Hardware detected: {device.upper()}")
 
+if device == "cpu" and sys.platform == "win32":
+    # Help debug why CUDA might be missing
+    try:
+        import subprocess
+        subprocess.check_output(["nvidia-smi"], stderr=subprocess.STDOUT)
+        logger.warning("NVIDIA GPU detected by system, but Torch is running on CPU. "
+                       "This usually means the CPU-only version of PyTorch was installed.")
+    except Exception:
+        # nvidia-smi not found, probably no NVIDIA GPU or drivers
+        pass
+
 # Global model and processor
 model = None
 processor = None
