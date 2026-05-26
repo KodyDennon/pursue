@@ -6,6 +6,7 @@
 	import SynthesisTab from './dossier/SynthesisTab.svelte';
 	import CaseWorkTab from './dossier/CaseWorkTab.svelte';
 	import DossierHeader from './dossier/DossierHeader.svelte';
+	import DossierSidebar from './dossier/DossierSidebar.svelte';
 	import DossierTabs from './dossier/DossierTabs.svelte';
 	import ThoughtsTab from './dossier/ThoughtsTab.svelte';
 	import ArtifactTab from './dossier/ArtifactTab.svelte';
@@ -62,10 +63,6 @@
 		(dossierStore.analysis?.assets ?? []).filter((a: RecordAsset) => a.asset_type === 'image')
 	);
 
-	const isIndexed = $derived(
-		record.analysis_status === 'completed' || record.analysis_status === 'indexed'
-	);
-
 	const isSynthesisOutdated = $derived.by(() => {
 		if (!record.intelligence_json || dossierStore.intelLogs.length === 0) return false;
 		if (dossierStore.analysis?.ocr_text && dossierStore.intelLogs[0]) {
@@ -93,63 +90,96 @@
 			activeTab = 'synthesis';
 		}
 	});
+
+	// Split pane logic: show artifact on the left when viewing textual analysis
+	const showArtifactSplit = $derived(
+		(activeDomain === 'foundation' && activeTab !== 'artifact') ||
+			(activeDomain === 'intelligence' && activeTab === 'synthesis')
+	);
 </script>
 
 <div class="intelligence-dossier glass-panel">
-	<DossierHeader
-		{record}
-		analysis={dossierStore.analysis}
-		bind:activeDomain
-		{isIndexed}
-		{isSynthesisOutdated}
-		analysisStatus={dossierStore.analysisStatus}
-		analysisProgress={dossierStore.analysisProgress}
-		busy={dossierStore.busy}
-		{onBack}
-		openSource={openSourceProxy}
-		revealLocal={() => dossierStore.revealLocal()}
-		runFoundationIndexing={() => dossierStore.runFoundationIndexing(onChanged, onAnalyze)}
-		runDeepSynthesis={() => dossierStore.runDeepSynthesis(onChanged, onSynthesize)}
-		download={() => dossierStore.download(onChanged)}
-		setViewerOpen={(open) => (viewerOpen = open)}
-	/>
+	<DossierHeader {record} {onBack} />
 
-	<DossierTabs {activeDomain} bind:activeTab />
+	<div class="dossier-layout">
+		<main class="dossier-main-stage">
+			<DossierTabs {activeDomain} bind:activeTab />
 
-	<div class="dossier-body">
-		{#if dossierStore.error}
-			<div class="error-msg">
-				<AlertCircle size={18} />
-				<span>System Failure: {dossierStore.error}</span>
-				<button onclick={() => (dossierStore.error = null)}>Clear Error</button>
+			<div class="dossier-body-container">
+				{#if dossierStore.error}
+					<div class="error-msg">
+						<AlertCircle size={18} />
+						<span>System Failure: {dossierStore.error}</span>
+						<button onclick={() => (dossierStore.error = null)}>Clear Error</button>
+					</div>
+				{/if}
+
+				<div class="panes-wrapper" class:split={showArtifactSplit}>
+					{#if showArtifactSplit}
+						<div class="artifact-pane">
+							<ArtifactTab
+								{record}
+								{resolvePath}
+								revealLocal={() => dossierStore.revealLocal()}
+								openSource={openSourceProxy}
+								download={() => dossierStore.download(onChanged)}
+								setViewerOpen={(open) => (viewerOpen = open)}
+								compact={true}
+							/>
+						</div>
+					{/if}
+
+					<div class="tab-content custom-scrollbar">
+						{#if activeTab === 'synthesis'}
+							<SynthesisTab
+								{record}
+								{images}
+								busy={dossierStore.busy}
+								onRunDeepSynthesis={() => dossierStore.runDeepSynthesis(onChanged, onSynthesize)}
+								compact={showArtifactSplit}
+							/>
+						{:else if activeTab === 'forensics'}
+							<ForensicAuditViewer
+								recordId={record.id}
+								forensics={dossierStore.forensics}
+								{images}
+							/>
+						{:else if activeTab === 'thoughts'}
+							<ThoughtsTab intelLogs={dossierStore.intelLogs} />
+						{:else if activeTab === 'artifact'}
+							<ArtifactTab
+								{record}
+								{resolvePath}
+								revealLocal={() => dossierStore.revealLocal()}
+								openSource={openSourceProxy}
+								download={() => dossierStore.download(onChanged)}
+								setViewerOpen={(open) => (viewerOpen = open)}
+							/>
+						{:else if activeTab === 'raw'}
+							<RawOcrTab
+								analysis={dossierStore.analysis}
+								runFoundationIndexing={() =>
+									dossierStore.runFoundationIndexing(onChanged, onAnalyze)}
+							/>
+						{:else if activeTab === 'chunks'}
+							<ChunksTab chunks={dossierStore.chunks} />
+						{:else if activeTab === 'case'}
+							<CaseWorkTab recordId={record.id} {selectedCaseId} {selectedCase} {onChanged} />
+						{/if}
+					</div>
+				</div>
 			</div>
-		{/if}
+		</main>
 
-		<div class="tab-content custom-scrollbar">
-			{#if activeTab === 'synthesis'}
-				<SynthesisTab
-					{record}
-					{images}
-					busy={dossierStore.busy}
-					onRunDeepSynthesis={() => dossierStore.runDeepSynthesis(onChanged, onSynthesize)}
-				/>
-			{:else if activeTab === 'forensics'}
-				<ForensicAuditViewer recordId={record.id} forensics={dossierStore.forensics} {images} />
-			{:else if activeTab === 'thoughts'}
-				<ThoughtsTab intelLogs={dossierStore.intelLogs} />
-			{:else if activeTab === 'artifact'}
-				<ArtifactTab {record} {resolvePath} download={() => dossierStore.download(onChanged)} />
-			{:else if activeTab === 'raw'}
-				<RawOcrTab
-					analysis={dossierStore.analysis}
-					runFoundationIndexing={() => dossierStore.runFoundationIndexing(onChanged, onAnalyze)}
-				/>
-			{:else if activeTab === 'chunks'}
-				<ChunksTab chunks={dossierStore.chunks} />
-			{:else if activeTab === 'case'}
-				<CaseWorkTab recordId={record.id} {selectedCaseId} {selectedCase} {onChanged} />
-			{/if}
-		</div>
+		<DossierSidebar
+			{record}
+			analysis={dossierStore.analysis}
+			bind:activeDomain
+			{isSynthesisOutdated}
+			analysisStatus={dossierStore.analysisStatus}
+			analysisProgress={dossierStore.analysisProgress}
+			runDeepSynthesis={() => dossierStore.runDeepSynthesis(onChanged, onSynthesize)}
+		/>
 	</div>
 </div>
 
@@ -161,23 +191,56 @@
 		display: flex;
 		flex-direction: column;
 		color: #fff;
+		overflow: hidden;
 	}
 
-	.dossier-body {
+	.dossier-layout {
+		flex: 1;
+		display: flex;
+		overflow: hidden;
+	}
+
+	.dossier-main-stage {
 		flex: 1;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
 	}
 
+	.dossier-body-container {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+
+	.panes-wrapper {
+		flex: 1;
+		display: flex;
+		overflow: hidden;
+	}
+
+	.panes-wrapper.split {
+		gap: 1px;
+		background: var(--border-subtle);
+	}
+
+	.artifact-pane {
+		width: 45%;
+		background: #000;
+		overflow: hidden;
+		border-right: 1px solid var(--border-subtle);
+	}
+
 	.tab-content {
 		flex: 1;
 		overflow-y: auto;
+		background: rgba(8, 9, 12, 0.2);
 	}
 
 	.error-msg {
-		margin: 32px;
-		padding: 16px;
+		margin: 24px;
+		padding: 12px 16px;
 		background: rgba(255, 77, 77, 0.1);
 		border: 1px solid rgba(255, 77, 77, 0.2);
 		border-radius: 8px;

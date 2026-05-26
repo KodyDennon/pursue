@@ -3,15 +3,22 @@
 	import { convertFileSrc } from '@tauri-apps/api/core';
 	import type { RecordSummary, RecordAsset } from '$lib/types';
 
-	let { record, images, busy, onRunDeepSynthesis } = $props<{
+	let {
+		record,
+		images,
+		busy,
+		onRunDeepSynthesis,
+		compact = false
+	} = $props<{
 		record: RecordSummary;
 		images: RecordAsset[];
 		busy: string | null;
 		onRunDeepSynthesis: () => void;
+		compact?: boolean;
 	}>();
 </script>
 
-<div class="view-padding">
+<div class="view-padding" class:compact>
 	{#if record.intelligence_json}
 		{@const intel = JSON.parse(record.intelligence_json)}
 		<div class="intel-grid">
@@ -54,7 +61,7 @@
 						{Math.round((intel.intelligence_score || 0.6) * 100)}%
 					</div>
 				</div>
-				{#if images.length > 0}
+				{#if images.length > 0 && !compact}
 					<div class="mini-gallery">
 						<span class="t-label">VISUAL EVIDENCE</span>
 						<div class="g-grid">
@@ -82,6 +89,9 @@
 	.view-padding {
 		padding: 32px;
 	}
+	.view-padding.compact {
+		padding: 20px;
+	}
 	.section-head {
 		margin-bottom: 20px;
 		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -104,6 +114,9 @@
 		gap: 16px;
 		margin: 32px 0;
 	}
+	.compact .data-grid-tactical {
+		grid-template-columns: 1fr;
+	}
 	.t-card {
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid var(--border-subtle);
@@ -115,6 +128,9 @@
 	}
 	.t-card.full {
 		grid-column: span 2;
+	}
+	.compact .t-card.full {
+		grid-column: span 1;
 	}
 	.t-label {
 		font-size: 9px;
@@ -162,5 +178,39 @@
 		border-radius: 8px;
 		font-weight: 800;
 		cursor: pointer;
+	}
+
+	.intel-grid {
+		display: flex;
+		gap: 32px;
+	}
+	.compact .intel-grid {
+		flex-direction: column;
+		gap: 24px;
+	}
+	.intel-main {
+		flex: 1;
+	}
+	.intel-sidebar {
+		width: 260px;
+	}
+	.compact .intel-sidebar {
+		width: 100%;
+	}
+	.mini-gallery {
+		margin-top: 32px;
+	}
+	.g-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 8px;
+		margin-top: 12px;
+	}
+	.g-grid img {
+		width: 100%;
+		height: 100px;
+		object-fit: cover;
+		border-radius: 4px;
+		border: 1px solid var(--border-subtle);
 	}
 </style>
