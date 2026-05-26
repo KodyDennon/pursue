@@ -45,10 +45,11 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
         return Ok(session);
     }
 
-    // HARDWARE ACCELERATION: Enable Apple Neural Engine (CoreML) for maximum throughput.
-    // We attempt to register CoreML first, then fall back to CPU.
+    // HARDWARE ACCELERATION: Attempt to use native engines, falling back to multi-threaded CPU.
+    // We reduce log noise by setting the level to Warning.
     let _ = ort::init()
         .with_name("pursue-embeddings")
+        .with_log_level(ort::LoggingLevel::Warning)
         .with_execution_providers([
             #[cfg(target_os = "macos")]
             ort::execution_providers::CoreMLExecutionProvider::default().build(),
@@ -63,9 +64,12 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
         anyhow::bail!("Embedding model not found at {}", path.display());
     }
 
+    // On CPU, we use multiple threads to avoid the "stuck" initialization/inference feel.
+    let threads = (num_cpus::get() / 2).max(1);
+
     let session = Session::builder()
         .map_err(|e| anyhow::anyhow!("failed to create ort session builder: {}", e))?
-        .with_intra_threads(1)
+        .with_intra_threads(threads)
         .map_err(|e| anyhow::anyhow!("failed to set threads: {}", e))?
         .commit_from_file(path)
         .map_err(|e| anyhow::anyhow!("failed to load embedding model: {}", e))?;
@@ -131,8 +135,8 @@ pub async fn vector_search(pool: &SqlitePool, request: SearchRequest) -> Result<
     .fetch_all(pool)
     .await
     {
-        Ok(res) => res,
-        Err(_) => keyword_search(pool, &query, &filters).await?,
+        Ok(res) if !res.is_empty() => res,
+        _ => keyword_search(pool, &query, &filters).await?,
     };
 
     Ok(SearchResults {
@@ -164,7 +168,6 @@ async fn vectorize_text_with_model(text: &str) -> Result<Vec<f32>> {
     let mut attention_mask = encoding.get_attention_mask();
 
     // BGE-Small-EN-v1.5 has a hard sequence limit of 512 tokens.
-    // Exceeding this causes the positional embedding 'Add' nodes to fail with dimension mismatches.
     if input_ids.len() > 512 {
         input_ids = &input_ids[..512];
         attention_mask = &attention_mask[..512];

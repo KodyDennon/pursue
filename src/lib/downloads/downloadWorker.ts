@@ -87,6 +87,7 @@ const pending = new Map<
 >();
 const controllers = new Map<string, AbortController>();
 let nextCallId = 1;
+let isRunning = false;
 
 self.onmessage = (event: MessageEvent<IncomingMessage>) => {
 	const message = event.data;
@@ -108,21 +109,29 @@ self.onmessage = (event: MessageEvent<IncomingMessage>) => {
 		return;
 	}
 
-	void runQueue(message);
+	if (message.type === 'start') {
+		if (isRunning) return;
+		void runQueue(message);
+	}
 };
 
 async function runQueue(message: StartMessage) {
-	const concurrency = Math.min(4, Math.max(1, message.concurrency ?? DEFAULT_CONCURRENCY));
-	const queue = [...message.items];
-	const workers = Array.from({ length: concurrency }, async () => {
-		while (queue.length > 0) {
-			const item = queue.shift();
-			if (!item) return;
-			await downloadItem(message.jobId, item);
-		}
-	});
-	await Promise.all(workers);
-	post({ type: 'idle', jobId: message.jobId });
+	isRunning = true;
+	try {
+		const concurrency = Math.min(4, Math.max(1, message.concurrency ?? DEFAULT_CONCURRENCY));
+		const queue = [...message.items];
+		const workers = Array.from({ length: concurrency }, async () => {
+			while (queue.length > 0) {
+				const item = queue.shift();
+				if (!item) return;
+				await downloadItem(message.jobId, item);
+			}
+		});
+		await Promise.all(workers);
+	} finally {
+		isRunning = false;
+		post({ type: 'idle', jobId: message.jobId });
+	}
 }
 
 async function downloadItem(jobId: string, item: BulkDownloadItem) {
@@ -159,7 +168,12 @@ async function downloadItem(jobId: string, item: BulkDownloadItem) {
 
 		let response: Response;
 		response = await fetchWithResume(source.url, begin.offset, controller.signal);
-		if (begin.offset > 0 && response.status === 200) {
+		if (response.status === 416) {
+			// Range not satisfiable - local part might be larger than remote file. Reset and retry.
+			await hostCall('reset_download_item_part', { itemId: item.id });
+			begin = { ...begin, offset: 0 };
+			response = await fetchWithResume(source.url, 0, controller.signal);
+		} else if (begin.offset > 0 && response.status === 200) {
 			await hostCall('reset_download_item_part', { itemId: item.id });
 			begin = { ...begin, offset: 0 };
 		}
