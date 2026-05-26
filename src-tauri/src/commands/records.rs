@@ -1,6 +1,7 @@
 use crate::commands::{now, to_error, AppState};
 use crate::db::records;
 use crate::downloads::DownloadPartWriter;
+use crate::library::IngestPartRequest;
 use crate::models::{
     AppendDownloadChunkRequest, AppendDownloadChunkResponse, BeginDownloadItemRequest,
     BeginDownloadItemResponse, BulkDownloadItem, BulkDownloadReport, BulkDownloadStatus,
@@ -498,12 +499,14 @@ pub async fn finalize_download_item(
         .library
         .ingest_part_file(
             &state.db,
-            &request.record_id,
-            source_url,
-            finalized.path,
-            finalized.byte_size,
-            finalized.sha256,
-            request.content_type,
+            IngestPartRequest {
+                record_id: request.record_id.clone(),
+                url: source_url.to_string(),
+                part_path: finalized.path,
+                byte_size: finalized.byte_size,
+                sha256: finalized.sha256,
+                media_type: request.content_type,
+            },
         )
         .await
         .map_err(to_error)?;
@@ -707,12 +710,14 @@ pub async fn download_war_gov_item_with_webview(
             .library
             .ingest_part_file(
                 &state.db,
-                &request.record_id,
-                source_url,
-                finalized.path,
-                finalized.byte_size,
-                finalized.sha256,
-                content_type,
+                IngestPartRequest {
+                    record_id: request.record_id.clone(),
+                    url: source_url.to_string(),
+                    part_path: finalized.path,
+                    byte_size: finalized.byte_size,
+                    sha256: finalized.sha256,
+                    media_type: content_type,
+                },
             )
             .await
             .map_err(to_error)
