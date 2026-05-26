@@ -135,7 +135,8 @@ pub async fn is_provisioned(app: &tauri::AppHandle) -> bool {
         Err(_) => return false,
     };
     let py_env_dir = app_data.join("python-runtime");
-    let marker_file = py_env_dir.join("provisioned.ok");
+    // Change marker name to force re-provisioning for CUDA support in v0.8.12 (v3)
+    let marker_file = py_env_dir.join("provisioned-cuda-v3.ok");
 
     let python_exe = if cfg!(windows) {
         py_env_dir.join("python.exe")
@@ -150,7 +151,8 @@ pub async fn is_provisioned(app: &tauri::AppHandle) -> bool {
 pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
     let app_data = app.path().app_data_dir()?;
     let py_env_dir = app_data.join("python-runtime");
-    let marker_file = py_env_dir.join("provisioned.ok");
+    // Change marker name to force re-provisioning for CUDA support in v0.8.12 (v3)
+    let marker_file = py_env_dir.join("provisioned-cuda-v3.ok");
 
     let (python_exe, _pip_exe) = if cfg!(windows) {
         (py_env_dir.join("python.exe"), py_env_dir.join("python.exe"))
@@ -166,6 +168,15 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
         log::info!("Python runtime already provisioned at {:?}", python_exe);
         return Ok(python_exe);
     }
+
+    // AGGRESSIVE RESET: If the marker is missing but the directory exists,
+    // it means we are upgrading from a potentially CPU-only or broken install.
+    // We wipe the directory to ensure a clean state with correct hardware support.
+    if py_env_dir.exists() {
+        log::info!("Old or incomplete Python runtime detected. Wiping for fresh CUDA-capable install...");
+        fs::remove_dir_all(&py_env_dir).await?;
+    }
+
 
     log::info!("Starting Python runtime provisioning...");
     let _ = app.emit(
@@ -258,10 +269,22 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
             }),
         );
 
-        // Always use python -m pip to avoid shebang path issues with spaces
+        // Always use python -m pip to avoid shebang path issues with spaces.
+        // We add --no-warn-script-location because we are using an isolated environment.
+        let mut args = vec!["-m", "pip", "install", "--no-cache-dir", "--no-warn-script-location"];
+
+        #[cfg(target_os = "windows")]
+        {
+            args.push("--extra-index-url");
+            args.push("https://download.pytorch.org/whl/cu121");
+        }
+
+        args.push("-r");
+        let req_str = req_file.to_string_lossy().into_owned();
+        args.push(&req_str);
+
         let mut child = tokio::process::Command::new(&python_exe)
-            .args(["-m", "pip", "install", "--no-cache-dir", "-r"])
-            .arg(&req_file)
+            .args(&args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()?;

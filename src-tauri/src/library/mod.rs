@@ -32,6 +32,15 @@ pub struct IngestedArtifact {
     pub skipped_existing: bool,
 }
 
+pub struct IngestPartRequest {
+    pub record_id: String,
+    pub url: String,
+    pub part_path: PathBuf,
+    pub byte_size: i64,
+    pub sha256: String,
+    pub media_type: Option<String>,
+}
+
 impl LibraryManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         let app_data_dir = app_handle.path().app_data_dir()?;
@@ -159,20 +168,15 @@ impl LibraryManager {
     pub async fn ingest_part_file(
         &self,
         pool: &SqlitePool,
-        record_id: &str,
-        url: &str,
-        part_path: PathBuf,
-        byte_size: i64,
-        sha256: String,
-        media_type: Option<String>,
+        request: IngestPartRequest,
     ) -> Result<DownloadResult> {
-        let original_filename = filename_from_url(url);
+        let original_filename = filename_from_url(&request.url);
         let extension = original_filename
             .as_deref()
             .and_then(|name| Path::new(name).extension())
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.to_ascii_lowercase());
-        let final_path = self.path_for_hash(&sha256, extension.as_deref());
+        let final_path = self.path_for_hash(&request.sha256, extension.as_deref());
         let skipped_existing = final_path.exists();
 
         if let Some(parent) = final_path.parent() {
@@ -180,9 +184,9 @@ impl LibraryManager {
         }
 
         if skipped_existing {
-            fs::remove_file(&part_path).await?;
+            fs::remove_file(&request.part_path).await?;
         } else {
-            fs::rename(&part_path, &final_path).await?;
+            fs::rename(&request.part_path, &final_path).await?;
         }
 
         let relative_path = self
@@ -190,20 +194,20 @@ impl LibraryManager {
             .ok_or_else(|| anyhow!("failed to produce library-relative path"))?;
         let artifact = IngestedArtifact {
             artifact_id: Uuid::new_v4().to_string(),
-            sha256,
+            sha256: request.sha256,
             original_filename,
-            media_type,
-            byte_size,
-            source_url: Some(url.to_string()),
+            media_type: request.media_type,
+            byte_size: request.byte_size,
+            source_url: Some(request.url),
             relative_path,
             skipped_existing,
         };
         let actual_artifact_id = self
-            .attach_artifact(pool, Some(record_id), &artifact, "official")
+            .attach_artifact(pool, Some(&request.record_id), &artifact, "official")
             .await?;
 
         Ok(DownloadResult {
-            record_id: record_id.to_string(),
+            record_id: request.record_id,
             artifact_id: actual_artifact_id,
             sha256: artifact.sha256,
             relative_path: artifact.relative_path,

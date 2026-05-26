@@ -46,10 +46,8 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
     }
 
     // HARDWARE ACCELERATION: Attempt to use native engines, falling back to multi-threaded CPU.
-    // We reduce log noise by setting the level to Warning.
     let _ = ort::init()
         .with_name("pursue-embeddings")
-        .with_log_level(ort::LoggingLevel::Warning)
         .with_execution_providers([
             #[cfg(target_os = "macos")]
             ort::execution_providers::CoreMLExecutionProvider::default().build(),
