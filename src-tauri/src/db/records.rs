@@ -58,6 +58,7 @@ pub async fn list(
             lower(COALESCE(r.agency, '')) LIKE '%' || lower(?4) || '%' OR
             lower(COALESCE(r.incident_location, '')) LIKE '%' || lower(?4) || '%'
           )
+        GROUP BY r.id
         ORDER BY r.created_at DESC, r.title ASC
         "#,
     )
@@ -170,6 +171,7 @@ pub async fn list_page(
             lower(COALESCE(r.agency, '')) LIKE '%' || lower(?4) || '%' OR
             lower(COALESCE(r.incident_location, '')) LIKE '%' || lower(?4) || '%'
           )
+        GROUP BY r.id
         ORDER BY r.created_at DESC, r.title ASC
         LIMIT ?5 OFFSET ?6
         "#,
