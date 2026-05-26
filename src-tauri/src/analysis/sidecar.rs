@@ -25,7 +25,7 @@ fn is_port_in_use(port: u16) -> bool {
 #[cfg(target_os = "windows")]
 async fn kill_port_owner(port: u16) {
     if let Ok(output) = tokio::process::Command::new("cmd")
-        .args(&[
+        .args([
             "/C",
             &format!(
                 "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :{}') do taskkill /F /PID %a",
