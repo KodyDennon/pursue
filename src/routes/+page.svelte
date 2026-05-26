@@ -41,7 +41,6 @@
 
 	let query = $state('');
 	let busy = $state<string | null>(null);
-	let initializing = $state(true);
 	let viewMode = $state<'grid' | 'cards' | 'list'>('grid');
 	let analysisModalOpen = $state(false);
 	let analysisBusy = $state(false);
@@ -54,10 +53,27 @@
 	let hasLoaded = $state(false);
 
 	async function loadInitialData() {
-		logger.debug('[App] loadInitialData called');
-		initializing = true;
+		if (!appStore.initializing) {
+			logger.debug('[App] loadInitialData called post-init');
+		}
+		appStore.initializing = true;
+
+		// Safety timeout: don't stay stuck on splash forever
+		const timeoutId = setTimeout(() => {
+			if (appStore.initializing) {
+				logger.info('[App] loadInitialData is taking too long, forcing splash off.');
+				appStore.initializing = false;
+				addToast({
+					type: 'info',
+					message: 'Archive is taking longer than usual to load. System proceeding...',
+					duration: 5000
+				});
+			}
+		}, 15000);
+
 		try {
 			if (query.trim()) {
+				appStore.addBootLog(`Searching for "${query.trim()}"...`);
 				const results = await invoke<{ total: number; results: Array<Partial<RecordSummary>> }>(
 					'search',
 					{
@@ -72,6 +88,7 @@
 				})) as RecordSummary[];
 				recordsTotal = results.total;
 			} else {
+				appStore.addBootLog('Fetching archive records...');
 				const page = await invoke<RecordPage>('list_records_page', {
 					filter: { source_type: null, local_only: null, query: null },
 					limit: recordsLimit,
@@ -81,18 +98,22 @@
 				recordsTotal = page.total;
 			}
 
-			const [nextCases] = await Promise.all([
-				invoke<CaseSummary[]>('list_cases'),
-				intelligenceStore.loadStatus()
-			]);
+			appStore.addBootLog('Loading forensic cases...');
+			const nextCases = await invoke<CaseSummary[]>('list_cases');
 			cases = nextCases;
 			if (!selectedCaseId && nextCases.length > 0) {
 				selectedCaseId = nextCases[0].id;
 			}
+
+			appStore.addBootLog('Verifying neural models...');
+			await intelligenceStore.loadStatus();
 		} catch (e) {
+			logger.error('[App] loadInitialData failed:', e);
 			addToast({ type: 'error', message: `Failed to load data: ${e}`, duration: 5000 });
 		} finally {
-			initializing = false;
+			clearTimeout(timeoutId);
+			appStore.initializing = false;
+			appStore.addBootLog('Intelligence OS Ready.');
 		}
 	}
 
@@ -173,10 +194,15 @@
 	// Auto-detect provisioning
 	onMount(() => {
 		logger.debug('[App] Mounting +page...');
-		intelligenceStore.init();
-		settingsStore.init();
+
 		(async () => {
 			try {
+				appStore.addBootLog('Synchronizing Vault...');
+				await settingsStore.init();
+
+				appStore.addBootLog('Verifying Neural Environment...');
+				await intelligenceStore.init();
+
 				const modelStatus = await invoke<Record<string, boolean>>('check_model_status');
 				const specs = await invoke<{ recommended_tier: 'Standard' | 'Elite' }>(
 					'get_hardware_diagnostics'
@@ -188,13 +214,20 @@
 
 				const allPresent = requiredModels.every((m) => modelStatus[m.id]);
 				logger.debug('[App] All models present:', allPresent);
+
 				if (allPresent) {
 					isProvisioned = true;
 					// If already provisioned, trigger load immediately
-					loadInitialData();
+					await loadInitialData();
+				} else {
+					isProvisioned = false;
+					appStore.initializing = false;
 				}
 			} catch (e) {
-				console.error('Provisioning check failed', e);
+				logger.error('Provisioning check failed', e);
+				appStore.addBootLog(`Error: ${e}`);
+				// Don't leave user stuck on splash if possible
+				appStore.initializing = false;
 			}
 		})();
 
@@ -251,10 +284,10 @@
 		logger.debug('[App] Provisioned/View effect:', {
 			isProvisioned: $state.snapshot(isProvisioned),
 			hasLoaded: $state.snapshot(hasLoaded),
-			initializing: $state.snapshot(initializing),
+			initializing: appStore.initializing,
 			activeView: $state.snapshot(appStore.activeView)
 		});
-		if (isProvisioned && !hasLoaded && !initializing) {
+		if (isProvisioned && !hasLoaded && !appStore.initializing) {
 			if (appStore.activeView === 'dashboard') {
 				logger.debug('[App] Triggering loadInitialData from effect...');
 				hasLoaded = true;
@@ -302,12 +335,12 @@
 			loadInitialData();
 		}}
 	/>
-{:else if initializing}
+{:else if appStore.initializing}
 	<SystemSplash />
 {:else}
 	<AmbientBackground />
 
-	<div class="os-container glass-panel" class:blur={initializing}>
+	<div class="os-container glass-panel" class:blur={appStore.initializing}>
 		<header class="os-header glass-header" data-tauri-drag-region>
 			<div class="view-context" data-tauri-drag-region>
 				<h2 class="view-title" data-tauri-drag-region>
