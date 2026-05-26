@@ -44,9 +44,8 @@ impl OcrEngine {
         {
             use oar_ocr::core::config::onnx::OrtExecutionProvider;
             providers.push(OrtExecutionProvider::CoreML {
-                use_cpu_only: false,
-                enable_on_subgraph: false,
-                only_enable_device_with_ane: false,
+                ane_only: Some(false),
+                subgraphs: Some(false),
             });
         }
 

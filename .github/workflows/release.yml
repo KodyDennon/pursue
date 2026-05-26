@@ -51,10 +51,10 @@ jobs:
       - name: Frontend build
         run: bun run build
       - name: Rust check
-        run: cargo check
+        run: cargo check --features metal
         working-directory: src-tauri
       - name: Rust tests
-        run: cargo test
+        run: cargo test --features metal
         working-directory: src-tauri
 
   installers:
@@ -65,7 +65,7 @@ jobs:
       matrix:
         include:
           - platform: macos-14
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --features metal
           - platform: windows-latest
             args: ''
     runs-on: ${{ matrix.platform }}
