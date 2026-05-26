@@ -10,10 +10,9 @@ import sys
 import fitz  # PyMuPDF
 import threading
 import time
-import errno
-import warnings
 import gc
 import traceback
+import warnings
 
 # Disable HF telemetry and warnings early
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
@@ -83,12 +82,10 @@ def load_model():
             )
             
             # Determine optimal dtype
-            # bfloat16 is preferred on modern CPUs/GPUs, float16 as fallback
             target_dtype = torch.float32
             if device != "cpu":
-                target_dtype = torch.float16 # Standard for GOT-OCR-2.0 on MPS/CUDA
+                target_dtype = torch.float16
             elif hasattr(torch, "bfloat16"):
-                # Try to use bfloat16 on CPU to save memory if we aren't using a very old torch
                 target_dtype = torch.bfloat16
             
             logger.info(f"Using torch_dtype: {target_dtype}")
@@ -106,7 +103,6 @@ def load_model():
                 model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, **load_params).eval()
                 model = model.to("mps")
             else:
-                # CPU load
                 logger.info("Loading model on CPU (approx 6-12GB RAM required)...")
                 model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, **load_params).eval()
                 
@@ -119,13 +115,36 @@ def load_model():
             logger.error(traceback.format_exc())
             raise e
 
-# ... (monitor_parent_lifecycle remains same)
+def monitor_parent_lifecycle():
+    """
+    Terminates the process if the parent process (Tauri) dies.
+    This prevents orphaned sidecar processes from hogging system resources.
+    """
+    def check_parent():
+        parent_pid = os.getppid()
+        while True:
+            if sys.platform == "win32":
+                import ctypes
+                PROCESS_QUERY_INFORMATION = 0x0400
+                SYNCHRONIZE = 0x0010
+                handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, False, parent_pid)
+                if not handle:
+                    logger.warning("Parent process handle lost, terminating...")
+                    os._exit(0)
+                ctypes.windll.kernel32.CloseHandle(handle)
+            else:
+                if os.getppid() == 1:
+                    logger.warning("Parent process reaped by init, terminating...")
+                    os._exit(0)
+            
+            time.sleep(2)
+
+    thread = threading.Thread(target=check_parent, daemon=True)
+    thread.start()
 
 @app.on_event("startup")
 async def startup_event():
     monitor_parent_lifecycle()
-    # Loading on startup ensures the first request doesn't timeout
-    # We run this in a background thread so the server can start and report health
     threading.Thread(target=load_model, daemon=True).start()
 
 class OCRRequest(BaseModel):
@@ -150,9 +169,7 @@ async def status():
     if device == "cuda":
         stats["memory"]["cuda"] = torch.cuda.memory_summary()
     elif device == "mps":
-        # MPS memory summary is limited in torch, but we can check if it's initialized
         stats["memory"]["mps"] = "active"
-    
     return stats
 
 @app.post("/cancel")
@@ -163,33 +180,27 @@ async def cancel():
     return {"status": "cancelling"}
 
 def process_image(image: Image.Image) -> str:
-    # GOT-OCR-2.0 performs best with 1024x1024 input
-    # The processor usually handles this, but we ensure it's RGB
     if image.mode != "RGB":
         image = image.convert("RGB")
 
     inputs = processor(image, return_tensors="pt").to(device)
     
-    # Optimization: GOT-OCR-2.0 has specific generation config
     with torch.no_grad():
         generate_ids = model.generate(
             **inputs,
             do_sample=False,
             tokenizer=processor.tokenizer,
             stop_strings="<|im_end|>",
-            max_new_tokens=2048, # Reduced from 4096 to prevent runaway generation
+            max_new_tokens=2048,
             pad_token_id=processor.tokenizer.pad_token_id,
             eos_token_id=processor.tokenizer.eos_token_id,
         )
     
     res = processor.decode(generate_ids[0], skip_special_tokens=True)
-    
-    # Clean up output
     if "assistant\n" in res:
         res = res.split("assistant\n")[-1]
     elif "assistant" in res:
         res = res.split("assistant")[-1]
-    
     return res.strip()
 
 @app.post("/ocr")
@@ -208,12 +219,9 @@ async def ocr(request: OCRRequest):
         logger.info(f"Processing neural vision task: {request.image_path}")
         start_time = time.time()
         
-        # Check if PDF
         if request.image_path.lower().endswith(".pdf"):
             full_text = []
             doc = fitz.open(request.image_path)
-            
-            # WORKAROUND: Remove broken StructTreeRoot to prevent get_pixmap hang on corrupt PDFs
             try:
                 cat = doc.pdf_catalog()
                 doc.xref_set_key(cat, "StructTreeRoot", "null")
@@ -229,8 +237,6 @@ async def ocr(request: OCRRequest):
 
                 logger.info(f"Rendering PDF page {page_num + 1}/{total_pages}")
                 page = doc.load_page(page_num)
-                
-                # 150 DPI is optimal (resizes to 1024x1024 anyway)
                 pix = page.get_pixmap(dpi=150)
                 image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 
@@ -238,7 +244,6 @@ async def ocr(request: OCRRequest):
                 full_text.append(text)
                 full_text.append("\n--- PAGE BREAK ---\n")
                 
-                # Proactive cleanup to prevent thermal throttling
                 del pix
                 del image
                 gc.collect()
@@ -270,5 +275,4 @@ async def ocr(request: OCRRequest):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8374))
     logger.info(f"Starting GOT-OCR Sidecar on port {port}...")
-    # Increase timeout for large model loading
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="info", timeout_keep_alive=120)
