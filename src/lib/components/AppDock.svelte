@@ -78,7 +78,11 @@
 	</div>
 
 	<div class="dock-bottom">
-		<button class="nav-item" onclick={() => (appStore.globalSearchOpen = true)} title="Global Search">
+		<button
+			class="nav-item"
+			onclick={() => (appStore.globalSearchOpen = true)}
+			title="Global Search"
+		>
 			<Search size={22} />
 		</button>
 		<button

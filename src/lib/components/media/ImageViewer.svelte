@@ -1,5 +1,11 @@
 <script lang="ts">
-	let { zoom = $bindable(), rotation = $bindable(), position = $bindable(), assetUrl, title } = $props<{
+	let {
+		zoom = $bindable(),
+		rotation = $bindable(),
+		position = $bindable(),
+		assetUrl,
+		title
+	} = $props<{
 		zoom: number;
 		rotation: number;
 		position: { x: number; y: number };

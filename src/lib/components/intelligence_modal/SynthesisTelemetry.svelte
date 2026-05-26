@@ -25,7 +25,7 @@
 		totalBatchCount: number;
 		modelDownloadProgress: number;
 		modelDownloadMsg: string;
-			neuralTelemetry: NeuralTelemetry | null | undefined;
+		neuralTelemetry: NeuralTelemetry | null | undefined;
 		onDismiss: () => void;
 	}>();
 </script>
@@ -35,7 +35,7 @@
 		<div class="neural-network-glow" class:active={busy}>
 			<Brain size={64} class="neural-brain {busy ? 'pulse-brain' : ''}" />
 		</div>
-		<span class="engine-state-label" class:busy={busy}>
+		<span class="engine-state-label" class:busy>
 			{status === 'loading-model'
 				? 'WAKING MODEL'
 				: status === 'synthesizing'
@@ -50,9 +50,7 @@
 			<Terminal size={16} class="card-icon" />
 			<div class="val">
 				<span class="l">Target Record</span>
-				<span class="v"
-					>{currentRecordId ? currentRecordId.substring(0, 16) + '...' : 'None'}</span
-				>
+				<span class="v">{currentRecordId ? currentRecordId.substring(0, 16) + '...' : 'None'}</span>
 			</div>
 		</div>
 
@@ -172,7 +170,9 @@
 
 	.neural-network-glow.active {
 		border-color: rgba(231, 196, 107, 0.3);
-		box-shadow: 0 0 30px rgba(231, 196, 107, 0.15), inset 0 0 20px rgba(231, 196, 107, 0.05);
+		box-shadow:
+			0 0 30px rgba(231, 196, 107, 0.15),
+			inset 0 0 20px rgba(231, 196, 107, 0.05);
 		background: rgba(231, 196, 107, 0.02);
 	}
 

@@ -1,10 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import {
-		Download,
-		Brain,
-		DownloadCloud
-	} from 'lucide-svelte';
+	import { Download, Brain, DownloadCloud } from 'lucide-svelte';
 	import { downloadStore } from '$lib/stores/downloadStore.svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
 	import { intelligenceStore } from '$lib/stores/intelligenceStore.svelte';
@@ -43,14 +39,19 @@
 
 		<div class="agent-actions-top">
 			{#if !downloadStore.activeJobId || (downloadStore.report && downloadStore.report.job.status !== 'running' && downloadStore.report.job.status !== 'queued')}
-				<button class="agent-btn primary" onclick={() => downloadStore.startBulkDownload(onComplete)}>
+				<button
+					class="agent-btn primary"
+					onclick={() => downloadStore.startBulkDownload(onComplete)}
+				>
 					<Download size={14} /> Start Global Download
 				</button>
 				<button class="agent-btn secondary" onclick={() => intelligenceStore.reindexAll(onAnalyze)}>
 					<Brain size={14} /> Neural Extraction
 				</button>
 			{:else}
-				<button class="agent-btn danger" onclick={() => downloadStore.cancelDownload()}> Abort Operation </button>
+				<button class="agent-btn danger" onclick={() => downloadStore.cancelDownload()}>
+					Abort Operation
+				</button>
 			{/if}
 		</div>
 	</div>
@@ -58,12 +59,20 @@
 	<div class="agent-settings-bar">
 		<div class="toggle-group">
 			<label class="switch-label">
-				<input type="checkbox" bind:checked={settingsStore.agentSettings.auto_sync} onchange={() => settingsStore.saveAgentSettings()} />
+				<input
+					type="checkbox"
+					bind:checked={settingsStore.agentSettings.auto_sync}
+					onchange={() => settingsStore.saveAgentSettings()}
+				/>
 				<span class="slider"></span>
 				<span class="label-text">Auto-Ingestion Pipeline</span>
 			</label>
 			<label class="switch-label">
-				<input type="checkbox" bind:checked={settingsStore.agentSettings.auto_analyze} onchange={() => settingsStore.saveAgentSettings()} />
+				<input
+					type="checkbox"
+					bind:checked={settingsStore.agentSettings.auto_analyze}
+					onchange={() => settingsStore.saveAgentSettings()}
+				/>
 				<span class="slider"></span>
 				<span class="label-text">Neural Post-Processing</span>
 			</label>
@@ -77,12 +86,16 @@
 					{downloadStore.report.job.status.replace('_', ' ')}
 				</span>
 				<span class="count">
-					{downloadStore.report.job.completed + downloadStore.report.job.failed} / {downloadStore.report.job.total - downloadStore.report.job.skipped} Assets
+					{downloadStore.report.job.completed + downloadStore.report.job.failed} / {downloadStore
+						.report.job.total - downloadStore.report.job.skipped} Assets
 				</span>
 			</div>
 
 			<div class="progress-bar-bg">
-				<div class="progress-bar-fill" style="width: {getProgress(downloadStore.report.job)}%"></div>
+				<div
+					class="progress-bar-fill"
+					style="width: {getProgress(downloadStore.report.job)}%"
+				></div>
 			</div>
 
 			<div class="mini-stats">
@@ -102,17 +115,28 @@
 			<div class="idle-content">
 				<div class="status-indicator">STANDBY</div>
 				<p>
-					Agent is currently idle. Monitoring <strong>{intelligenceStore.status?.total_count ?? intelligenceStore.status?.total_records ?? 0}</strong> intelligence
-					records.
+					Agent is currently idle. Monitoring <strong
+						>{intelligenceStore.status?.total_count ??
+							intelligenceStore.status?.total_records ??
+							0}</strong
+					> intelligence records.
 				</p>
 				<div class="stats-row">
 					<div class="s-card">
 						<span class="s-label">UNPROVISIONED</span>
-						<span class="s-val">{(intelligenceStore.status?.total_count ?? intelligenceStore.status?.total_records ?? 0) - (intelligenceStore.status?.local_records ?? 0)}</span>
+						<span class="s-val"
+							>{(intelligenceStore.status?.total_count ??
+								intelligenceStore.status?.total_records ??
+								0) - (intelligenceStore.status?.local_records ?? 0)}</span
+						>
 					</div>
 					<div class="s-card">
 						<span class="s-label">UNANALYZED</span>
-						<span class="s-val">{(intelligenceStore.status?.total_count ?? intelligenceStore.status?.total_records ?? 0) - (intelligenceStore.status?.analyzed_records ?? 0)}</span>
+						<span class="s-val"
+							>{(intelligenceStore.status?.total_count ??
+								intelligenceStore.status?.total_records ??
+								0) - (intelligenceStore.status?.analyzed_records ?? 0)}</span
+						>
 					</div>
 				</div>
 			</div>

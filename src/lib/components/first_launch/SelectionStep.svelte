@@ -34,8 +34,7 @@
 				<div class="t-title">Standard Intel</div>
 			</div>
 			<p>
-				Gemma 4 E2B + BGE. Optimized effective parameter architecture for workstation
-				performance.
+				Gemma 4 E2B + BGE. Optimized effective parameter architecture for workstation performance.
 			</p>
 			<div class="tier-meta">~3.2 GB Storage</div>
 		</button>

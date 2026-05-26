@@ -30,9 +30,7 @@
 			</div>
 			<div class="metric">
 				<span>Acceleration</span>
-				<strong
-					class={diagnostics.gpu_acceleration_available ? 'text-success' : 'text-warning'}
-				>
+				<strong class={diagnostics.gpu_acceleration_available ? 'text-success' : 'text-warning'}>
 					{diagnostics.gpu_acceleration_available
 						? 'GPU Active (Metal/CUDA)'
 						: 'CPU Only (Fallback)'}

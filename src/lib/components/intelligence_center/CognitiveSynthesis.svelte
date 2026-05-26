@@ -44,7 +44,9 @@
 		<div class="diag-metrics">
 			<div class="metric">
 				<span>Audit Ready</span>
-				<strong class={status.analyzed_records > (status.completed_count || 0) ? 'text-warning' : ''}>
+				<strong
+					class={status.analyzed_records > (status.completed_count || 0) ? 'text-warning' : ''}
+				>
 					{status.analyzed_records}
 				</strong>
 			</div>
@@ -67,9 +69,9 @@
 			<span>Resource Warning</span>
 		</div>
 		<p class="warning-text">
-			Batch deep intelligence synthesis executes local LLM inference sequentially across all
-			pending records. This action is extremely resource-intensive. Ensure your machine has active
-			cooling, is connected to power, and avoid running other heavy workloads.
+			Batch deep intelligence synthesis executes local LLM inference sequentially across all pending
+			records. This action is extremely resource-intensive. Ensure your machine has active cooling,
+			is connected to power, and avoid running other heavy workloads.
 		</p>
 	</div>
 </section>

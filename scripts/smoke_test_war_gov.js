@@ -16,7 +16,7 @@ async function runSmokeTest() {
 			// Do a HEAD request or Range request to simulate chunked download
 			const headers = new Headers();
 			headers.set('Range', 'bytes=0-1024');
-			
+
 			const res = await fetch(url, { headers, cache: 'no-store' });
 			return {
 				ok: res.ok,

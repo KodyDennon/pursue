@@ -12,7 +12,8 @@
 	<div class="f-section">
 		<span class="f-label">Ingestion:</span>
 		<span class="f-val"
-			>{intelligenceStore.status?.local_records || 0} / {intelligenceStore.status?.official_records || 0} Assets</span
+			>{intelligenceStore.status?.local_records || 0} / {intelligenceStore.status
+				?.official_records || 0} Assets</span
 		>
 	</div>
 	<div class="f-section">

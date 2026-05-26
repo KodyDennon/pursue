@@ -70,7 +70,7 @@ pub async fn sync_official_source_with_csv(
 
     // If a job was finished with errors, move it back to running so the worker picks it up
     sqlx::query(
-        "UPDATE download_jobs SET status = 'running' WHERE status = 'completed_with_errors'"
+        "UPDATE download_jobs SET status = 'running' WHERE status = 'completed_with_errors'",
     )
     .execute(&state.db)
     .await
@@ -1036,7 +1036,11 @@ pub async fn resolve_dvids_metadata(
 
     for attempt in 1..=3 {
         if attempt > 1 {
-            tauri_plugin_log::log::info!("[DVIDS] Retrying resolution for {}: attempt {}", video_id, attempt);
+            tauri_plugin_log::log::info!(
+                "[DVIDS] Retrying resolution for {}: attempt {}",
+                video_id,
+                attempt
+            );
             tokio::time::sleep(std::time::Duration::from_millis(1000 * attempt)).await;
         }
 
@@ -1089,7 +1093,10 @@ pub async fn resolve_dvids_metadata(
         return Ok(result);
     }
 
-    Err(format!("DVIDS resolution failed after 3 attempts: {}", last_error))
+    Err(format!(
+        "DVIDS resolution failed after 3 attempts: {}",
+        last_error
+    ))
 }
 
 fn build_dvids_resolver_script(video_id: &str, request_id: &str) -> String {

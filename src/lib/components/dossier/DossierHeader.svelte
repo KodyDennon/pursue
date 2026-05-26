@@ -58,10 +58,16 @@
 		</button>
 
 		<div class="domain-selector">
-			<button class:active={activeDomain === 'intelligence'} onclick={() => (activeDomain = 'intelligence')}>
+			<button
+				class:active={activeDomain === 'intelligence'}
+				onclick={() => (activeDomain = 'intelligence')}
+			>
 				<Brain size={14} /> INTELLIGENCE
 			</button>
-			<button class:active={activeDomain === 'foundation'} onclick={() => (activeDomain = 'foundation')}>
+			<button
+				class:active={activeDomain === 'foundation'}
+				onclick={() => (activeDomain = 'foundation')}
+			>
 				<Layers size={14} /> FOUNDATION
 			</button>
 		</div>
@@ -130,7 +136,9 @@
 	{#if isSynthesisOutdated}
 		<div class="alert-banner warning">
 			<AlertCircle size={14} />
-			<span>FOUNDATION UPDATED: New OCR data available. Re-run Neural Synthesis to align intelligence.</span>
+			<span
+				>FOUNDATION UPDATED: New OCR data available. Re-run Neural Synthesis to align intelligence.</span
+			>
 			<button onclick={runDeepSynthesis}>SYNTHESIZE NOW</button>
 		</div>
 	{/if}

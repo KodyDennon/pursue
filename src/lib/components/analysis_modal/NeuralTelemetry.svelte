@@ -63,9 +63,7 @@
 			<FileText size={18} class="card-icon" />
 			<div class="val">
 				<span class="l">Current Unit</span>
-				<span class="v"
-					>{currentRecordId ? currentRecordId.substring(0, 16) + '...' : 'None'}</span
-				>
+				<span class="v">{currentRecordId ? currentRecordId.substring(0, 16) + '...' : 'None'}</span>
 			</div>
 		</div>
 
@@ -98,11 +96,7 @@
 				<Loader2 size={18} class="spin" /> ABORT BATCH
 			</button>
 		{:else}
-			<button
-				class="start-btn"
-				onclick={onStartAnalysis}
-				disabled={busy || status === 'completed'}
-			>
+			<button class="start-btn" onclick={onStartAnalysis} disabled={busy || status === 'completed'}>
 				{#if status === 'completed'}
 					<CheckCircle2 size={18} /> PROCESS COMPLETE
 				{:else}
@@ -203,8 +197,14 @@
 	}
 
 	@keyframes pulse-light {
-		0%, 100% { opacity: 0.6; }
-		50% { opacity: 1; transform: scale(1.05); }
+		0%,
+		100% {
+			opacity: 0.6;
+		}
+		50% {
+			opacity: 1;
+			transform: scale(1.05);
+		}
 	}
 
 	.info-card .val {
@@ -292,8 +292,12 @@
 		animation: spin 1s linear infinite;
 	}
 	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.ocr-download-wrap {

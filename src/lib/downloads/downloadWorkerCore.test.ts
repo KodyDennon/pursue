@@ -25,10 +25,8 @@ describe('download worker core', () => {
 
 	test('routes WAR.gov medialink assets to the WAR.gov-origin webview downloader', () => {
 		const discoveredWarGovUrls = [
-			new URL('/medialink/ufo/discovered-release/discovered-file.pdf', 'https://www.war.gov')
-				.href,
-			new URL('/Portals/1/Interactive/2099/UFO/discovered-data.csv', 'https://www.war.gov')
-				.href
+			new URL('/medialink/ufo/discovered-release/discovered-file.pdf', 'https://www.war.gov').href,
+			new URL('/Portals/1/Interactive/2099/UFO/discovered-data.csv', 'https://www.war.gov').href
 		];
 
 		for (const url of discoveredWarGovUrls) {

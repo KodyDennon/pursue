@@ -30,7 +30,8 @@
 				"enable": true,
 				"scope": ["**"]
 			}
-		}	},
+		}
+	},
 	"bundle": {
 		"active": true,
 		"licenseFile": "../src-tauri/license.txt",

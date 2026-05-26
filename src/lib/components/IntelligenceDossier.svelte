@@ -105,7 +105,7 @@
 		analysisStatus={dossierStore.analysisStatus}
 		analysisProgress={dossierStore.analysisProgress}
 		busy={dossierStore.busy}
-		onBack={onBack}
+		{onBack}
 		openSource={openSourceProxy}
 		revealLocal={() => dossierStore.revealLocal()}
 		runFoundationIndexing={() => dossierStore.runFoundationIndexing(onChanged, onAnalyze)}

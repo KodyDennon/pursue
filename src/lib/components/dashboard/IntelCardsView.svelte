@@ -84,7 +84,8 @@
 								class:ready={record.analysis_status === 'completed'}
 								class:indexed={record.analysis_status === 'indexed'}
 								class:busy={record.analysis_status === 'synthesizing'}
-								class:pending={record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
+								class:pending={record.analysis_status === 'indexing' ||
+									record.analysis_status === 'extracting-foundation'}
 								class:error={record.analysis_status === 'failed'}
 							>
 								{#if record.analysis_status === 'completed'}

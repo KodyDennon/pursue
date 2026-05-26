@@ -31,7 +31,11 @@
 					</div>
 				</div>
 			{/if}
-			<button class="integrity-btn" onclick={() => vaultStore.runIntegrityCheck()} disabled={vaultStore.busy}>
+			<button
+				class="integrity-btn"
+				onclick={() => vaultStore.runIntegrityCheck()}
+				disabled={vaultStore.busy}
+			>
 				<ShieldCheck size={16} /> Integrity Sweep
 			</button>
 		</div>
@@ -54,10 +58,15 @@
 				<div class="storage-bar">
 					<div
 						class="fill"
-						style="width: {((intelligenceStore.status?.local_records || 0) / (intelligenceStore.status?.total_records || 1)) * 100}%"
-						></div>
-						</div>
-						<span class="sub-label">{intelligenceStore.status?.local_records || 0} Artifacts cached locally</span>			</div>
+						style="width: {((intelligenceStore.status?.local_records || 0) /
+							(intelligenceStore.status?.total_records || 1)) *
+							100}%"
+					></div>
+				</div>
+				<span class="sub-label"
+					>{intelligenceStore.status?.local_records || 0} Artifacts cached locally</span
+				>
+			</div>
 		</section>
 
 		<section class="stat-card warning">
@@ -71,11 +80,16 @@
 					</div>
 					<div class="p-item">
 						<span class="p-label">Indexed</span>
-						<span class="p-value highlight-blue">{(intelligenceStore.status?.analyzed_records || 0) - (intelligenceStore.status?.completed_count || 0)}</span>
+						<span class="p-value highlight-blue"
+							>{(intelligenceStore.status?.analyzed_records || 0) -
+								(intelligenceStore.status?.completed_count || 0)}</span
+						>
 					</div>
 					<div class="p-item">
 						<span class="p-label">Completed</span>
-						<span class="p-value highlight-green">{intelligenceStore.status?.completed_count || 0}</span>
+						<span class="p-value highlight-green"
+							>{intelligenceStore.status?.completed_count || 0}</span
+						>
 					</div>
 				</div>
 				<p class="desc">Awaiting Gemma 4 neural extraction to reach 'Intelligence Ready' status.</p>

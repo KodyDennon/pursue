@@ -3,10 +3,7 @@
 	import { ShieldAlert, Crosshair, Eye, EyeOff } from 'lucide-svelte';
 	import type { RecordForensics, RecordAsset } from '$lib/types';
 
-	let {
-		forensics = [],
-		images = []
-	} = $props<{
+	let { forensics = [], images = [] } = $props<{
 		recordId: string;
 		forensics: RecordForensics[];
 		images: RecordAsset[];

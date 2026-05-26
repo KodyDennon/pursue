@@ -127,14 +127,16 @@ class IntelligenceStore {
 			this.runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
 
 			if (this.models.length === 0) {
-				const registry = await invoke<{
-					id: string;
-					name: string;
-					model_type: string;
-					size_label: string;
-					repo_id: string;
-					filename: string;
-				}[]>('get_model_registry');
+				const registry = await invoke<
+					{
+						id: string;
+						name: string;
+						model_type: string;
+						size_label: string;
+						repo_id: string;
+						filename: string;
+					}[]
+				>('get_model_registry');
 				this.models = registry.map((m) => ({
 					...m,
 					type: m.model_type.charAt(0).toUpperCase() + m.model_type.slice(1),

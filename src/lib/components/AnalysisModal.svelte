@@ -70,8 +70,8 @@
 				<div class="notice">
 					<AlertCircle size={14} />
 					<span
-						>Ingestion and OCR are hardware intensive. Do not close the application during
-						active processing.</span
+						>Ingestion and OCR are hardware intensive. Do not close the application during active
+						processing.</span
 					>
 				</div>
 			</footer>

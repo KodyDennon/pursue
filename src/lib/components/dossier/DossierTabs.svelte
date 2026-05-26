@@ -1,10 +1,15 @@
 <script lang="ts">
-	import { Brain, Layers, ShieldCheck, Terminal, Database, ImageIcon, FileText } from 'lucide-svelte';
+	import {
+		Brain,
+		Layers,
+		ShieldCheck,
+		Terminal,
+		Database,
+		ImageIcon,
+		FileText
+	} from 'lucide-svelte';
 
-	let {
-		activeDomain,
-		activeTab = $bindable()
-	} = $props<{
+	let { activeDomain, activeTab = $bindable() } = $props<{
 		activeDomain: 'intelligence' | 'foundation';
 		activeTab: string;
 	}>();

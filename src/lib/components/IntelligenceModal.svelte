@@ -62,7 +62,9 @@
 			<footer class="panel-footer">
 				<div class="notice">
 					<AlertCircle size={14} />
-					<span>Neural inference utilizes Apple Neural Engine or local GPU. Keep application active.</span>
+					<span
+						>Neural inference utilizes Apple Neural Engine or local GPU. Keep application active.</span
+					>
 				</div>
 			</footer>
 		</div>

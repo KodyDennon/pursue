@@ -106,23 +106,20 @@
 			}
 		}).then((u) => (unlisten = u));
 
-		listen<{ status: string; progress?: number; msg?: string }>(
-			'analysis-progress',
-			(event) => {
-				const payload = event.payload;
-				if (payload.status === 'loading-model') {
-					modelProgress = payload.progress ?? modelProgress;
-					statusText = payload.msg || statusText;
+		listen<{ status: string; progress?: number; msg?: string }>('analysis-progress', (event) => {
+			const payload = event.payload;
+			if (payload.status === 'loading-model') {
+				modelProgress = payload.progress ?? modelProgress;
+				statusText = payload.msg || statusText;
 
-					const rawOverall =
-						totalModels > 0
-							? Math.round(((modelsCompleted * 100 + modelProgress) / (totalModels * 100)) * 100)
-							: 0;
-					progressWidth = Math.min(99, rawOverall);
-					overallProgress = progressWidth;
-				}
+				const rawOverall =
+					totalModels > 0
+						? Math.round(((modelsCompleted * 100 + modelProgress) / (totalModels * 100)) * 100)
+						: 0;
+				progressWidth = Math.min(99, rawOverall);
+				overallProgress = progressWidth;
 			}
-		).then((u) => (unlistenAnalysis = u));
+		}).then((u) => (unlistenAnalysis = u));
 
 		return () => {
 			if (unlisten) unlisten();

@@ -3,3 +3,6 @@ build
 .svelte-kit
 dist
 src-tauri/target
+src-tauri/esaxx-rs-patched
+src-tauri/gen
+war_gov.html

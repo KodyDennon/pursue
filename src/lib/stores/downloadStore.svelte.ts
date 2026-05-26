@@ -43,7 +43,9 @@ class DownloadStore {
 
 	async checkDiskSpace(requiredBytes: number): Promise<boolean> {
 		try {
-			const diskSpace = await invoke<{ available_bytes: number; total_bytes: number }>('get_disk_space_info');
+			const diskSpace = await invoke<{ available_bytes: number; total_bytes: number }>(
+				'get_disk_space_info'
+			);
 			if (diskSpace.available_bytes < requiredBytes) {
 				const availableGb = (diskSpace.available_bytes / (1024 * 1024 * 1024)).toFixed(1);
 				const requiredGb = (requiredBytes / (1024 * 1024 * 1024)).toFixed(1);

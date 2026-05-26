@@ -13,14 +13,18 @@
 		<div class="data-item">
 			<span class="d-label">Intelligence Database (SQLite)</span>
 			<code class="d-val">{settingsStore.status?.database_path || 'Loading...'}</code>
-			<span class="d-val">{formatBytes(settingsStore.status?.database_bytes || 0)} total usage</span>
+			<span class="d-val">{formatBytes(settingsStore.status?.database_bytes || 0)} total usage</span
+			>
 		</div>
 		<div class="data-item">
 			<span class="d-label">Evidence Library Size</span>
 			<div class="usage-bar">
 				<div
 					class="usage-fill"
-					style="width: {Math.min(100, (settingsStore.status?.artifact_bytes || 0) / 1024 / 1024 / 500) * 100}%"
+					style="width: {Math.min(
+						100,
+						(settingsStore.status?.artifact_bytes || 0) / 1024 / 1024 / 500
+					) * 100}%"
 				></div>
 			</div>
 			<span class="d-val"

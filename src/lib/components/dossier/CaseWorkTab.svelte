@@ -2,12 +2,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import type { CaseSummary } from '$lib/types';
 
-	let {
-		recordId,
-		selectedCaseId,
-		selectedCase,
-		onChanged
-	} = $props<{
+	let { recordId, selectedCaseId, selectedCase, onChanged } = $props<{
 		recordId: string;
 		selectedCaseId: string | null;
 		selectedCase: CaseSummary | null;
@@ -78,7 +73,10 @@
 				? `Target Case: ${selectedCase.title}`
 				: 'No primary case active. Select a case from the Tactical Dashboard.'}
 		</p>
-		<textarea bind:value={noteBody} rows="5" placeholder="Append forensic observations to case log..."
+		<textarea
+			bind:value={noteBody}
+			rows="5"
+			placeholder="Append forensic observations to case log..."
 		></textarea>
 		{#if error}
 			<p class="error-msg">Error: {error}</p>

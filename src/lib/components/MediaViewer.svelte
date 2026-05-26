@@ -1,12 +1,5 @@
 <script lang="ts">
-	import {
-		X,
-		ExternalLink,
-		Download,
-		ZoomIn,
-		ZoomOut,
-		RotateCw
-	} from 'lucide-svelte';
+	import { X, ExternalLink, Download, ZoomIn, ZoomOut, RotateCw } from 'lucide-svelte';
 	import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 	import { openPath } from '@tauri-apps/plugin-opener';
 	import type { RecordSummary } from '$lib/types';

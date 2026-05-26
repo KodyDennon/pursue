@@ -51,7 +51,9 @@
 			<div class="model-info">
 				<span class="m-type">Neural Engine</span>
 				<span class="m-name">Neural Vision Runtime (Python)</span>
-				<span class="m-size">~150 MB • {runtimeProvisioned ? 'ready' : runtimeBusy ? 'provisioning' : 'missing'}</span>
+				<span class="m-size"
+					>~150 MB • {runtimeProvisioned ? 'ready' : runtimeBusy ? 'provisioning' : 'missing'}</span
+				>
 			</div>
 			<div class="model-actions">
 				{#if runtimeBusy}

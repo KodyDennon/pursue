@@ -2,7 +2,17 @@
 	import { convertFileSrc } from '@tauri-apps/api/core';
 	import type { RecordSummary } from '$lib/types';
 	import { formatBytes } from '$lib/utils';
-	import { FileText, MapPin, Calendar, CheckCircle2, ShieldCheck, Clock, Zap, Maximize2, Loader2 } from 'lucide-svelte';
+	import {
+		FileText,
+		MapPin,
+		Calendar,
+		CheckCircle2,
+		ShieldCheck,
+		Clock,
+		Zap,
+		Maximize2,
+		Loader2
+	} from 'lucide-svelte';
 
 	let {
 		records,
@@ -77,7 +87,8 @@
 						class:ready={record.analysis_status === 'completed'}
 						class:indexed={record.analysis_status === 'indexed'}
 						class:busy={record.analysis_status === 'synthesizing'}
-						class:pending={record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
+						class:pending={record.analysis_status === 'indexing' ||
+							record.analysis_status === 'extracting-foundation'}
 						class:error={record.analysis_status === 'failed'}
 					>
 						{#if record.analysis_status === 'completed'}
@@ -92,8 +103,8 @@
 							<Clock size={12} />
 						{/if}
 						<span>
-							{record.analysis_status === 'extracting-foundation' 
-								? 'FOUNDATION' 
+							{record.analysis_status === 'extracting-foundation'
+								? 'FOUNDATION'
 								: record.analysis_status === 'indexing'
 									? 'INDEXING'
 									: record.analysis_status === 'indexed'
@@ -129,7 +140,8 @@
 						class="intel-tag"
 						class:active={record.analysis_status === 'completed'}
 						class:indexed={record.analysis_status === 'indexed'}
-						class:pending={record.analysis_status === 'indexing' || record.analysis_status === 'extracting-foundation'}
+						class:pending={record.analysis_status === 'indexing' ||
+							record.analysis_status === 'extracting-foundation'}
 						class:busy={record.analysis_status === 'synthesizing'}
 						class:error={record.analysis_status === 'failed'}
 					>

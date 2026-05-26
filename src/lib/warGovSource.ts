@@ -1,5 +1,6 @@
 const WAR_GOV_ORIGIN = 'https://www.war.gov';
-const WAR_GOV_UFO_CSV_PATH = /^\/Portals\/1\/Interactive\/\d{4}\/UFO\/[^"'<>]+\.csv(?:\?[^"'<>]*)?$/i;
+const WAR_GOV_UFO_CSV_PATH =
+	/^\/Portals\/1\/Interactive\/\d{4}\/UFO\/[^"'<>]+\.csv(?:\?[^"'<>]*)?$/i;
 
 function absolutizeWarGovUrl(value: string): string {
 	const trimmed = value.trim();

@@ -3,12 +3,7 @@
 	import { convertFileSrc } from '@tauri-apps/api/core';
 	import type { RecordSummary, RecordAsset } from '$lib/types';
 
-	let {
-		record,
-		images,
-		busy,
-		onRunDeepSynthesis
-	} = $props<{
+	let { record, images, busy, onRunDeepSynthesis } = $props<{
 		record: RecordSummary;
 		images: RecordAsset[];
 		busy: string | null;
@@ -29,7 +24,8 @@
 				<div class="data-grid-tactical">
 					<div class="t-card">
 						<span class="t-label">TARGET DATE</span>
-						<span class="t-val">{intel.incident_date || record.incident_date || 'UNDISCLOSED'}</span>
+						<span class="t-val">{intel.incident_date || record.incident_date || 'UNDISCLOSED'}</span
+						>
 					</div>
 					<div class="t-card">
 						<span class="t-label">GEOSPATIAL TAG</span>
@@ -44,7 +40,7 @@
 						</div>
 					</div>
 				</div>
-				
+
 				<section class="intel-card-section">
 					<header class="section-head"><span class="prefix">QUALITATIVE OBSERVATIONS</span></header>
 					<p class="para">{intel.pilot_observations || 'No observational data resolved.'}</p>
@@ -117,7 +113,9 @@
 		flex-direction: column;
 		gap: 4px;
 	}
-	.t-card.full { grid-column: span 2; }
+	.t-card.full {
+		grid-column: span 2;
+	}
 	.t-label {
 		font-size: 9px;
 		font-weight: 900;

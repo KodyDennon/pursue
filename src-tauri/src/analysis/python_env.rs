@@ -173,10 +173,11 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
     // it means we are upgrading from a potentially CPU-only or broken install.
     // We wipe the directory to ensure a clean state with correct hardware support.
     if py_env_dir.exists() {
-        log::info!("Old or incomplete Python runtime detected. Wiping for fresh CUDA-capable install...");
+        log::info!(
+            "Old or incomplete Python runtime detected. Wiping for fresh CUDA-capable install..."
+        );
         fs::remove_dir_all(&py_env_dir).await?;
     }
-
 
     log::info!("Starting Python runtime provisioning...");
     let _ = app.emit(

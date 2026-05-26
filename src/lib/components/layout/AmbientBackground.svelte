@@ -22,21 +22,27 @@
 	}
 
 	.b1 {
-		top: -10%; left: -10%;
-		width: 50vw; height: 50vw;
+		top: -10%;
+		left: -10%;
+		width: 50vw;
+		height: 50vw;
 		background: rgba(231, 196, 107, 0.15); /* Accent Primary */
 		animation-delay: 0s;
 	}
 	.b2 {
-		bottom: -20%; right: -10%;
-		width: 60vw; height: 60vw;
+		bottom: -20%;
+		right: -10%;
+		width: 60vw;
+		height: 60vw;
 		background: rgba(77, 243, 169, 0.1); /* Accent Success */
 		animation-delay: -5s;
 		animation-duration: 25s;
 	}
 	.b3 {
-		top: 40%; left: 60%;
-		width: 40vw; height: 40vw;
+		top: 40%;
+		left: 60%;
+		width: 40vw;
+		height: 40vw;
 		background: rgba(243, 77, 77, 0.08); /* Accent Danger */
 		animation-delay: -10s;
 		animation-duration: 30s;
