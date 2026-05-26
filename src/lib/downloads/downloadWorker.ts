@@ -1,5 +1,6 @@
 import {
 	buildResolveDvidsMetadataArgs,
+	bytesToBase64,
 	classifyDownloadError,
 	getDownloadDriver,
 	getProgressUpdate,
@@ -300,7 +301,7 @@ async function streamBody(
 			request: {
 				item_id: itemId,
 				offset,
-				bytes: merged
+				bytes_base64: bytesToBase64(merged)
 			}
 		})) as AppendResponse;
 		offset = result.offset;

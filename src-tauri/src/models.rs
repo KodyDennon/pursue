@@ -220,7 +220,7 @@ pub struct BeginDownloadItemResponse {
 pub struct AppendDownloadChunkRequest {
     pub item_id: String,
     pub offset: u64,
-    pub bytes: Vec<u8>,
+    pub bytes_base64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
 	buildResolveDvidsMetadataArgs,
+	bytesToBase64,
 	classifyDownloadError,
 	getDownloadDriver,
 	getProgressUpdate,
@@ -21,6 +22,15 @@ describe('download worker core', () => {
 
 	test('builds the Tauri camelCase payload for DVIDS metadata resolution', () => {
 		expect(buildResolveDvidsMetadataArgs('1007879').videoId).toBe('1007879');
+	});
+
+	test('encodes chunk bytes as base64 for compact Tauri IPC payloads', () => {
+		const bytes = new Uint8Array(70_000);
+		for (let i = 0; i < bytes.length; i += 1) bytes[i] = i % 251;
+
+		const decoded = Uint8Array.from(atob(bytesToBase64(bytes)), (char) => char.charCodeAt(0));
+		expect(decoded.length).toBe(bytes.length);
+		expect(decoded.every((byte, index) => byte === bytes[index])).toBe(true);
 	});
 
 	test('routes WAR.gov medialink assets to the WAR.gov-origin webview downloader', () => {

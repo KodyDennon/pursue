@@ -19,6 +19,8 @@ export interface ProgressUpdateInput {
 
 export type DownloadDriver = 'browser-worker' | 'war-gov-webview';
 
+const BINARY_STRING_CHUNK_BYTES = 32 * 1024;
+
 export function classifyDownloadError(error: unknown): DownloadErrorClass {
 	const message = String(error instanceof Error ? error.message : error).toLowerCase();
 
@@ -53,6 +55,15 @@ export function classifyDownloadError(error: unknown): DownloadErrorClass {
 
 export function buildResolveDvidsMetadataArgs(assetId: string): { videoId: string } {
 	return { videoId: assetId };
+}
+
+export function bytesToBase64(bytes: Uint8Array): string {
+	let binary = '';
+	for (let offset = 0; offset < bytes.byteLength; offset += BINARY_STRING_CHUNK_BYTES) {
+		const slice = bytes.subarray(offset, offset + BINARY_STRING_CHUNK_BYTES);
+		binary += String.fromCharCode(...slice);
+	}
+	return btoa(binary);
 }
 
 export function getDownloadDriver(rawUrl: string): DownloadDriver {

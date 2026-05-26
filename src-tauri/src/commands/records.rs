@@ -451,8 +451,11 @@ pub async fn append_download_chunk(
     let writer = download_part_writer(&state, &request.item_id)
         .await
         .map_err(to_error)?;
+    let bytes = BASE64
+        .decode(&request.bytes_base64)
+        .map_err(|e| format!("invalid download chunk payload: {e}"))?;
     let next_offset = writer
-        .append(request.offset, &request.bytes)
+        .append(request.offset, &bytes)
         .await
         .map_err(to_error)?;
 
