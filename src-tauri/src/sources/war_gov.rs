@@ -216,6 +216,7 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
     let header_map: HashMap<String, usize> = headers
         .iter()
         .enumerate()
+        .filter(|(_, name)| !name.trim().is_empty())
         .map(|(i, name)| (name.trim().to_lowercase(), i))
         .collect();
 

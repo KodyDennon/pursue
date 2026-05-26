@@ -146,21 +146,31 @@ class DownloadStore {
 	async runDownloadWorker() {
 		if (this.downloading || !this.activeJobId || !this.report) return;
 
-		const queued = await invoke<BulkDownloadItem[]>('get_next_download_items', {
-			jobId: this.activeJobId,
-			limit: 4
-		});
-		if (queued.length === 0) return;
-
 		this.downloading = true;
-		this.workerJobId = this.activeJobId;
-		this.ensureWorker();
-		this.worker?.postMessage({
-			type: 'start',
-			jobId: this.activeJobId,
-			items: queued,
-			concurrency: settingsStore.performanceMode ? 2 : 3
-		});
+
+		try {
+			const queued = await invoke<BulkDownloadItem[]>('get_next_download_items', {
+				jobId: this.activeJobId,
+				limit: 4
+			});
+
+			if (queued.length === 0) {
+				this.downloading = false;
+				return;
+			}
+
+			this.workerJobId = this.activeJobId;
+			this.ensureWorker();
+			this.worker?.postMessage({
+				type: 'start',
+				jobId: this.activeJobId,
+				items: queued,
+				concurrency: settingsStore.performanceMode ? 2 : 3
+			});
+		} catch (e) {
+			this.downloading = false;
+			logger.error('Failed to start download worker', e);
+		}
 	}
 
 	private ensureWorker() {

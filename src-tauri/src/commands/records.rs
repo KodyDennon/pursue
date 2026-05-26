@@ -54,9 +54,27 @@ pub async fn sync_official_source_with_csv(
     )
     .await
     .map_err(to_error)?;
+
     war_gov::repair_official_record_identities(&state.db)
         .await
         .map_err(to_error)?;
+
+    // Automatic healing: Reset failed items to 'queued' so they are retried
+    sqlx::query(
+        "UPDATE download_job_items SET status = 'queued', error = NULL, error_class = NULL WHERE status = 'failed'"
+    )
+    .execute(&state.db)
+    .await
+    .map_err(to_error)?;
+
+    // If a job was finished with errors, move it back to running so the worker picks it up
+    sqlx::query(
+        "UPDATE download_jobs SET status = 'running' WHERE status = 'completed_with_errors'"
+    )
+    .execute(&state.db)
+    .await
+    .map_err(to_error)?;
+
     Ok(report)
 }
 
@@ -1009,38 +1027,64 @@ pub async fn resolve_dvids_metadata(
         .get_webview_window("war-gov-resolver")
         .ok_or_else(|| "WAR.gov resolver webview not found".to_string())?;
 
-    let request_id = Uuid::new_v4().to_string();
-    let (tx, rx) = oneshot::channel();
-    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+    let mut last_error = "unknown error".to_string();
 
-    let handler_id = handle.listen(format!("dvids-resolved-{}", request_id), move |event| {
-        if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
-            if let Ok(mut guard) = tx.lock() {
-                if let Some(sender) = guard.take() {
-                    let _ = sender.send(payload);
+    for attempt in 1..=3 {
+        if attempt > 1 {
+            tauri_plugin_log::log::info!("[DVIDS] Retrying resolution for {}: attempt {}", video_id, attempt);
+            tokio::time::sleep(std::time::Duration::from_millis(1000 * attempt)).await;
+        }
+
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+
+        let handler_id = handle.listen(format!("dvids-resolved-{}", request_id), move |event| {
+            if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
+                if let Ok(mut guard) = tx.lock() {
+                    if let Some(sender) = guard.take() {
+                        let _ = sender.send(payload);
+                    }
                 }
             }
+        });
+
+        let script = build_dvids_resolver_script(&video_id, &request_id);
+
+        if let Err(e) = window.eval(&script) {
+            handle.unlisten(handler_id);
+            last_error = format!("failed to execute script: {e}");
+            continue;
         }
-    });
 
-    let script = build_dvids_resolver_script(&video_id, &request_id);
+        let result = match tokio::time::timeout(std::time::Duration::from_secs(20), rx).await {
+            Ok(Ok(val)) => val,
+            Ok(Err(_)) => {
+                handle.unlisten(handler_id);
+                last_error = "DVIDS resolution channel closed".to_string();
+                continue;
+            }
+            Err(_) => {
+                handle.unlisten(handler_id);
+                last_error = format!("DVIDS resolution timed out (attempt {})", attempt);
+                continue;
+            }
+        };
 
-    window
-        .eval(&script)
-        .map_err(|e| format!("failed to execute script: {e}"))?;
+        handle.unlisten(handler_id);
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(15), rx)
-        .await
-        .map_err(|_| "DVIDS resolution timed out".to_string())?
-        .map_err(|_| "DVIDS resolution channel closed".to_string())?;
+        if let Some(error) = result.get("error") {
+            last_error = error.as_str().unwrap_or("unknown error").to_string();
+            if last_error.contains("429") || last_error.contains("network") {
+                continue; // Retry on rate limit or network errors
+            }
+            return Err(last_error); // Permanent error
+        }
 
-    handle.unlisten(handler_id);
-
-    if let Some(error) = result.get("error") {
-        return Err(error.as_str().unwrap_or("unknown error").to_string());
+        return Ok(result);
     }
 
-    Ok(result)
+    Err(format!("DVIDS resolution failed after 3 attempts: {}", last_error))
 }
 
 fn build_dvids_resolver_script(video_id: &str, request_id: &str) -> String {
@@ -1051,20 +1095,25 @@ fn build_dvids_resolver_script(video_id: &str, request_id: &str) -> String {
     format!(
         r#"
         (async () => {{
+            const eventName = {event_name};
             const emitResult = async (payload) => {{
+                console.log(`[DVIDS] Emitting result for ${{eventName}}`, payload);
                 await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {{
-                    event: {event_name},
+                    event: eventName,
                     payload
                 }});
             }};
             try {{
                 const DVIDS_API_KEY = 'key-68bb60d16b35e';
                 const videoId = {video_id};
+                console.log(`[DVIDS] Resolving video: ${{videoId}}`);
                 const res = await fetch(`https://api.dvidshub.net/asset?api_key=${{DVIDS_API_KEY}}&id=video:${{encodeURIComponent(videoId)}}&thumb_width=720`);
-                if (!res.ok) throw new Error(`HTTP ${{res.status}}`);
+                if (!res.ok) throw new Error(`HTTP ${{res.status}}: ${{res.statusText}}`);
                 const data = await res.json();
+                console.log(`[DVIDS] Success: ${{videoId}}`);
                 await emitResult(data);
             }} catch (e) {{
+                console.error(`[DVIDS] Error: ${{e.message}}`);
                 await emitResult({{ error: e && e.stack ? e.stack : String(e) }});
             }}
         }})()
@@ -1125,9 +1174,19 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
             try {{
                 const headers = {{}};
                 if (startOffset > 0) headers.Range = `bytes=${{startOffset}}-`;
-                const res = await fetch(sourceUrl, {{ headers, cache: 'no-store' }});
-                const resetPart = startOffset > 0 && res.status === 200;
-                const baseOffset = resetPart ? 0 : startOffset;
+                let res = await fetch(sourceUrl, {{ headers, cache: 'no-store' }});
+                
+                let resetPart = startOffset > 0 && res.status === 200;
+                let currentStartOffset = startOffset;
+
+                if (res.status === 416) {{
+                    // Range not satisfiable - local data exceeds remote size. Force reset.
+                    resetPart = true;
+                    currentStartOffset = 0;
+                    res = await fetch(sourceUrl, {{ cache: 'no-store' }});
+                }}
+
+                const baseOffset = resetPart ? 0 : currentStartOffset;
                 await emitResult({{
                     kind: 'headers',
                     status: res.status,
