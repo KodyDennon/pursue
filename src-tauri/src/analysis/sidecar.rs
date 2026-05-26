@@ -24,22 +24,22 @@ fn is_port_in_use(port: u16) -> bool {
 
 #[cfg(target_os = "windows")]
 async fn kill_port_owner(port: u16) {
+    // Improved command: Match ":PORT " to avoid matching partial port numbers (e.g., :8374 matching :18374)
+    // and specifically target LISTENING processes.
+    let cmd = format!(
+        "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr \":{} \" ^| findstr LISTENING') do taskkill /F /PID %a",
+        port
+    );
+
     if let Ok(output) = tokio::process::Command::new("cmd")
-        .args([
-            "/C",
-            &format!(
-                "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :{}') do taskkill /F /PID %a",
-                port
-            ),
-        ])
+        .args(["/C", &cmd])
         .output()
         .await
     {
-        tauri_plugin_log::log::info!(
-            "Killed orphaned process on port {}: {:?}",
-            port,
-            String::from_utf8_lossy(&output.stdout)
-        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !stdout.trim().is_empty() {
+            tauri_plugin_log::log::info!("Killed orphaned process on port {}: {}", port, stdout.trim());
+        }
     }
 }
 
@@ -105,8 +105,23 @@ impl VisionSidecar {
                 self.port
             );
             kill_port_owner(self.port).await;
-            // Sleep briefly to let the OS release the socket
-            tokio::time::sleep(Duration::from_millis(1000)).await;
+            
+            // Wait and check again, up to 5 seconds, to ensure the OS has released the socket.
+            // On Windows, address reuse can be finicky even after process termination.
+            let mut freed = false;
+            for i in 0..5 {
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+                if !is_port_in_use(self.port) {
+                    freed = true;
+                    break;
+                }
+                tauri_plugin_log::log::warn!("Port {} still in use (attempt {}/5), retrying kill...", self.port, i + 1);
+                kill_port_owner(self.port).await;
+            }
+            
+            if !freed {
+                return Err(anyhow!("Could not free port {} for Neural Vision Sidecar. Please check for conflicting processes.", self.port));
+            }
         }
 
         let port_str = self.port.to_string();
