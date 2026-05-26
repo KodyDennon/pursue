@@ -9,9 +9,7 @@ pub mod nn;
 pub mod ocr;
 pub mod pdf;
 pub mod persistence;
-pub mod python_env;
 pub mod registry;
-pub mod sidecar;
 pub mod thumbnails;
 pub mod verifier;
 
@@ -29,7 +27,6 @@ use crate::analysis::extraction::{ExtractionConfig, IntelligenceExtractor};
 use crate::analysis::indexer::TextExtractor;
 use crate::analysis::model_manager::ModelManager;
 use crate::analysis::persistence::PersistenceManager;
-use crate::analysis::sidecar::VisionSidecar;
 use crate::db::analysis_repo::AnalysisRepository;
 use crate::db::records;
 use crate::library::LibraryManager;
@@ -56,13 +53,11 @@ pub struct AnalysisManager {
     // SERIALIZED WRITER: SQLite only allows one writer at a time.
     // We use a semaphore to ensure only one thread enters the persistence phase.
     write_semaphore: Arc<Semaphore>,
-    pub vision: Arc<VisionSidecar>,
 }
 
 impl AnalysisManager {
     pub fn new(db: SqlitePool, library: Arc<LibraryManager>) -> Self {
-        let vision = Arc::new(VisionSidecar::new());
-        let ocr = OcrEngine::new(vision.clone());
+        let ocr = OcrEngine::new();
         let pdf = PdfAnalyzer::new();
         Self {
             db: db.clone(),
@@ -76,7 +71,6 @@ impl AnalysisManager {
             is_analyzing: Arc::new(AtomicBool::new(false)),
             cancel_token: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
             write_semaphore: Arc::new(Semaphore::new(1)),
-            vision,
         }
     }
 
@@ -103,16 +97,11 @@ impl AnalysisManager {
         if let Ok(token) = self.cancel_token.lock() {
             token.cancel();
         }
-        // Also notify the vision sidecar
-        let _ = self.vision.cancel().await;
         Ok(())
     }
 
     pub async fn provision_models(&self, app: &tauri::AppHandle) -> Result<()> {
         info!("Starting background model provisioning...");
-
-        // Start Vision Sidecar (Neural Vision)
-        let _ = self.vision.start(app).await;
 
         let registry = registry::get_model_registry();
         let specs = get_hardware_specs();
@@ -296,11 +285,26 @@ impl AnalysisManager {
             embeddings.push(crate::search::vectorize_text(chunk).await?);
         }
 
-        let redaction_score = self
-            .indexer
-            .ocr
-            .analyze_redactions(&full_path)
-            .unwrap_or(0.0);
+        let redaction_score = if full_path.extension().and_then(|e| e.to_str()) == Some("pdf") {
+            if let Ok(pages) = self.indexer.pdf.render_pdf_to_images(&full_path).await {
+                let mut max_score = 0.0f32;
+                for page_img in &pages {
+                    if let Ok(score) = self.indexer.ocr.analyze_redactions_image(page_img) {
+                        if score > max_score {
+                            max_score = score;
+                        }
+                    }
+                }
+                max_score
+            } else {
+                0.0
+            }
+        } else {
+            self.indexer
+                .ocr
+                .analyze_redactions(&full_path)
+                .unwrap_or(0.0)
+        };
 
         // 3. Persistence (Inside lock)
         let _permit = self.write_semaphore.acquire().await?;

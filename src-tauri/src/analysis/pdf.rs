@@ -219,4 +219,147 @@ impl PdfAnalyzer {
 
         Ok(extracted)
     }
+
+    pub async fn render_pdf_to_images<P: AsRef<Path>>(
+        &self,
+        path: P,
+    ) -> Result<Vec<image::DynamicImage>> {
+        let path = path.as_ref().to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            #[cfg(target_os = "macos")]
+            {
+                render_pdf_to_images_macos(&path)
+            }
+            #[cfg(target_os = "windows")]
+            {
+                render_pdf_to_images_windows(&path)
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                Err(anyhow::anyhow!("Unsupported OS for PDF rendering"))
+            }
+        })
+        .await?
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn render_pdf_to_images_macos(path: &Path) -> Result<Vec<image::DynamicImage>> {
+    use objc2::rc::Retained;
+    use objc2::AnyThread;
+    use objc2_foundation::{NSSize, NSString, NSURL};
+    use objc2_pdf_kit::{PDFDisplayBox, PDFDocument};
+
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("invalid path"))?;
+    let ns_path = NSString::from_str(path_str);
+    let ns_url = NSURL::fileURLWithPath(&ns_path);
+
+    let ns_doc = unsafe {
+        let alloc = PDFDocument::alloc();
+        PDFDocument::initWithURL(alloc, &ns_url)
+    }
+    .ok_or_else(|| anyhow::anyhow!("Failed to load PDF document"))?;
+
+    let page_count = unsafe { ns_doc.pageCount() };
+    let mut images = Vec::new();
+
+    for i in 0..page_count {
+        let page = unsafe { ns_doc.pageAtIndex(i) }
+            .ok_or_else(|| anyhow::anyhow!("Failed to get page {}", i))?;
+
+        let bounds = unsafe { page.boundsForBox(PDFDisplayBox::MediaBox) };
+        let scale = 3.0; // 3.0x scale
+        let width = bounds.size.width * scale;
+        let height = bounds.size.height * scale;
+
+        let ns_size = NSSize::new(width, height);
+
+        let ns_image = unsafe { page.thumbnailOfSize_forBox(ns_size, PDFDisplayBox::MediaBox) };
+
+        let tiff_data: Option<Retained<objc2_foundation::NSData>> =
+            unsafe { objc2::msg_send![&ns_image, TIFFRepresentation] };
+
+        let tiff_data = tiff_data
+            .ok_or_else(|| anyhow::anyhow!("Failed to get TIFF representation for page {}", i))?;
+
+        let bytes = tiff_data.to_vec();
+
+        let img = image::load_from_memory(&bytes)
+            .map_err(|e| anyhow::anyhow!("Failed to parse TIFF bytes for page {}: {}", i, e))?;
+
+        images.push(img);
+    }
+
+    Ok(images)
+}
+
+#[cfg(target_os = "windows")]
+fn render_pdf_to_images_windows(path: &Path) -> Result<Vec<image::DynamicImage>> {
+    use windows::core::HSTRING;
+    use windows::Data::Pdf::{PdfDocument, PdfPageRenderOptions};
+    use windows::Storage::StorageFile;
+    use windows::Storage::Streams::{DataReader, InMemoryRandomAccessStream};
+
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("invalid path"))?;
+    let input_hstring = HSTRING::from(path_str);
+
+    let file = StorageFile::GetFileFromPathAsync(&input_hstring)?.get()?;
+    let pdf = PdfDocument::LoadFromFileAsync(&file)?.get()?;
+    let page_count = pdf.PageCount()?;
+    let mut images = Vec::new();
+
+    for i in 0..page_count {
+        let page = pdf.GetPage(i)?;
+        let size = page.Size()?;
+
+        let options = PdfPageRenderOptions::new()?;
+        let dest_width = (size.Width * 3.0) as u32;
+        options.SetDestinationWidth(dest_width)?;
+
+        let stream = InMemoryRandomAccessStream::new()?;
+        page.RenderWithOptionsToStreamAsync(&stream, &options)?
+            .get()?;
+
+        let size = stream.Size()? as u32;
+        let input_stream = stream.GetInputStreamAt(0)?;
+        let reader = DataReader::CreateDataReader(&input_stream)?;
+        reader.LoadAsync(size)?.get()?;
+
+        let mut buffer = vec![0u8; size as usize];
+        reader.ReadBytes(&mut buffer)?;
+
+        let img = image::load_from_memory(&buffer).map_err(|e| {
+            anyhow::anyhow!("Failed to parse WinRT image bytes for page {}: {}", i, e)
+        })?;
+        images.push(img);
+    }
+
+    Ok(images)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn test_render_pdf_to_images() {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../test.pdf");
+        if !path.exists() {
+            panic!("test.pdf not found at {:?}", path);
+        }
+
+        let analyzer = PdfAnalyzer::new();
+        let images = analyzer.render_pdf_to_images(&path).await.unwrap();
+        assert!(!images.is_empty(), "Should render at least one page");
+        for (idx, img) in images.iter().enumerate() {
+            assert!(img.width() > 0, "Page {} width should be > 0", idx);
+            assert!(img.height() > 0, "Page {} height should be > 0", idx);
+        }
+    }
 }

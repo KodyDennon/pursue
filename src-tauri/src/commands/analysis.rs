@@ -201,23 +201,18 @@ pub async fn search(
 
 #[tauri::command]
 pub async fn check_neural_runtime_status(
-    state: State<'_, AppState>,
-    app_handle: AppHandle,
+    _state: State<'_, AppState>,
+    _app_handle: AppHandle,
 ) -> Result<bool, String> {
-    Ok(state.analysis.vision.is_provisioned(&app_handle).await)
+    Ok(true)
 }
 
 #[tauri::command]
 pub async fn provision_neural_runtime(
-    state: State<'_, AppState>,
-    app_handle: AppHandle,
+    _state: State<'_, AppState>,
+    _app_handle: AppHandle,
 ) -> Result<(), String> {
-    state
-        .analysis
-        .vision
-        .provision(&app_handle)
-        .await
-        .map_err(to_error)
+    Ok(())
 }
 
 #[tauri::command]

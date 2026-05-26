@@ -16,12 +16,12 @@ tauri-build = { version = "2", features = [] }
 
 [features]
 default = []
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "ort/cuda"]
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal", "ort/coreml"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "ort/cuda", "oar-ocr/cuda"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal", "ort/coreml", "oar-ocr/coreml"]
 directml = ["ort/directml"]
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api", "test"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -68,11 +68,11 @@ num_cpus = "1.17.0"
 zip = "0.6"
 tar = "0.4"
 flate2 = "1.0"
+oar-ocr = "0.6.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSURL", "NSString", "NSArray", "NSDictionary", "NSError"] }
-objc2-vision = { version = "0.3", features = ["VNRequestHandler", "VNRecognizeTextRequest", "VNRequest", "VNTypes"] }
 objc2-pdf-kit = { version = "0.3", features = ["PDFDocument", "PDFPage"] }
 objc2-core-graphics = { version = "0.3", features = ["CGImage", "CGGeometry"] }
 objc2-app-kit = { version = "0.3", features = ["NSImage"] }
