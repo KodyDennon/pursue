@@ -10,7 +10,9 @@ import {
 import type { BulkDownloadItem } from '$lib/types';
 
 const DEFAULT_CONCURRENCY = 3;
-const MAX_CHUNK_BYTES = 512 * 1024;
+const MAX_CHUNK_BYTES = 256 * 1024; // Reduced chunk size for bridge stability
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
 
 type HostCommand =
 	| 'begin_download_item'
@@ -347,12 +349,46 @@ async function streamBody(
 	return offset;
 }
 
-function hostCall(command: HostCommand, args: Record<string, unknown>): Promise<unknown> {
-	const id = nextCallId++;
-	post({ type: 'host-call', id, command, args });
-	return new Promise((resolve, reject) => {
-		pending.set(id, { resolve, reject });
-	});
+async function hostCall(
+	command: HostCommand,
+	args: Record<string, unknown>,
+	retries = MAX_RETRIES
+): Promise<unknown> {
+	for (let i = 0; i <= retries; i++) {
+		try {
+			const id = nextCallId++;
+			const promise = new Promise((resolve, reject) => {
+				// Internal timeout for the host to acknowledge the call
+				const timeout = setTimeout(() => {
+					pending.delete(id);
+					reject(new Error(`Host call ${command} timed out`));
+				}, 60000); // 1 minute timeout per call
+
+				pending.set(id, {
+					resolve: (val) => {
+						clearTimeout(timeout);
+						resolve(val);
+					},
+					reject: (err) => {
+						clearTimeout(timeout);
+						reject(err);
+					}
+				});
+			});
+
+			post({ type: 'host-call', id, command, args });
+			return await promise;
+		} catch (error) {
+			if (i === retries) throw error;
+			const isTimeout = String(error).includes('timeout');
+			if (isTimeout) {
+				console.warn(`Host call ${command} failed (attempt ${i + 1}/${retries + 1}), retrying...`);
+				await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (i + 1)));
+				continue;
+			}
+			throw error;
+		}
+	}
 }
 
 function post(message: OutgoingMessage) {

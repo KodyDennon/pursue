@@ -549,6 +549,9 @@ pub async fn download_war_gov_item_with_webview(
     state: State<'_, AppState>,
     handle: tauri::AppHandle,
 ) -> Result<DownloadResult, String> {
+    // Acquire permit to respect concurrency limit for the hidden webview
+    let _permit = state.webview_semaphore.acquire().await.map_err(to_error)?;
+
     let source_url = request.resolved_url.as_deref().unwrap_or(&request.url);
     ensure_war_gov_url(source_url)?;
     let source_host = host_from_url(source_url);
@@ -1028,8 +1031,8 @@ pub async fn resolve_dvids_metadata(
 ) -> Result<serde_json::Value, String> {
     use tokio::sync::oneshot;
 
-    // Acquire permit to respect concurrency limit (prevents Akamai flagging)
-    let _permit = state.dvids_semaphore.acquire().await.map_err(to_error)?;
+    // Acquire permit to respect concurrency limit for the hidden webview
+    let _permit = state.webview_semaphore.acquire().await.map_err(to_error)?;
 
     let window = handle
         .get_webview_window("war-gov-resolver")

@@ -23,7 +23,7 @@ pub struct AppState {
     pub db: sqlx::SqlitePool,
     pub library: Arc<LibraryManager>,
     pub analysis: Arc<AnalysisManager>,
-    pub dvids_semaphore: Arc<tokio::sync::Semaphore>,
+    pub webview_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -75,7 +75,7 @@ pub fn run() {
                     db: pool,
                     library,
                     analysis,
-                    dvids_semaphore: Arc::new(tokio::sync::Semaphore::new(4)), // Limit concurrent DVIDS fetches
+                    webview_semaphore: Arc::new(tokio::sync::Semaphore::new(2)), // Limit concurrent hidden webview tasks
                 });
                 anyhow::Ok(())
             })?;
