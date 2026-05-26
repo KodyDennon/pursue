@@ -483,3 +483,24 @@ pub async fn get_disk_space_info(state: State<'_, AppState>) -> Result<DiskSpace
         Err("Could not determine disk space for application directory".to_string())
     }
 }
+
+#[tauri::command]
+pub async fn get_log_path(app_handle: AppHandle) -> Result<String, String> {
+    let log_dir = app_handle.path().app_log_dir().map_err(|e| e.to_string())?;
+    let log_file = log_dir.join("pursue.log");
+    Ok(log_file.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn open_logs_directory(app_handle: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let log_dir = app_handle.path().app_log_dir().map_err(|e| e.to_string())?;
+    if !log_dir.exists() {
+        std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+    }
+    app_handle
+        .opener()
+        .open_path(log_dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}

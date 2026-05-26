@@ -1,7 +1,27 @@
 <script lang="ts">
-	import { HardDrive, Trash2 } from 'lucide-svelte';
+	import { onMount } from 'svelte';
+	import { invoke } from '@tauri-apps/api/core';
+	import { HardDrive, Trash2, FolderOpen } from 'lucide-svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
 	import { formatBytes } from '$lib/utils';
+
+	let logPath = $state('');
+
+	onMount(async () => {
+		try {
+			logPath = await invoke<string>('get_log_path');
+		} catch (e) {
+			console.error('Failed to get log path', e);
+		}
+	});
+
+	async function openLogsDir() {
+		try {
+			await invoke('open_logs_directory');
+		} catch (e) {
+			console.error('Failed to open logs directory', e);
+		}
+	}
 </script>
 
 <section class="settings-section glass-panel">
@@ -13,8 +33,12 @@
 		<div class="data-item">
 			<span class="d-label">Intelligence Database (SQLite)</span>
 			<code class="d-val">{settingsStore.status?.database_path || 'Loading...'}</code>
-			<span class="d-val">{formatBytes(settingsStore.status?.database_bytes || 0)} total usage</span
-			>
+			<span class="d-val">{formatBytes(settingsStore.status?.database_bytes || 0)} total usage</span>
+		</div>
+		<div class="data-item">
+			<span class="d-label">System Log File</span>
+			<code class="d-val">{logPath || 'Loading...'}</code>
+			<span class="d-val">Records engine activities, warnings, and error diagnostics</span>
 		</div>
 		<div class="data-item">
 			<span class="d-label">Evidence Library Size</span>
@@ -39,14 +63,23 @@
 		</div>
 	</div>
 	<footer class="s-footer">
-		<button
-			class="s-btn danger"
-			onclick={() => settingsStore.clearCache()}
-			disabled={settingsStore.busy === 'clear'}
-		>
-			<Trash2 size={14} />
-			Clear Evidence Cache
-		</button>
+		<div class="footer-buttons">
+			<button
+				class="s-btn"
+				onclick={openLogsDir}
+			>
+				<FolderOpen size={14} />
+				Open Logs Directory
+			</button>
+			<button
+				class="s-btn danger"
+				onclick={() => settingsStore.clearCache()}
+				disabled={settingsStore.busy === 'clear'}
+			>
+				<Trash2 size={14} />
+				Clear Evidence Cache
+			</button>
+		</div>
 	</footer>
 </section>
 
@@ -126,6 +159,12 @@
 		border-top: 1px solid var(--border-subtle);
 	}
 
+	.footer-buttons {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+	}
+
 	.s-btn {
 		display: flex;
 		align-items: center;
@@ -135,7 +174,9 @@
 		font-size: 12px;
 		font-weight: 700;
 		cursor: pointer;
-		border: 1px solid transparent;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		background: rgba(255, 255, 255, 0.05);
+		color: var(--text-primary);
 		transition: all 0.2s;
 	}
 

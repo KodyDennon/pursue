@@ -139,7 +139,9 @@ pub fn run() {
             reprocess_all_records,
             abort_analysis,
             check_neural_runtime_status,
-            provision_neural_runtime
+            provision_neural_runtime,
+            get_log_path,
+            open_logs_directory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
