@@ -88,7 +88,7 @@ def load_model():
             elif hasattr(torch, "bfloat16"):
                 target_dtype = torch.bfloat16
             
-            logger.info(f"Using torch_dtype: {target_dtype}")
+            logger.info(f"Using dtype: {target_dtype}")
             
             load_params = {
                 "low_cpu_mem_usage": True,

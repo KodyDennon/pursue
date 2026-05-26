@@ -308,9 +308,9 @@
 	<AmbientBackground />
 
 	<div class="os-container glass-panel" class:blur={initializing}>
-		<header class="os-header glass-header">
-			<div class="view-context">
-				<h2 class="view-title">
+		<header class="os-header glass-header" data-tauri-drag-region>
+			<div class="view-context" data-tauri-drag-region>
+				<h2 class="view-title" data-tauri-drag-region>
 					{(appStore.activeView === 'dashboard'
 						? 'Evidence Archive'
 						: appStore.activeView === 'intelligence'
@@ -463,6 +463,8 @@
 		padding: 0 32px;
 		z-index: 10;
 		border-bottom: 1px solid var(--border-subtle);
+		user-select: none;
+		-webkit-user-select: none;
 	}
 
 	.view-context {

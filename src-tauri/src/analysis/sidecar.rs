@@ -242,6 +242,16 @@ impl VisionSidecar {
                 }
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
+            if i % 5 == 0 && i > 0 {
+                // Emit more frequent progress updates to the UI so the user knows it hasn't hung.
+                let _ = app.emit(
+                    "analysis-progress",
+                    serde_json::json!({
+                        "status": "loading-ocr-engine",
+                        "msg": format!("Warming Neural Engine (Step {}/900). On CPU this can take several minutes...", i)
+                    }),
+                );
+            }
             if i % 30 == 0 && i > 0 {
                 tauri_plugin_log::log::info!(
                     "Still waiting for Neural Vision Sidecar (attempt {}/900)...",
