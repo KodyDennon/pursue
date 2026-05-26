@@ -269,8 +269,9 @@ pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
             }),
         );
 
-        // Always use python -m pip to avoid shebang path issues with spaces
-        let mut args = vec!["-m", "pip", "install", "--no-cache-dir"];
+        // Always use python -m pip to avoid shebang path issues with spaces.
+        // We add --no-warn-script-location because we are using an isolated environment.
+        let mut args = vec!["-m", "pip", "install", "--no-cache-dir", "--no-warn-script-location"];
         
         #[cfg(target_os = "windows")]
         {
