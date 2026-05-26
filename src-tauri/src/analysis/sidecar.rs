@@ -24,10 +24,11 @@ fn is_port_in_use(port: u16) -> bool {
 
 #[cfg(target_os = "windows")]
 async fn kill_port_owner(port: u16) {
-    // Improved command: Match ":PORT " to avoid matching partial port numbers (e.g., :8374 matching :18374)
-    // and specifically target LISTENING processes.
+    // We use a more robust way to find the PID.
+    // The previous findstr with a space might have been too brittle depending on system locale/formatting.
+    // We'll search for the port and grab the PID from the last column.
     let cmd = format!(
-        "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr \":{} \" ^| findstr LISTENING') do taskkill /F /PID %a",
+        "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr \":{}\"') do taskkill /F /PID %a",
         port
     );
 
@@ -37,8 +38,14 @@ async fn kill_port_owner(port: u16) {
         .await
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        if !stdout.trim().is_empty() {
-            tauri_plugin_log::log::info!("Killed orphaned process on port {}: {}", port, stdout.trim());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stdout.trim().is_empty() || !stderr.trim().is_empty() {
+            tauri_plugin_log::log::info!(
+                "Port {} cleanup effort: {} {}",
+                port,
+                stdout.trim(),
+                stderr.trim()
+            );
         }
     }
 }
@@ -105,7 +112,7 @@ impl VisionSidecar {
                 self.port
             );
             kill_port_owner(self.port).await;
-            
+
             // Wait and check again, up to 5 seconds, to ensure the OS has released the socket.
             // On Windows, address reuse can be finicky even after process termination.
             let mut freed = false;
@@ -115,10 +122,14 @@ impl VisionSidecar {
                     freed = true;
                     break;
                 }
-                tauri_plugin_log::log::warn!("Port {} still in use (attempt {}/5), retrying kill...", self.port, i + 1);
+                tauri_plugin_log::log::warn!(
+                    "Port {} still in use (attempt {}/5), retrying kill...",
+                    self.port,
+                    i + 1
+                );
                 kill_port_owner(self.port).await;
             }
-            
+
             if !freed {
                 return Err(anyhow!("Could not free port {} for Neural Vision Sidecar. Please check for conflicting processes.", self.port));
             }

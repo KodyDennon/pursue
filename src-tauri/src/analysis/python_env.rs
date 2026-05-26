@@ -151,8 +151,8 @@ pub async fn is_provisioned(app: &tauri::AppHandle) -> bool {
 pub async fn provision_python(app: &tauri::AppHandle) -> Result<PathBuf> {
     let app_data = app.path().app_data_dir()?;
     let py_env_dir = app_data.join("python-runtime");
-    // Change marker name to force re-provisioning for CUDA support in v0.8.12 (v3)
-    let marker_file = py_env_dir.join("provisioned-cuda-v3.ok");
+    // Change marker name to force re-provisioning for CUDA support in v0.8.19 (v4)
+    let marker_file = py_env_dir.join("provisioned-cuda-v4.ok");
 
     let (python_exe, _pip_exe) = if cfg!(windows) {
         (py_env_dir.join("python.exe"), py_env_dir.join("python.exe"))

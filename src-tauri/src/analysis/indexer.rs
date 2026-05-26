@@ -67,6 +67,14 @@ impl TextExtractor {
                 let text = self.ocr.extract_text_fallback(app, path).await?;
                 Ok((text, "neural-vision".to_string()))
             }
+            "mp4" | "mov" | "avi" | "mkv" | "webm" => {
+                // For media files, we skip foundation text extraction but allow the record to be indexed.
+                // Metadata like duration/resolution could be added here in the future.
+                Ok((
+                    "[Media file: foundation text extraction skipped]".to_string(),
+                    "media-placeholder".to_string(),
+                ))
+            }
             _ => Err(anyhow!("unsupported type `{}`", extension)),
         }
     }

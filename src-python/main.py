@@ -104,14 +104,16 @@ def load_model():
             load_params = {
                 "low_cpu_mem_usage": True,
                 "trust_remote_code": True,
-                "dtype": target_dtype,
+                "torch_dtype": target_dtype, # Use standard key
             }
 
-
             if device == "cuda":
-                load_params["device_map"] = "auto"
+                logger.info("Loading model on CUDA...")
+                load_params["device_map"] = "cuda:0" # Explicitly target first GPU
                 model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, **load_params).eval()
             elif device == "mps":
+                logger.info("Loading model on Apple Silicon (MPS)...")
+                # MPS doesn't support device_map="auto" well in all Transformers versions
                 model = AutoModelForImageTextToText.from_pretrained(MODEL_ID, **load_params).eval()
                 model = model.to("mps")
             else:

@@ -255,7 +255,7 @@ async function downloadItem(jobId: string, item: BulkDownloadItem) {
 
 async function resolveSource(
 	rawUrl: string,
-	signal: AbortSignal
+	_signal: AbortSignal
 ): Promise<{ url: string; host: string }> {
 	if (!rawUrl.startsWith('dvids://asset/')) {
 		return { url: rawUrl, host: new URL(rawUrl).host };
