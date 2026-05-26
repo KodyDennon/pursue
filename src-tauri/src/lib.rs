@@ -75,7 +75,7 @@ pub fn run() {
                     db: pool,
                     library,
                     analysis,
-                    webview_semaphore: Arc::new(tokio::sync::Semaphore::new(2)), // Limit concurrent hidden webview tasks
+                    webview_semaphore: Arc::new(tokio::sync::Semaphore::new(4)), // Avoid deadlock with concurrency
                 });
                 anyhow::Ok(())
             })?;

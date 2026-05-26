@@ -120,19 +120,24 @@ self.onmessage = (event: MessageEvent<IncomingMessage>) => {
 
 async function runQueue(message: StartMessage) {
 	isRunning = true;
+	console.log(`[Worker] Starting job ${message.jobId} with ${message.items.length} items`);
 	try {
 		const concurrency = Math.min(4, Math.max(1, message.concurrency ?? DEFAULT_CONCURRENCY));
 		const queue = [...message.items];
-		const workers = Array.from({ length: concurrency }, async () => {
+		const workers = Array.from({ length: concurrency }, async (v, i) => {
 			while (queue.length > 0) {
 				const item = queue.shift();
 				if (!item) return;
+				console.log(`[Worker ${i}] Shifting: ${item.title} (ID: ${item.id})`);
 				await downloadItem(message.jobId, item);
 			}
 		});
 		await Promise.all(workers);
+	} catch (e) {
+		console.error('[Worker] Fatal queue error:', e);
 	} finally {
 		isRunning = false;
+		console.log(`[Worker] Job ${message.jobId} finished.`);
 		post({ type: 'idle', jobId: message.jobId });
 	}
 }
@@ -250,18 +255,27 @@ async function downloadItem(jobId: string, item: BulkDownloadItem) {
 
 async function resolveSource(
 	rawUrl: string,
-	_signal: AbortSignal
+	signal: AbortSignal
 ): Promise<{ url: string; host: string }> {
 	if (!rawUrl.startsWith('dvids://asset/')) {
 		return { url: rawUrl, host: new URL(rawUrl).host };
 	}
 
 	const assetId = rawUrl.slice('dvids://asset/'.length);
-	// We use the host resolver (hidden webview) to bypass WAF
-	const payload = (await hostCall(
+	console.log(`[Worker] Resolving DVIDS asset: ${assetId}`);
+
+	// We use the host resolver (hidden webview) to bypass WAF.
+	// We add a 30-second timeout to prevent permanent hang in the worker thread.
+	const resolutionPromise = hostCall(
 		'resolve_dvids_metadata',
 		buildResolveDvidsMetadataArgs(assetId)
-	)) as unknown;
+	);
+
+	const timeoutPromise = new Promise((_, reject) =>
+		setTimeout(() => reject(new Error(`DVIDS resolution timed out for ${assetId}`)), 30000)
+	);
+
+	const payload = (await Promise.race([resolutionPromise, timeoutPromise])) as unknown;
 
 	const mediaUrl = selectDvidsFileUrl(payload);
 	if (!mediaUrl)
