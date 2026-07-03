@@ -54,21 +54,21 @@
 
 <style>
 	.artifact-container {
-		padding: 32px;
+		padding: var(--space-7xl);
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: var(--space-4xl);
 		height: 100%;
 	}
 
 	.artifact-container.compact {
-		padding: 16px;
-		gap: 12px;
+		padding: var(--space-3xl);
+		gap: var(--space-xl);
 	}
 
 	.artifact-actions {
 		display: flex;
-		gap: 12px;
+		gap: var(--space-xl);
 		justify-content: flex-end;
 	}
 
@@ -77,12 +77,12 @@
 		border: 1px solid var(--border-subtle);
 		color: var(--text-secondary);
 		padding: 6px 12px;
-		border-radius: 4px;
-		font-size: 11px;
+		border-radius: var(--radius-xs);
+		font-size: var(--text-sm);
 		font-weight: 700;
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 		cursor: pointer;
 		transition: all 0.2s;
 	}
@@ -100,7 +100,7 @@
 	.artifact-preview {
 		flex: 1;
 		background: #000;
-		border-radius: 12px;
+		border-radius: var(--radius-md);
 		overflow: hidden;
 		border: 1px solid var(--border-subtle);
 		min-height: 400px;
@@ -119,10 +119,10 @@
 		align-items: center;
 		justify-content: center;
 		text-align: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 		color: var(--text-tertiary);
 		border: 2px dashed var(--border-subtle);
-		border-radius: 12px;
+		border-radius: var(--radius-md);
 	}
 
 	.pending-state h3 {
@@ -130,7 +130,7 @@
 	}
 
 	.pending-state p {
-		font-size: 12px;
+		font-size: var(--text-base);
 		max-width: 200px;
 	}
 
@@ -139,10 +139,10 @@
 		color: #000;
 		border: none;
 		padding: 10px 20px;
-		border-radius: 6px;
+		border-radius: var(--radius-sm);
 		font-weight: 800;
-		font-size: 11px;
+		font-size: var(--text-sm);
 		cursor: pointer;
-		margin-top: 8px;
+		margin-top: var(--space-md);
 	}
 </style>

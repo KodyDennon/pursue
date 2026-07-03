@@ -46,21 +46,21 @@
 	.dossier-tabs {
 		display: flex;
 		padding: 0 32px;
-		gap: 32px;
+		gap: var(--space-7xl);
 		border-bottom: 1px solid var(--border-subtle);
 	}
 	.dossier-tabs button {
 		background: none;
 		border: none;
 		padding: 16px 0;
-		font-size: 12px;
+		font-size: var(--text-base);
 		font-weight: 700;
 		color: var(--text-tertiary);
 		border-bottom: 2px solid transparent;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: var(--space-lg);
 	}
 	.dossier-tabs button.active {
 		color: var(--accent-primary);

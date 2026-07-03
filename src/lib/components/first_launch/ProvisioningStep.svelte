@@ -49,22 +49,22 @@
 
 <style>
 	h2 {
-		font-size: 20px;
-		margin-bottom: 8px;
+		font-size: var(--text-3xl);
+		margin-bottom: var(--space-md);
 		color: var(--text-primary);
 		letter-spacing: 0.05em;
 	}
 
 	p {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		color: var(--text-secondary);
-		margin-bottom: 32px;
+		margin-bottom: var(--space-7xl);
 	}
 
 	.status-mono {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--accent-success);
-		margin-bottom: 24px;
+		margin-bottom: var(--space-5xl);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 	}
@@ -75,7 +75,7 @@
 		background: rgba(255, 255, 255, 0.05);
 		border-radius: 3px;
 		overflow: hidden;
-		margin-bottom: 16px;
+		margin-bottom: var(--space-3xl);
 		border: 1px solid rgba(255, 255, 255, 0.02);
 	}
 
@@ -90,7 +90,7 @@
 		display: flex;
 		justify-content: space-between;
 		width: 100%;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
@@ -101,15 +101,15 @@
 		display: flex;
 		justify-content: space-between;
 		width: 100%;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
-		margin-top: 6px;
+		margin-top: var(--space-sm);
 		font-family: var(--font-mono);
 	}
 
 	.step-counter {
-		margin-top: 16px;
-		font-size: 9px;
+		margin-top: var(--space-3xl);
+		font-size: var(--text-2xs);
 		color: var(--text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.15em;

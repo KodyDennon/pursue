@@ -37,6 +37,9 @@
 </script>
 
 <div class="cards-view custom-scrollbar">
+	{#if records.length === 0}
+		<div class="empty-intel">No intelligence records match the current filter.</div>
+	{:else}
 	<div class="cards-grid">
 		{#each records as record (record.id)}
 			<div
@@ -163,20 +166,21 @@
 			</div>
 		{/each}
 	</div>
+	{/if}
 </div>
 
 <style>
 	.cards-view {
 		height: 100%;
 		overflow-y: auto;
-		padding: 24px;
+		padding: var(--space-5xl);
 		box-sizing: border-box;
 	}
 
 	.cards-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-		gap: 20px;
+		gap: var(--space-4xl);
 	}
 
 	.evidence-card {
@@ -313,14 +317,14 @@
 	.card-header {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 		padding: 16px 20px 0;
 	}
 
 	.type-icon {
 		width: 24px;
 		height: 24px;
-		border-radius: 6px;
+		border-radius: var(--radius-sm);
 		background: rgba(255, 255, 255, 0.05);
 		display: flex;
 		align-items: center;
@@ -329,7 +333,7 @@
 	}
 
 	.agency-tag {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 700;
 		color: var(--text-tertiary);
 		text-transform: uppercase;
@@ -340,12 +344,12 @@
 		margin-left: auto;
 		display: flex;
 		align-items: center;
-		gap: 4px;
-		font-size: 9px;
+		gap: var(--space-xs);
+		font-size: var(--text-2xs);
 		text-transform: uppercase;
 		font-weight: 700;
 		padding: 2px 6px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		background: rgba(255, 255, 255, 0.05);
 		color: var(--text-tertiary);
 	}
@@ -357,7 +361,7 @@
 
 	.status-indicator.indexed {
 		background: rgba(50, 150, 255, 0.1);
-		color: #3296ff;
+		color: var(--color-accent-info);
 	}
 
 	.status-indicator.busy {
@@ -367,7 +371,7 @@
 
 	.status-indicator.pending {
 		background: rgba(50, 150, 255, 0.1);
-		color: #3296ff;
+		color: var(--color-accent-info);
 	}
 
 	.status-indicator.error {
@@ -393,17 +397,17 @@
 	}
 
 	.meta-row {
-		margin-top: 12px;
+		margin-top: var(--space-xl);
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: var(--space-sm);
 	}
 
 	.meta-item {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		font-size: 11px;
+		gap: var(--space-md);
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 	}
 
@@ -418,7 +422,7 @@
 	}
 
 	.file-info {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 	}
 
@@ -427,7 +431,7 @@
 		font-weight: 800;
 		letter-spacing: 0.1em;
 		padding: 2px 6px;
-		border-radius: 2px;
+		border-radius: var(--radius-2xs);
 		background: rgba(255, 255, 255, 0.05);
 		color: rgba(255, 255, 255, 0.1);
 		transition: var(--transition-normal);
@@ -441,7 +445,7 @@
 
 	.intel-tag.indexed {
 		background: rgba(50, 150, 255, 0.2);
-		color: #3296ff;
+		color: var(--color-accent-info);
 	}
 
 	.intel-tag.busy {
@@ -451,11 +455,18 @@
 
 	.intel-tag.pending {
 		background: rgba(50, 150, 255, 0.15);
-		color: #3296ff;
+		color: var(--color-accent-info);
 	}
 
 	.intel-tag.error {
 		background: rgba(243, 77, 77, 0.15);
 		color: var(--accent-danger);
+	}
+
+	.empty-intel {
+		padding: 100px;
+		text-align: center;
+		color: var(--text-tertiary);
+		font-style: italic;
 	}
 </style>

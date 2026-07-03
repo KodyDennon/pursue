@@ -12,28 +12,28 @@
 
 <style>
 	h2 {
-		font-size: 20px;
-		margin-bottom: 8px;
+		font-size: var(--text-3xl);
+		margin-bottom: var(--space-md);
 		color: var(--text-primary);
 		letter-spacing: 0.05em;
 	}
 
 	p {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		color: var(--text-secondary);
-		margin-bottom: 32px;
+		margin-bottom: var(--space-7xl);
 	}
 
 	.status-mono {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--accent-success);
-		margin-bottom: 24px;
+		margin-bottom: var(--space-5xl);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 	}
 
 	.ready-check {
-		margin-top: 20px;
+		margin-top: var(--space-4xl);
 		color: var(--accent-success);
 		animation: scale-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 	}

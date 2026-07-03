@@ -159,7 +159,7 @@
 	}
 
 	.stage-container {
-		padding: 40px;
+		padding: var(--space-8xl);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -173,7 +173,7 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-3xl);
 	}
 
 	.hud-top {
@@ -185,12 +185,12 @@
 	.hud-tag {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 		background: rgba(255, 60, 0, 0.1);
 		border: 1px solid rgba(255, 60, 0, 0.2);
 		padding: 4px 12px;
-		border-radius: 4px;
-		font-size: 10px;
+		border-radius: var(--radius-xs);
+		font-size: var(--text-xs);
 		font-weight: 900;
 		color: #ff3c00;
 		letter-spacing: 0.1em;
@@ -201,12 +201,12 @@
 		border: 1px solid rgba(255, 255, 255, 0.1);
 		color: var(--text-tertiary);
 		padding: 6px 12px;
-		border-radius: 4px;
-		font-size: 10px;
+		border-radius: var(--radius-xs);
+		font-size: var(--text-xs);
 		font-weight: 800;
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 		cursor: pointer;
 	}
 
@@ -279,7 +279,7 @@
 	}
 	.node-label {
 		fill: #fff;
-		font-size: 12px;
+		font-size: var(--text-base);
 		font-weight: 900;
 		opacity: 0;
 		transition: opacity 0.2s;
@@ -320,19 +320,19 @@
 	.discovery-sidebar {
 		background: #0a0b0d;
 		border-left: 1px solid var(--border-subtle);
-		padding: 32px;
+		padding: var(--space-7xl);
 		display: flex;
 		flex-direction: column;
-		gap: 32px;
+		gap: var(--space-7xl);
 	}
 
 	.side-header h2 {
-		font-size: 18px;
+		font-size: var(--text-2xl);
 		margin: 8px 0;
 		color: #fff;
 	}
 	.prefix {
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 900;
 		color: var(--text-tertiary);
 		letter-spacing: 0.2em;
@@ -341,14 +341,14 @@
 	.discovery-stack {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-3xl);
 	}
 
 	.discovery-card {
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid var(--border-subtle);
-		border-radius: 8px;
-		padding: 16px;
+		border-radius: var(--radius-base);
+		padding: var(--space-3xl);
 		transition: all 0.2s ease;
 		cursor: pointer;
 	}
@@ -360,15 +360,15 @@
 	}
 
 	.d-type-tag {
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 900;
 		color: var(--accent-primary);
-		margin-bottom: 12px;
+		margin-bottom: var(--space-xl);
 		letter-spacing: 0.1em;
 	}
 	.d-snippet {
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--text-base);
 		color: #fff;
 		line-height: 1.5;
 		margin: 0 0 12px 0;
@@ -376,7 +376,7 @@
 	.d-meta {
 		display: flex;
 		justify-content: space-between;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 	}
 
@@ -385,7 +385,7 @@
 		background: #0a0b0d;
 		border-top: 1px solid var(--border-subtle);
 		display: flex;
-		gap: 12px;
+		gap: var(--space-xl);
 	}
 
 	.page-nav button {
@@ -393,8 +393,8 @@
 		border: 1px solid var(--border-subtle);
 		color: var(--text-tertiary);
 		padding: 6px 16px;
-		border-radius: 4px;
-		font-size: 11px;
+		border-radius: var(--radius-xs);
+		font-size: var(--text-sm);
 		font-weight: 700;
 		cursor: pointer;
 	}
@@ -410,7 +410,7 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 24px;
+		gap: var(--space-5xl);
 		color: var(--text-tertiary);
 	}
 	:global(.pulse) {

@@ -134,8 +134,8 @@
 	.evidence-vault {
 		display: flex;
 		flex-direction: column;
-		gap: 32px;
-		padding: 32px;
+		gap: var(--space-7xl);
+		padding: var(--space-7xl);
 		height: 100%;
 		overflow-y: auto;
 	}
@@ -148,37 +148,37 @@
 
 	.header-info {
 		display: flex;
-		gap: 20px;
+		gap: var(--space-4xl);
 		align-items: center;
 	}
 
 	.header-info h2 {
-		font-size: 24px;
+		font-size: var(--text-4xl);
 		margin: 0;
 	}
 
 	.header-info p {
 		color: var(--text-secondary);
-		font-size: 14px;
+		font-size: var(--text-lg);
 		margin: 4px 0 0 0;
 	}
 
 	.actions-wrapper {
 		display: flex;
 		align-items: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 	}
 
 	.verify-progress-container {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-xs);
 		align-items: flex-end;
 		width: 200px;
 	}
 
 	.verify-status {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 		white-space: nowrap;
 	}
@@ -186,13 +186,13 @@
 	.integrity-btn {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 		padding: 10px 20px;
 		background: rgba(255, 255, 255, 0.05);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
 		color: var(--text-primary);
-		font-size: 13px;
+		font-size: var(--text-md);
 		font-weight: 600;
 		transition: var(--transition-fast);
 	}
@@ -205,22 +205,22 @@
 	.vault-grid {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
-		gap: 20px;
+		gap: var(--space-4xl);
 	}
 
 	.stat-card {
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-lg);
-		padding: 24px;
+		padding: var(--space-5xl);
 		display: flex;
-		gap: 20px;
+		gap: var(--space-4xl);
 	}
 
 	.stat-icon {
 		width: 40px;
 		height: 40px;
-		border-radius: 12px;
+		border-radius: var(--radius-md);
 		background: rgba(255, 255, 255, 0.05);
 		display: flex;
 		align-items: center;
@@ -232,19 +232,19 @@
 	.stat-body {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-xs);
 		flex: 1;
 	}
 
 	.stat-body .label {
-		font-size: 12px;
+		font-size: var(--text-base);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--text-tertiary);
 	}
 
 	.stat-body .value {
-		font-size: 28px;
+		font-size: var(--text-5xl);
 		font-weight: 700;
 		color: var(--text-primary);
 	}
@@ -252,7 +252,7 @@
 	.storage-bar {
 		height: 4px;
 		background: rgba(255, 255, 255, 0.05);
-		border-radius: 2px;
+		border-radius: var(--radius-2xs);
 		margin: 12px 0 8px;
 		overflow: hidden;
 	}
@@ -263,7 +263,7 @@
 	}
 
 	.sub-label {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 	}
 
@@ -272,7 +272,7 @@
 		background: rgba(250, 204, 21, 0.1);
 	}
 	.stat-card.warning .desc {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 		margin: 12px 0 0 0;
 		line-height: 1.4;
@@ -281,37 +281,37 @@
 	.pipeline-stats {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
-		gap: 12px;
-		margin-top: 8px;
+		gap: var(--space-xl);
+		margin-top: var(--space-md);
 	}
 
 	.p-item {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: var(--space-2xs);
 	}
 
 	.p-label {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 		text-transform: uppercase;
 	}
 
 	.p-value {
-		font-size: 18px;
+		font-size: var(--text-2xl);
 		font-weight: 700;
 		color: var(--text-primary);
 	}
 
 	.highlight-blue {
-		color: #3296ff;
+		color: var(--color-accent-info);
 	}
 	.highlight-green {
 		color: var(--accent-success);
 	}
 
 	.vault-management h3 {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 		color: var(--text-secondary);
@@ -321,7 +321,7 @@
 	.config-list {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-xl);
 	}
 
 	.config-item {
@@ -337,15 +337,15 @@
 	.config-item .text {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-xs);
 	}
 
 	.config-item strong {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		color: var(--text-primary);
 	}
 	.config-item span {
-		font-size: 12px;
+		font-size: var(--text-base);
 		color: var(--text-tertiary);
 	}
 
@@ -376,11 +376,11 @@
 	}
 
 	.status-tag {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 700;
 		color: var(--accent-success);
 		background: rgba(77, 243, 169, 0.1);
 		padding: 2px 8px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 	}
 </style>

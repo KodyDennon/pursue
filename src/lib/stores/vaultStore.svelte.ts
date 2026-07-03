@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { addToast } from '$lib/toastStore';
+import { addToast } from '$lib/stores/toastStore.svelte';
 import { logger } from '$lib/logger';
 
 class VaultStore {

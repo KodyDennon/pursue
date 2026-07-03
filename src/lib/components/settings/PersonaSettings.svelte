@@ -44,29 +44,29 @@
 	}
 
 	.s-header {
-		padding: 24px;
+		padding: var(--space-5xl);
 		display: flex;
 		align-items: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.s-header h3 {
-		font-size: 16px;
+		font-size: var(--text-xl);
 		font-weight: 600;
 		margin: 0;
 	}
 
 	.s-body {
-		padding: 24px;
+		padding: var(--space-5xl);
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 24px;
+		gap: var(--space-5xl);
 	}
 
 	.section-desc {
-		font-size: 13px;
+		font-size: var(--text-md);
 		color: var(--text-secondary);
 		line-height: 1.6;
 		margin: 0;
@@ -77,11 +77,11 @@
 		min-height: 120px;
 		background: rgba(0, 0, 0, 0.3);
 		border: 1px solid var(--border-subtle);
-		border-radius: 8px;
-		padding: 16px;
+		border-radius: var(--radius-base);
+		padding: var(--space-3xl);
 		color: var(--text-primary);
 		font-family: var(--font-mono);
-		font-size: 13px;
+		font-size: var(--text-md);
 		resize: vertical;
 		outline: none;
 		transition: border-color 0.2s;
@@ -100,10 +100,10 @@
 	.s-btn {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 		padding: 8px 16px;
 		border-radius: var(--radius-sm);
-		font-size: 12px;
+		font-size: var(--text-base);
 		font-weight: 700;
 		cursor: pointer;
 		border: 1px solid transparent;

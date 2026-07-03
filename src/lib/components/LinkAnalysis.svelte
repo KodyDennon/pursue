@@ -53,17 +53,17 @@
 
 <style>
 	.link-analysis {
-		padding: 32px;
+		padding: var(--space-7xl);
 		height: 100%;
 		overflow-y: auto;
 	}
 
 	.la-header {
-		margin-bottom: 32px;
+		margin-bottom: var(--space-7xl);
 	}
 
 	.la-header h2 {
-		font-size: 24px;
+		font-size: var(--text-4xl);
 		color: var(--text-primary);
 	}
 
@@ -74,11 +74,11 @@
 	.matrix-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-		gap: 24px;
+		gap: var(--space-5xl);
 	}
 
 	.node-cluster {
-		padding: 24px;
+		padding: var(--space-5xl);
 		background: rgba(16, 17, 20, 0.8);
 		border: 1px solid var(--border-subtle);
 	}
@@ -87,34 +87,34 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 20px;
-		padding-bottom: 12px;
+		margin-bottom: var(--space-4xl);
+		padding-bottom: var(--space-xl);
 		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 	}
 
 	.cluster-head h3 {
-		font-size: 16px;
+		font-size: var(--text-xl);
 		color: var(--accent-primary);
 	}
 
 	.node-count {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		background: rgba(255, 255, 255, 0.1);
 		padding: 4px 8px;
-		border-radius: 12px;
+		border-radius: var(--radius-md);
 	}
 
 	.link-lines {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-xl);
 	}
 
 	.link-item {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		font-size: 13px;
+		gap: var(--space-xl);
+		font-size: var(--text-md);
 	}
 
 	.dot {
@@ -145,15 +145,15 @@
 	}
 
 	.status.indexed {
-		background: #3296ff;
+		background: var(--color-accent-info);
 		box-shadow: 0 0 8px rgba(50, 150, 255, 0.5);
 	}
 
 	.more-link {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 		text-align: center;
-		margin-top: 8px;
+		margin-top: var(--space-md);
 		font-style: italic;
 	}
 </style>

@@ -23,17 +23,17 @@
 
 <style>
 	.view-padding {
-		padding: 32px;
+		padding: var(--space-7xl);
 	}
 
 	.section-head {
-		margin-bottom: 20px;
+		margin-bottom: var(--space-4xl);
 		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-		padding-bottom: 8px;
+		padding-bottom: var(--space-md);
 	}
 
 	.prefix {
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 900;
 		letter-spacing: 0.15em;
 		color: var(--text-tertiary);
@@ -41,10 +41,10 @@
 
 	.raw-text-block {
 		background: #000;
-		padding: 24px;
-		border-radius: 12px;
+		padding: var(--space-5xl);
+		border-radius: var(--radius-md);
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--text-base);
 		line-height: 1.8;
 		white-space: pre-wrap;
 		color: var(--text-secondary);
@@ -58,7 +58,7 @@
 		align-items: center;
 		justify-content: center;
 		text-align: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 		color: var(--text-tertiary);
 	}
 
@@ -67,7 +67,7 @@
 		color: #000;
 		border: none;
 		padding: 8px 16px;
-		border-radius: 6px;
+		border-radius: var(--radius-sm);
 		font-weight: 700;
 		cursor: pointer;
 	}

@@ -6,6 +6,7 @@
 	import LinkAnalysis from '$lib/components/LinkAnalysis.svelte';
 	import FirstLaunch from '$lib/components/FirstLaunch.svelte';
 	import GlobalActions from '$lib/components/dashboard/GlobalActions.svelte';
+	import SyncDiffSummary from '$lib/components/dashboard/SyncDiffSummary.svelte';
 	import IntelligenceCenter from '$lib/components/IntelligenceCenter.svelte';
 	import EvidenceVault from '$lib/components/EvidenceVault.svelte';
 	import DownloadAgent from '$lib/components/DownloadAgent.svelte';
@@ -15,8 +16,8 @@
 	import MediaViewer from '$lib/components/MediaViewer.svelte';
 	import Dashboard from '$lib/components/dashboard/Dashboard.svelte';
 	import { MODELS } from '$lib/models';
-	import type { CaseSummary, RecordPage, RecordSummary } from '$lib/types';
-	import { addToast, updateToast } from '$lib/toastStore';
+	import type { CaseSummary, RecordPage, RecordSummary, SyncReport } from '$lib/types';
+	import { addToast, updateToast } from '$lib/stores/toastStore.svelte';
 	import { appStore } from '$lib/stores/appStore.svelte';
 	import { intelligenceStore } from '$lib/stores/intelligenceStore.svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
@@ -51,6 +52,7 @@
 	let viewerOpen = $state(false);
 	let viewerRecord = $state<RecordSummary | null>(null);
 	let hasLoaded = $state(false);
+	let lastSyncReport = $state<SyncReport | null>(null);
 
 	async function loadInitialData() {
 		if (!appStore.initializing) {
@@ -98,15 +100,18 @@
 				recordsTotal = page.total;
 			}
 
-			appStore.addBootLog('Loading forensic cases...');
-			const nextCases = await invoke<CaseSummary[]>('list_cases');
+			// list_cases and the neural-model status refresh are independent of each other and
+			// of the records/search fetch above — no need to serialize them (they were made
+			// sequential in a924e54 purely to interleave boot-log messages, not for a race).
+			appStore.addBootLog('Loading forensic cases and verifying neural models...');
+			const [nextCases] = await Promise.all([
+				invoke<CaseSummary[]>('list_cases'),
+				intelligenceStore.loadStatus()
+			]);
 			cases = nextCases;
 			if (!selectedCaseId && nextCases.length > 0) {
 				selectedCaseId = nextCases[0].id;
 			}
-
-			appStore.addBootLog('Verifying neural models...');
-			await intelligenceStore.loadStatus();
 		} catch (e) {
 			logger.error('[App] loadInitialData failed:', e);
 			addToast({ type: 'error', message: `Failed to load data: ${e}`, duration: 5000 });
@@ -134,6 +139,12 @@
 			message: 'Syncing WAR.gov Database...',
 			duration: 0
 		});
+
+		// The CSV fetch + sync itself is the only thing that should be reported as "Sync
+		// failed" — a failure in a post-sync step (cleanup, auto-download) below means the
+		// sync already committed successfully and should be reported as its own thing,
+		// not misattributed to the sync.
+		let report: SyncReport;
 		try {
 			const sourcePageUrl = 'https://www.war.gov/UFO/';
 			const sourcePage = await fetch(sourcePageUrl, { cache: 'no-store' });
@@ -148,7 +159,17 @@
 			}
 			const csvText = await response.text();
 			validateWarGovCsv(csvText);
-			await invoke('sync_official_source_with_csv', { csv: csvText, upstreamUrl: csvUrl });
+			report = await invoke<SyncReport>('sync_official_source_with_csv', {
+				csv: csvText,
+				upstreamUrl: csvUrl
+			});
+		} catch (e) {
+			updateToast(toastId, { type: 'error', message: `Sync failed: ${e}`, duration: 5000 });
+			busy = null;
+			return;
+		}
+
+		try {
 			const agentSettings = await invoke<{ auto_sync: boolean; auto_analyze: boolean }>(
 				'get_app_settings',
 				{ key: 'ingestion_agent' }
@@ -163,11 +184,13 @@
 				});
 			}
 			await loadInitialData();
+			lastSyncReport = report.diffs.length > 0 ? report : null;
+			const diffSummary = `${report.added} added, ${report.changed} changed, ${report.removed} removed.`;
 			if (agentSettings?.auto_sync) {
 				updateToast(toastId, {
 					type: 'info',
-					message: 'Sync complete. Auto-retrieval is enabled; downloading missing records...',
-					duration: 3000
+					message: `Sync complete: ${diffSummary} Auto-retrieval is enabled; downloading missing records...`,
+					duration: 4000
 				});
 
 				appStore.activeView = 'agent';
@@ -175,13 +198,17 @@
 			} else {
 				updateToast(toastId, {
 					type: 'success',
-					message: 'Sync complete. Auto-retrieval is disabled.',
-					duration: 3000
+					message: `Sync complete: ${diffSummary} Auto-retrieval is disabled.`,
+					duration: 4000
 				});
 			}
-			busy = null;
 		} catch (e) {
-			updateToast(toastId, { type: 'error', message: `Sync failed: ${e}`, duration: 5000 });
+			addToast({
+				type: 'error',
+				message: `Sync succeeded, but post-sync processing failed: ${e}`,
+				duration: 5000
+			});
+		} finally {
 			busy = null;
 		}
 	}
@@ -201,24 +228,30 @@
 				await settingsStore.init();
 
 				appStore.addBootLog('Verifying Neural Environment...');
+				// intelligenceStore.init() already fetches hardware diagnostics and model status
+				// as part of its own loadStatus() call — re-invoking check_model_status and
+				// get_hardware_diagnostics here would just re-fetch what it already has.
 				await intelligenceStore.init();
 
-				const modelStatus = await invoke<Record<string, boolean>>('check_model_status');
-				const specs = await invoke<{ recommended_tier: 'Standard' | 'Elite' }>(
-					'get_hardware_diagnostics'
-				);
-
+				const specs = intelligenceStore.diagnostics;
 				logger.debug('[App] Specs:', specs);
-				const tier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
+				const tier = specs?.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
 				const requiredModels = MODELS[tier];
 
-				const allPresent = requiredModels.every((m) => modelStatus[m.id]);
+				const allPresent = requiredModels.every(
+					(m) => intelligenceStore.models.find((im) => im.id === m.id)?.status === 'ready'
+				);
 				logger.debug('[App] All models present:', allPresent);
 
 				if (allPresent) {
 					isProvisioned = true;
 					// If already provisioned, trigger load immediately
 					await loadInitialData();
+					// Without this, the $effect below (which also calls loadInitialData once
+					// isProvisioned && !hasLoaded && !initializing) fires again right after this
+					// completes, running the entire records/cases/status fetch a second time on
+					// every normal boot.
+					hasLoaded = true;
 				} else {
 					isProvisioned = false;
 					appStore.initializing = false;
@@ -305,6 +338,17 @@
 	});
 
 	$effect(() => {
+		// get_database_status is expensive (17 COUNT(*) subqueries); only poll it on a 5s
+		// interval while the Intelligence Center view is actually showing it.
+		if (appStore.activeView === 'intelligence') {
+			intelligenceStore.loadStatus();
+			intelligenceStore.resumeStatusPolling();
+		} else {
+			intelligenceStore.pauseStatusPolling();
+		}
+	});
+
+	$effect(() => {
 		const id = appStore.selectedRecordId;
 		if (!id || records.length === 0) return;
 		const match = records.find((record) => record.id === id);
@@ -332,6 +376,7 @@
 		onComplete={() => {
 			logger.debug('[App] FirstLaunch complete.');
 			isProvisioned = true;
+			hasLoaded = true;
 			loadInitialData();
 		}}
 	/>
@@ -372,6 +417,10 @@
 
 		<StatsBar />
 
+		{#if lastSyncReport}
+			<SyncDiffSummary report={lastSyncReport} onDismiss={() => (lastSyncReport = null)} />
+		{/if}
+
 		<div class="os-body">
 			<main class="os-main">
 				<div class="view-container">
@@ -390,7 +439,17 @@
 								viewerRecord = r;
 								viewerOpen = true;
 							}}
+							onSync={sync}
+							hasActiveQuery={query.trim().length > 0}
 						/>
+						{#if !selectedRecord && records.length < recordsTotal}
+							<div class="load-more-row">
+								<button class="load-more-btn" onclick={loadMoreRecords}>
+									Load {Math.min(recordsLimit, recordsTotal - records.length)} more records
+								</button>
+								<span>{records.length} / {recordsTotal}</span>
+							</div>
+						{/if}
 					{:else if appStore.activeView === 'intelligence'}
 						<IntelligenceCenter
 							onAnalyze={() => (analysisModalOpen = true)}
@@ -469,7 +528,7 @@
 			{#if intelligenceBusy && !intelligenceModalOpen}
 				<button class="pipeline-pill" onclick={() => (intelligenceModalOpen = true)}>
 					<span class="indicator-glow pulse-active blue"></span>
-					<Brain size={14} style="color: #50b3ff" />
+					<Brain size={14} style="color: var(--color-accent-info)" />
 					<span class="label">Neural Synthesis Active</span>
 				</button>
 			{/if}
@@ -484,7 +543,7 @@
 		height: 96vh;
 		width: 96vw;
 		margin: 2vh auto;
-		border-radius: 16px;
+		border-radius: var(--radius-lg);
 		overflow: hidden;
 	}
 
@@ -506,7 +565,7 @@
 	}
 
 	.view-title {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		font-weight: 800;
 		letter-spacing: 0.15em;
 		color: var(--text-secondary);
@@ -515,7 +574,7 @@
 
 	.header-actions {
 		display: flex;
-		gap: 16px;
+		gap: var(--space-3xl);
 		align-items: center;
 	}
 
@@ -543,12 +602,12 @@
 		transform: translateX(-50%);
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 		padding: 8px 12px;
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-sm);
 		background: var(--bg-surface);
-		font-size: 12px;
+		font-size: var(--text-base);
 		color: var(--text-secondary);
 		z-index: 20;
 	}
@@ -576,7 +635,7 @@
 		z-index: 1500;
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: var(--space-lg);
 		pointer-events: auto;
 		animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 	}
@@ -584,7 +643,7 @@
 	.pipeline-pill {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: var(--space-lg);
 		padding: 10px 16px;
 		background: rgba(10, 12, 16, 0.75);
 		backdrop-filter: blur(12px);
@@ -593,7 +652,7 @@
 		border-radius: 30px;
 		color: var(--text-primary);
 		font-family: var(--font-sans);
-		font-size: 11px;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		letter-spacing: 0.05em;
 		text-transform: uppercase;
@@ -625,8 +684,8 @@
 	}
 
 	.indicator-glow.blue {
-		background: #50b3ff;
-		box-shadow: 0 0 10px #50b3ff;
+		background: var(--color-accent-info);
+		box-shadow: 0 0 10px var(--color-accent-info);
 	}
 
 	.indicator-glow.pulse-active {

@@ -124,7 +124,7 @@
 	.intel-table {
 		width: 100%;
 		border-collapse: collapse;
-		font-size: 13px;
+		font-size: var(--text-md);
 		text-align: left;
 	}
 
@@ -137,7 +137,7 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		border-bottom: 1px solid var(--border-subtle);
 		z-index: 1;
 	}
@@ -178,7 +178,7 @@
 		width: 100px;
 		color: var(--text-tertiary);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-sm);
 	}
 	.col-actions {
 		width: 80px;
@@ -190,7 +190,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		background: rgba(255, 255, 255, 0.05);
 		color: var(--text-tertiary);
 	}
@@ -202,7 +202,7 @@
 
 	.status-indicator.indexed {
 		background: rgba(50, 150, 255, 0.1);
-		color: #3296ff;
+		color: var(--color-accent-info);
 	}
 
 	.status-indicator.busy {
@@ -218,7 +218,7 @@
 	.title-cell {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: var(--space-2xs);
 	}
 
 	.main-title {
@@ -230,24 +230,24 @@
 	}
 
 	.sub-id {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-family: var(--font-mono);
 		color: var(--text-tertiary);
 		opacity: 0.7;
 	}
 
 	.agency-tag {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 700;
 		background: rgba(255, 255, 255, 0.05);
 		padding: 2px 6px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		color: var(--text-secondary);
 	}
 
 	.row-actions {
 		display: flex;
-		gap: 12px;
+		gap: var(--space-xl);
 	}
 
 	.source-link {
@@ -260,7 +260,7 @@
 	}
 
 	.empty-state {
-		padding: 60px;
+		padding: var(--space-9xl);
 		text-align: center;
 		color: var(--text-tertiary);
 		font-style: italic;

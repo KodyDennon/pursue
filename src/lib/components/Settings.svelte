@@ -31,7 +31,7 @@
 
 <style>
 	.settings-container {
-		padding: 40px;
+		padding: var(--space-8xl);
 		height: 100%;
 		overflow-y: auto;
 		max-width: 1200px;
@@ -39,12 +39,12 @@
 	}
 
 	.settings-head {
-		margin-bottom: 40px;
+		margin-bottom: var(--space-8xl);
 	}
 
 	.settings-head h2 {
-		font-size: 28px;
-		margin-bottom: 8px;
+		font-size: var(--text-5xl);
+		margin-bottom: var(--space-md);
 		color: var(--text-primary);
 	}
 
@@ -56,6 +56,6 @@
 	.settings-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-		gap: 24px;
+		gap: var(--space-5xl);
 	}
 </style>

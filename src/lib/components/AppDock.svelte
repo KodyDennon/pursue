@@ -116,12 +116,12 @@
 		flex-direction: column;
 		align-items: center;
 		width: 100%;
-		gap: 24px;
+		gap: var(--space-5xl);
 	}
 
 	.brand {
 		color: var(--text-primary);
-		margin-bottom: 12px;
+		margin-bottom: var(--space-xl);
 	}
 
 	:global(.brand-icon) {
@@ -131,7 +131,7 @@
 	.nav-items {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-3xl);
 		width: 100%;
 		align-items: center;
 	}

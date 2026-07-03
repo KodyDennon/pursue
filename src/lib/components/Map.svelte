@@ -215,7 +215,7 @@
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
 		color: var(--text-secondary);
-		font-size: 14px;
+		font-size: var(--text-lg);
 		font-weight: 600;
 		letter-spacing: 0.05em;
 		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
@@ -229,9 +229,9 @@
 	:global(.pulse-dot) {
 		width: 12px;
 		height: 12px;
-		background: #e7c46b;
+		background: var(--color-accent-primary);
 		border-radius: 50%;
-		box-shadow: 0 0 15px #e7c46b;
+		box-shadow: 0 0 15px var(--color-accent-primary);
 		border: 2px solid #0a0b0d;
 		position: relative;
 	}
@@ -243,7 +243,7 @@
 		height: 100%;
 		top: 0;
 		left: 0;
-		background: #e7c46b;
+		background: var(--color-accent-primary);
 		border-radius: 50%;
 		animation: pip-pulse 2s infinite;
 		z-index: -1;
@@ -265,7 +265,7 @@
 		backdrop-filter: blur(10px);
 		border: 1px solid rgba(231, 196, 107, 0.3);
 		color: white !important;
-		border-radius: 12px !important;
+		border-radius: var(--radius-md) !important;
 		padding: 0 !important;
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7) !important;
 	}
@@ -276,7 +276,7 @@
 	}
 
 	:global(.tactical-popup) {
-		padding: 20px;
+		padding: var(--space-4xl);
 		min-width: 280px;
 		font-family: 'Outfit', sans-serif;
 	}
@@ -285,8 +285,8 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-start;
-		gap: 12px;
-		margin-bottom: 12px;
+		gap: var(--space-xl);
+		margin-bottom: var(--space-xl);
 	}
 
 	:global(.tactical-popup strong) {
@@ -296,33 +296,33 @@
 	}
 
 	:global(.tactical-popup .status) {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		text-transform: uppercase;
 		font-weight: 800;
 		padding: 2px 8px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		background: rgba(255, 255, 255, 0.1);
 	}
 
 	:global(.tactical-popup .status.completed) {
-		color: #4df3a9;
+		color: var(--color-accent-success);
 		background: rgba(77, 243, 169, 0.1);
 	}
 
 	:global(.tactical-popup .status.indexed) {
-		color: #3296ff;
+		color: var(--color-accent-info);
 		background: rgba(50, 150, 255, 0.1);
 	}
 
 	:global(.tactical-popup p) {
 		margin: 0;
-		font-size: 13px;
+		font-size: var(--text-md);
 		color: #8a8f98;
 	}
 
 	:global(.tactical-popup .p-footer) {
-		margin-top: 16px;
-		padding-top: 12px;
+		margin-top: var(--space-3xl);
+		padding-top: var(--space-xl);
 		border-top: 1px solid rgba(255, 255, 255, 0.1);
 		display: flex;
 		justify-content: space-between;
@@ -330,12 +330,12 @@
 	}
 
 	:global(.mini-btn) {
-		background: #e7c46b;
+		background: var(--color-accent-primary);
 		color: #000;
 		border: none;
-		border-radius: 6px;
+		border-radius: var(--radius-sm);
 		padding: 6px 12px;
-		font-size: 11px;
+		font-size: var(--text-sm);
 		font-weight: 800;
 		cursor: pointer;
 		transition: transform 0.2s;

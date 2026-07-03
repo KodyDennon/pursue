@@ -36,7 +36,7 @@
 		justify-content: center;
 		height: 100%;
 		width: 100%;
-		padding: 40px;
+		padding: var(--space-8xl);
 	}
 
 	.hero-content {
@@ -46,19 +46,19 @@
 
 	.hero-icon {
 		color: var(--text-secondary);
-		margin-bottom: 24px;
+		margin-bottom: var(--space-5xl);
 		opacity: 0.5;
 	}
 
 	h1 {
-		font-size: 32px;
+		font-size: var(--text-6xl);
 		color: var(--text-primary);
-		margin-bottom: 16px;
+		margin-bottom: var(--space-3xl);
 		letter-spacing: -0.02em;
 	}
 
 	p {
-		font-size: 16px;
+		font-size: var(--text-xl);
 		color: var(--text-secondary);
 		line-height: 1.6;
 		margin-bottom: 48px;
@@ -67,7 +67,7 @@
 	.action-cards {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-3xl);
 		max-width: 400px;
 		margin: 0 auto;
 	}
@@ -75,8 +75,8 @@
 	.action-card {
 		display: flex;
 		align-items: center;
-		gap: 20px;
-		padding: 24px;
+		gap: var(--space-4xl);
+		padding: var(--space-5xl);
 		background: var(--bg-surface-elevated);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-lg);
@@ -109,13 +109,13 @@
 
 	.ac-text strong {
 		display: block;
-		font-size: 16px;
-		margin-bottom: 4px;
+		font-size: var(--text-xl);
+		margin-bottom: var(--space-xs);
 	}
 
 	.ac-text span {
 		display: block;
-		font-size: 13px;
+		font-size: var(--text-md);
 		color: var(--text-secondary);
 		line-height: 1.4;
 	}

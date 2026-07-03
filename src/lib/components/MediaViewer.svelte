@@ -3,6 +3,7 @@
 	import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 	import { openPath } from '@tauri-apps/plugin-opener';
 	import type { RecordSummary } from '$lib/types';
+	import Modal from './Modal.svelte';
 	import ImageViewer from './media/ImageViewer.svelte';
 	import VideoViewer from './media/VideoViewer.svelte';
 	import PdfViewer from './media/PdfViewer.svelte';
@@ -46,10 +47,6 @@
 		position = { x: 0, y: 0 };
 	}
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') close();
-	}
-
 	function handleMouseDown(e: MouseEvent) {
 		if (zoom <= 1) return;
 		isDragging = true;
@@ -76,14 +73,13 @@
 	const isPdf = $derived(fileType === 'pdf');
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-{#if isOpen}
-	<div
-		class="media-overlay"
-		role="presentation"
-		onclick={(e) => e.target === e.currentTarget && close()}
-	>
+<Modal
+	bind:isOpen
+	onClose={close}
+	zIndex={1000}
+	background="rgba(0, 0, 0, 0.9)"
+	blur="8px"
+>
 		<div class="media-container glass-panel">
 			<header class="media-header">
 				<div class="media-info">
@@ -182,22 +178,9 @@
 				</div>
 			</footer>
 		</div>
-	</div>
-{/if}
+</Modal>
 
 <style>
-	.media-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.9);
-		backdrop-filter: blur(8px);
-		z-index: 1000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 40px;
-	}
-
 	.media-container {
 		width: 100%;
 		max-width: 1400px;
@@ -224,20 +207,20 @@
 	.media-info {
 		display: flex;
 		align-items: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 	}
 
 	.file-tag {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 800;
 		padding: 2px 6px;
 		background: var(--accent-primary);
 		color: #000;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 	}
 
 	.media-info h3 {
-		font-size: 16px;
+		font-size: var(--text-xl);
 		color: var(--text-primary);
 		margin: 0;
 		white-space: nowrap;
@@ -249,21 +232,21 @@
 	.media-actions {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 	}
 
 	.tool-group {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 		background: rgba(255, 255, 255, 0.05);
 		padding: 4px 12px;
-		border-radius: 20px;
-		margin-right: 12px;
+		border-radius: var(--radius-xl);
+		margin-right: var(--space-xl);
 	}
 
 	.zoom-pct {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		font-weight: 700;
 		color: var(--text-secondary);
 		min-width: 40px;
@@ -285,7 +268,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 8px;
+		border-radius: var(--radius-base);
 		color: var(--text-secondary);
 		transition: all 0.2s;
 	}
@@ -318,7 +301,7 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 		color: var(--text-secondary);
 	}
 
@@ -343,16 +326,16 @@
 		flex-direction: column;
 		align-items: center;
 		text-align: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 		max-width: 400px;
-		padding: 40px;
+		padding: var(--space-8xl);
 	}
 
 	.file-icon {
 		width: 96px;
 		height: 96px;
 		background: rgba(255, 255, 255, 0.03);
-		border-radius: 24px;
+		border-radius: var(--radius-2xl);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -364,7 +347,7 @@
 		color: #000;
 		border: none;
 		padding: 12px 24px;
-		border-radius: 8px;
+		border-radius: var(--radius-base);
 		font-weight: 700;
 		cursor: pointer;
 	}
@@ -376,14 +359,14 @@
 		display: flex;
 		align-items: center;
 		padding: 0 24px;
-		gap: 32px;
+		gap: var(--space-7xl);
 	}
 
 	.f-item {
 		display: flex;
-		gap: 8px;
+		gap: var(--space-md);
 		align-items: center;
-		font-size: 10px;
+		font-size: var(--text-xs);
 	}
 
 	.label {

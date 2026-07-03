@@ -77,7 +77,7 @@
 				<Loader2 size={16} class="spin card-icon text-accent" />
 				<div class="val">
 					<span class="l">Initializing Engine</span>
-					<span class="v select-all" style="font-size: 11px;"
+					<span class="v select-all" style="font-size: var(--text-sm);"
 						>{modelDownloadMsg || 'Allocating tensors...'}</span
 					>
 				</div>
@@ -141,7 +141,7 @@
 	.dashboard-side {
 		display: flex;
 		flex-direction: column;
-		gap: 24px;
+		gap: var(--space-5xl);
 		justify-content: space-between;
 	}
 
@@ -149,7 +149,7 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 14px;
+		gap: var(--space-2xl);
 		padding: 16px 0;
 		background: rgba(255, 255, 255, 0.01);
 		border-radius: var(--radius-md);
@@ -204,7 +204,7 @@
 	}
 
 	.engine-state-label {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 800;
 		letter-spacing: 0.15em;
 		color: var(--text-tertiary);
@@ -217,7 +217,7 @@
 	.details-cards {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-xl);
 		flex: 1;
 		justify-content: center;
 	}
@@ -229,7 +229,7 @@
 		padding: 14px 16px;
 		display: flex;
 		align-items: center;
-		gap: 14px;
+		gap: var(--space-2xl);
 		color: var(--text-secondary);
 	}
 
@@ -241,19 +241,19 @@
 	.info-card .val {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: var(--space-2xs);
 		min-width: 0;
 		width: 100%;
 	}
 	.info-card .l {
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		text-transform: uppercase;
 		font-weight: 700;
 		opacity: 0.5;
 		letter-spacing: 0.05em;
 	}
 	.info-card .v {
-		font-size: 13px;
+		font-size: var(--text-md);
 		font-weight: 600;
 		color: #fff;
 		font-family: var(--font-mono);
@@ -266,7 +266,7 @@
 		align-items: flex-start;
 	}
 	:global(.telemetry-icon) {
-		margin-top: 2px;
+		margin-top: var(--space-2xs);
 	}
 
 	.text-row-stack {
@@ -280,9 +280,9 @@
 		justify-content: space-between;
 		width: 100%;
 		font-family: var(--font-mono);
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-		padding-bottom: 4px;
+		padding-bottom: var(--space-xs);
 	}
 	.telemetry-row:last-child {
 		border-bottom: none;
@@ -303,7 +303,7 @@
 		width: 100%;
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 		padding: 0 4px;
 	}
 
@@ -311,7 +311,7 @@
 		flex: 1;
 		height: 4px;
 		background: rgba(255, 255, 255, 0.05);
-		border-radius: 2px;
+		border-radius: var(--radius-2xs);
 		overflow: hidden;
 	}
 
@@ -325,7 +325,7 @@
 	.model-progress-text {
 		font-family: var(--font-mono);
 		color: var(--accent-primary);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 700;
 		width: 40px;
 		text-align: right;
@@ -344,13 +344,13 @@
 		color: var(--text-secondary);
 		border-radius: var(--radius-md);
 		font-weight: 700;
-		font-size: 13px;
+		font-size: var(--text-md);
 		letter-spacing: 0.05em;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 8px;
+		gap: var(--space-md);
 		transition: all 0.2s;
 	}
 
@@ -379,22 +379,22 @@
 	}
 
 	:global(.batch-icon) {
-		color: #50b3ff;
+		color: var(--color-accent-info);
 	}
 
 	.batch-progress-bar-bg {
 		width: 100%;
 		height: 4px;
 		background: rgba(255, 255, 255, 0.05);
-		border-radius: 2px;
+		border-radius: var(--radius-2xs);
 		overflow: hidden;
-		margin-top: 6px;
+		margin-top: var(--space-sm);
 	}
 
 	.batch-progress-bar-fill {
 		height: 100%;
-		background: #50b3ff;
-		box-shadow: 0 0 8px #50b3ff;
+		background: var(--color-accent-info);
+		box-shadow: 0 0 8px var(--color-accent-info);
 		transition: width 0.3s ease-out;
 	}
 

@@ -115,22 +115,22 @@
 		background: var(--bg-surface);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-lg);
-		padding: 24px;
+		padding: var(--space-5xl);
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: var(--space-4xl);
 	}
 
 	.center-card header {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 		color: var(--text-secondary);
 	}
 
 	.center-card h3 {
 		margin: 0;
-		font-size: 14px;
+		font-size: var(--text-lg);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 		font-weight: 700;
@@ -140,7 +140,7 @@
 	.header-content {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 		width: 100%;
 	}
 
@@ -148,15 +148,15 @@
 		background: none;
 		border: none;
 		color: var(--accent-primary);
-		font-size: 11px;
+		font-size: var(--text-sm);
 		font-weight: 700;
 		text-transform: uppercase;
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--space-sm);
 		cursor: pointer;
 		padding: 4px 8px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		transition: background 0.2s;
 	}
 
@@ -172,14 +172,14 @@
 	.model-list {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-xl);
 	}
 
 	.model-item {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 16px;
+		padding: var(--space-3xl);
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
@@ -192,11 +192,11 @@
 	}
 
 	.progress-container {
-		margin-top: 8px;
+		margin-top: var(--space-md);
 		width: 200px;
 		height: 4px;
 		background: rgba(255, 255, 255, 0.05);
-		border-radius: 2px;
+		border-radius: var(--radius-2xs);
 		position: relative;
 		overflow: hidden;
 	}
@@ -211,29 +211,29 @@
 	.model-info {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: var(--space-2xs);
 	}
 
 	.m-type {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
 	.m-name {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		font-weight: 600;
 		color: var(--text-primary);
 	}
 	.m-size {
-		font-size: 12px;
+		font-size: var(--text-base);
 		color: var(--text-secondary);
 	}
 
 	.m-stats {
 		display: flex;
 		justify-content: space-between;
-		margin-top: 4px;
-		font-size: 11px;
+		margin-top: var(--space-xs);
+		font-size: var(--text-sm);
 	}
 
 	.m-eta {

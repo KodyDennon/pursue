@@ -1,11 +1,10 @@
-import { writable, get } from 'svelte/store';
-
-// We can initialize this from an environment variable or local storage
-const isDebugEnabled = writable(false);
+// Plain module-level flag, not a Svelte store: nothing subscribes to this reactively, it's
+// only ever read imperatively inside debug() below, so svelte/store added nothing here.
+let isDebugEnabled = false;
 
 export const logger = {
 	debug: (...args: unknown[]) => {
-		if (get(isDebugEnabled)) {
+		if (isDebugEnabled) {
 			console.debug(...args);
 		}
 	},
@@ -15,6 +14,10 @@ export const logger = {
 	error: (...args: unknown[]) => {
 		console.error(...args);
 	},
-	enable: () => isDebugEnabled.set(true),
-	disable: () => isDebugEnabled.set(false)
+	enable: () => {
+		isDebugEnabled = true;
+	},
+	disable: () => {
+		isDebugEnabled = false;
+	}
 };

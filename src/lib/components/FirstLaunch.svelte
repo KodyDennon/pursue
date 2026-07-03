@@ -290,7 +290,7 @@
 
 	.provision-card {
 		width: 480px;
-		padding: 40px;
+		padding: var(--space-8xl);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -303,17 +303,17 @@
 	}
 
 	:global(.hero-logo) {
-		margin-bottom: 32px;
+		margin-bottom: var(--space-7xl);
 		filter: drop-shadow(0 0 20px rgba(231, 196, 107, 0.3));
 	}
 
 	.brand-hero {
 		font-family: var(--font-display);
 		font-weight: 700;
-		font-size: 36px;
+		font-size: var(--text-7xl);
 		letter-spacing: 0.25em;
 		color: var(--accent-primary);
-		margin-bottom: 24px;
+		margin-bottom: var(--space-5xl);
 		text-shadow: 0 0 10px rgba(231, 196, 107, 0.2);
 	}
 </style>

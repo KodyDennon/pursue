@@ -28,19 +28,19 @@
 
 	.brand {
 		display: flex;
-		gap: 16px;
+		gap: var(--space-3xl);
 		align-items: center;
 	}
 
 	.brand h2 {
 		margin: 0;
-		font-size: 18px;
+		font-size: var(--text-2xl);
 		font-weight: 600;
 		letter-spacing: 0.02em;
 	}
 	.brand p {
 		margin: 2px 0 0 0;
-		font-size: 12px;
+		font-size: var(--text-base);
 		color: var(--text-secondary);
 	}
 
@@ -49,7 +49,7 @@
 		border: none;
 		color: var(--text-tertiary);
 		cursor: pointer;
-		padding: 6px;
+		padding: var(--space-sm);
 		border-radius: 50%;
 		transition: all 0.2s;
 	}

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
-import { addToast } from '$lib/toastStore';
+import { addToast } from '$lib/stores/toastStore.svelte';
 import { logger } from '$lib/logger';
 import type { DatabaseStatus } from '$lib/types';
 

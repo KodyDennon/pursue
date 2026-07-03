@@ -34,18 +34,18 @@
 	.stream-side {
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: var(--space-lg);
 		overflow: hidden;
 		border-left: 1px solid var(--border-subtle);
-		padding-left: 28px;
+		padding-left: var(--space-6xl);
 	}
 
 	.section-head {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 		color: var(--text-tertiary);
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 800;
 		letter-spacing: 0.15em;
 		text-transform: uppercase;
@@ -56,7 +56,7 @@
 		background: rgba(0, 0, 0, 0.4);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
-		padding: 20px;
+		padding: var(--space-4xl);
 		overflow-y: auto;
 	}
 
@@ -67,17 +67,17 @@
 		align-items: center;
 		justify-content: center;
 		text-align: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 	}
 
 	.model-loading-fullscreen h3 {
-		font-size: 13px;
+		font-size: var(--text-md);
 		letter-spacing: 0.1em;
 		color: var(--text-primary);
 	}
 
 	.model-loading-fullscreen p {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		font-family: var(--font-mono);
 		color: var(--text-secondary);
 		opacity: 0.8;
@@ -85,7 +85,7 @@
 
 	.neural-stream {
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--text-base);
 		line-height: 1.7;
 		color: var(--accent-primary);
 		white-space: pre-wrap;
@@ -101,7 +101,7 @@
 		color: var(--text-tertiary);
 		opacity: 0.5;
 		font-style: italic;
-		font-size: 11px;
+		font-size: var(--text-sm);
 	}
 
 	.cursor {

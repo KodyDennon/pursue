@@ -76,18 +76,18 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 		color: var(--text-secondary);
-		font-size: 14px;
+		font-size: var(--text-lg);
 		font-weight: 500;
 	}
 	.intelligence-center {
 		height: 100%;
 		overflow-y: auto;
-		padding: 40px;
+		padding: var(--space-8xl);
 		display: flex;
 		flex-direction: column;
-		gap: 40px;
+		gap: var(--space-8xl);
 		background: var(--bg-base);
 		animation: fadeIn 0.4s ease-out;
 	}
@@ -111,12 +111,12 @@
 
 	.title-wrap {
 		display: flex;
-		gap: 20px;
+		gap: var(--space-4xl);
 		align-items: center;
 	}
 
 	.title-wrap h1 {
-		font-size: 32px;
+		font-size: var(--text-6xl);
 		margin: 0;
 		font-weight: 700;
 	}
@@ -133,7 +133,7 @@
 	.center-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-		gap: 24px;
+		gap: var(--space-5xl);
 	}
 
 	:global(.spin) {

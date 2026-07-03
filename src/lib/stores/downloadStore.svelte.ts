@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { addToast } from '$lib/toastStore';
+import { addToast } from '$lib/stores/toastStore.svelte';
 import type {
 	BulkDownloadItem,
 	BulkDownloadReport,

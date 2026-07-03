@@ -1,20 +1,57 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
 
-:root {
-	--bg-base: #06070a; /* Deeper space black */
-	--bg-surface: #0c0d12;
-	--bg-surface-elevated: rgba(14, 16, 22, 0.65);
-	--border-subtle: rgba(255, 255, 255, 0.06);
-	--border-glow: rgba(231, 196, 107, 0.15);
-	--text-primary: #f5f6f8;
-	--text-secondary: #9ba0aa;
-	--text-tertiary: #5d6370;
+/*
+ * Design tokens. Values here were derived from an audit of the existing 58 components'
+ * hand-authored CSS (grep for hex colors / font-size / border-radius / box-shadow), not
+ * invented from scratch — the goal of the Phase 3 retrofit is to converge on ONE canonical
+ * value per concept (e.g. #f3c46b / #e7c46b both become --color-accent-primary) while
+ * keeping the actual rendered values close to what was already dominant, to minimize visual
+ * churn as components are migrated one folder at a time.
+ *
+ * Note: Tailwind v4 reserves the `--text-*` @theme namespace for font-size utilities, so the
+ * existing `--text-primary` / `--text-secondary` / `--text-tertiary` *color* tokens are
+ * renamed `--color-text-*` here to avoid colliding with it. The plain `:root` block below
+ * keeps the old bare names working as aliases so already-written components referencing
+ * `var(--text-primary)` etc. are unaffected until they're migrated in the folder-by-folder
+ * pass (see OVERHAUL_PLAN.md Phase 3). Remove the alias block only once nothing references
+ * the old names anymore.
+ *
+ * `@theme static` (not plain `@theme`) is required here: Tailwind v4 only emits a theme
+ * variable as a real CSS custom property when it detects a matching utility class (e.g.
+ * `gap-lg`) somewhere in scanned source — since no component uses Tailwind utility classes
+ * yet (that's what the folder-by-folder retrofit does), a plain `@theme` block would silently
+ * drop most of these tokens from the compiled output until each is actually referenced by a
+ * class name. `static` forces every token below to always be emitted, so `var(--space-lg)`
+ * etc. work immediately in existing scoped <style> blocks too, not just future Tailwind
+ * utility classes.
+ */
+@theme static {
+	--color-bg-base: #06070a;
+	--color-bg-surface: #0c0d12;
+	--color-bg-surface-elevated: rgba(14, 16, 22, 0.65);
+	--color-border-subtle: rgba(255, 255, 255, 0.06);
+	--color-border-glow: rgba(231, 196, 107, 0.15);
+	--color-text-primary: #f5f6f8;
+	--color-text-secondary: #9ba0aa;
+	--color-text-tertiary: #5d6370;
+	/* For dark text on a light accent surface, e.g. the primary "gold" button label. */
+	--color-text-on-accent: #000000;
 
-	/* Premium Golden Amber Accent */
-	--accent-primary: #e7c46b;
-	--accent-primary-glow: rgba(231, 196, 107, 0.4);
-	--accent-success: #4df3a9;
-	--accent-danger: #f34d4d;
+	/* Premium Golden Amber accent. Canonical replacement for the #f3c46b near-duplicate
+	   (4 occurrences) found in the audit. (Note: an initial grep also flagged 19 hits for
+	   "#eac" — those turned out to be a false positive, matching the start of `{#each`
+	   template loops, not an actual hex color; there is no #eac color anywhere.) */
+	--color-accent-primary: #e7c46b;
+	--color-accent-primary-glow: rgba(231, 196, 107, 0.4);
+	/* Canonical replacement for #00c864. */
+	--color-accent-success: #4df3a9;
+	/* Canonical replacement for #ff4d4d / #ff4646 / #ff4444 (three different "error red"s
+	   found in circulation across DownloadAgent.svelte / settings components). */
+	--color-accent-danger: #f34d4d;
+	/* New token: an "info" blue is used ad hoc (11x #3296ff, 3x #50b3ff, e.g. the "running"
+	   status badge) with no token today. #3296ff was the dominant value. */
+	--color-accent-info: #3296ff;
 
 	--font-sans: 'Inter', -apple-system, sans-serif;
 	--font-display: 'Outfit', -apple-system, sans-serif;
@@ -24,9 +61,85 @@
 	--transition-smooth: 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
 	--transition-bounce: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
 
+	/* Existing radius scale, values unchanged (already used throughout via var(--radius-*)) —
+	   just gaining a few more steps for values the audit found in heavy use but not yet
+	   covered (2px x8, 4px x23, 8px x15, 20px x2, 24px x1). */
+	--radius-2xs: 2px;
+	--radius-xs: 4px;
 	--radius-sm: 6px;
+	--radius-base: 8px;
 	--radius-md: 12px;
 	--radius-lg: 16px;
+	--radius-xl: 20px;
+	--radius-2xl: 24px;
+	--radius-full: 9999px;
+
+	/* Typography scale — previously absent; 15 distinct raw px values were in circulation.
+	   Steps below match the audit's actual most-frequent sizes (11px x53, 10px x35, 13px x30,
+	   12px x27, 14px x17, 9px x21, 16px x12) rather than a generic type scale, so migrating a
+	   component's literal `font-size: 11px` to `var(--text-sm)` is a like-for-like swap. */
+	--text-2xs: 9px;
+	--text-xs: 10px;
+	--text-sm: 11px;
+	--text-base: 12px;
+	--text-md: 13px;
+	--text-lg: 14px;
+	--text-xl: 16px;
+	--text-2xl: 18px;
+	--text-3xl: 20px;
+	--text-4xl: 24px;
+	--text-5xl: 28px;
+	--text-6xl: 32px;
+	--text-7xl: 36px;
+
+	/* Spacing scale — previously absent; every padding/gap value was a raw literal. Steps
+	   match the audit's most common gap/padding values (16px x59, 12px x55, 8px x47, 24px x46,
+	   4px x33, 20px x27, 2px x21, 32px x19, 6px x17, 10px x12, 40px x11). */
+	--space-2xs: 2px;
+	--space-xs: 4px;
+	--space-sm: 6px;
+	--space-md: 8px;
+	--space-lg: 10px;
+	--space-xl: 12px;
+	--space-2xl: 14px;
+	--space-3xl: 16px;
+	--space-4xl: 20px;
+	--space-5xl: 24px;
+	--space-6xl: 28px;
+	--space-7xl: 32px;
+	--space-8xl: 40px;
+	--space-9xl: 60px;
+
+	/* Shadow scale — previously absent; box-shadow was hand-authored per component with
+	   inconsistent elevation logic. Two families: neutral "elevation" shadows (black) and
+	   "glow" shadows (accent gold), matching the two patterns found in the audit. */
+	--shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.3);
+	--shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+	--shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+	--shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.5);
+	--shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.6);
+	--shadow-2xl: 0 30px 60px -12px rgba(0, 0, 0, 0.5);
+	--shadow-glow-sm: 0 0 8px var(--color-accent-primary);
+	--shadow-glow-md: 0 0 12px var(--color-accent-primary);
+	--shadow-glow-lg: 0 0 20px rgba(231, 196, 107, 0.3);
+}
+
+:root {
+	/* Alias bridge: old bare token names -> new @theme tokens, kept 1:1 identical so nothing
+	   visually changes until a component is migrated. Remove once nothing references these
+	   (Phase 3.6). */
+	--bg-base: var(--color-bg-base);
+	--bg-surface: var(--color-bg-surface);
+	--bg-surface-elevated: var(--color-bg-surface-elevated);
+	--border-subtle: var(--color-border-subtle);
+	--border-glow: var(--color-border-glow);
+	--text-primary: var(--color-text-primary);
+	--text-secondary: var(--color-text-secondary);
+	--text-tertiary: var(--color-text-tertiary);
+	--accent-primary: var(--color-accent-primary);
+	--accent-primary-glow: var(--color-accent-primary-glow);
+	--accent-success: var(--color-accent-success);
+	--accent-danger: var(--color-accent-danger);
 }
 
 * {

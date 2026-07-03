@@ -20,17 +20,17 @@
 
 <style>
 	.view-padding {
-		padding: 32px;
+		padding: var(--space-7xl);
 	}
 
 	.section-head {
-		margin-bottom: 20px;
+		margin-bottom: var(--space-4xl);
 		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-		padding-bottom: 8px;
+		padding-bottom: var(--space-md);
 	}
 
 	.prefix {
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 900;
 		letter-spacing: 0.15em;
 		color: var(--text-tertiary);
@@ -39,27 +39,27 @@
 	.chunk-list {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-3xl);
 	}
 
 	.chunk-card {
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid var(--border-subtle);
-		padding: 16px;
-		border-radius: 8px;
+		padding: var(--space-3xl);
+		border-radius: var(--radius-base);
 	}
 
 	.c-idx {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--accent-primary);
-		margin-bottom: 8px;
+		margin-bottom: var(--space-md);
 		display: block;
 	}
 
 	.chunk-card p {
 		margin: 0;
-		font-size: 13px;
+		font-size: var(--text-md);
 		line-height: 1.6;
 		color: var(--text-secondary);
 	}

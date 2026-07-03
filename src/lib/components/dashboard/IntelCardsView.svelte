@@ -141,13 +141,13 @@
 	.cards-view {
 		height: 100%;
 		overflow-y: auto;
-		padding: 32px;
+		padding: var(--space-7xl);
 	}
 
 	.cards-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-		gap: 24px;
+		gap: var(--space-5xl);
 	}
 
 	.intel-card {
@@ -211,7 +211,7 @@
 	}
 
 	.card-content {
-		padding: 24px;
+		padding: var(--space-5xl);
 		display: flex;
 		flex-direction: column;
 		flex: 1;
@@ -221,11 +221,11 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 16px;
+		margin-bottom: var(--space-3xl);
 	}
 
 	.agency {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 800;
 		letter-spacing: 0.15em;
 		color: var(--accent-primary);
@@ -235,13 +235,13 @@
 	.status {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		font-size: 9px;
+		gap: var(--space-sm);
+		font-size: var(--text-2xs);
 		font-weight: 700;
 		color: var(--text-tertiary);
 		background: rgba(255, 255, 255, 0.05);
 		padding: 2px 8px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 	}
 
 	.status.ready {
@@ -250,7 +250,7 @@
 	}
 
 	.status.indexed {
-		color: #3296ff;
+		color: var(--color-accent-info);
 		background: rgba(50, 150, 255, 0.1);
 	}
 
@@ -260,7 +260,7 @@
 	}
 
 	.status.pending {
-		color: #3296ff;
+		color: var(--color-accent-info);
 		background: rgba(50, 150, 255, 0.1);
 	}
 
@@ -270,7 +270,7 @@
 	}
 
 	h3 {
-		font-size: 16px;
+		font-size: var(--text-xl);
 		font-weight: 600;
 		margin: 0 0 12px 0;
 		line-height: 1.4;
@@ -283,7 +283,7 @@
 	}
 
 	.summary {
-		font-size: 13px;
+		font-size: var(--text-md);
 		line-height: 1.5;
 		color: var(--text-secondary);
 		margin: 0 0 20px 0;
@@ -298,15 +298,15 @@
 	.meta-grid {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 12px;
-		margin-bottom: 24px;
+		gap: var(--space-xl);
+		margin-bottom: var(--space-5xl);
 	}
 
 	.meta-item {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		font-size: 11px;
+		gap: var(--space-md);
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 
@@ -314,21 +314,21 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding-top: 16px;
+		padding-top: var(--space-3xl);
 		border-top: 1px solid var(--border-subtle);
 	}
 
 	.source {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		font-size: 10px;
+		gap: var(--space-sm);
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 		text-transform: uppercase;
 	}
 
 	.size {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 	}
 

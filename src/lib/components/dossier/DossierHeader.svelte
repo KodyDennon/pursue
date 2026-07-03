@@ -25,7 +25,7 @@
 		background: linear-gradient(to right, rgba(231, 196, 107, 0.05), transparent);
 		display: flex;
 		align-items: center;
-		gap: 32px;
+		gap: var(--space-7xl);
 	}
 
 	.back-btn {
@@ -34,8 +34,8 @@
 		color: var(--text-tertiary);
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		font-size: 11px;
+		gap: var(--space-md);
+		font-size: var(--text-sm);
 		font-weight: 800;
 		text-transform: uppercase;
 		cursor: pointer;
@@ -47,7 +47,7 @@
 	}
 
 	.header-main h2 {
-		font-size: 18px;
+		font-size: var(--text-2xl);
 		font-family: var(--font-display);
 		font-weight: 600;
 		letter-spacing: -0.01em;

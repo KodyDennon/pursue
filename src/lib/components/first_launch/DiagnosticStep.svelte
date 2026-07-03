@@ -12,22 +12,22 @@
 
 <style>
 	h2 {
-		font-size: 20px;
-		margin-bottom: 8px;
+		font-size: var(--text-3xl);
+		margin-bottom: var(--space-md);
 		color: var(--text-primary);
 		letter-spacing: 0.05em;
 	}
 
 	.status-mono {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--accent-success);
-		margin-bottom: 24px;
+		margin-bottom: var(--space-5xl);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 	}
 
 	.diagnostic-loader {
-		padding: 20px;
+		padding: var(--space-4xl);
 		color: var(--accent-primary);
 	}
 

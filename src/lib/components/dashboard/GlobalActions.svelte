@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
 	import { open } from '@tauri-apps/plugin-dialog';
-	import { addToast, updateToast } from '$lib/toastStore';
+	import { addToast, updateToast } from '$lib/stores/toastStore.svelte';
 	import type { RecordSummary } from '$lib/types';
 	import {
 		Loader2,
@@ -219,13 +219,13 @@
 	.global-actions {
 		display: flex;
 		align-items: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 	}
 
 	.view-toggles {
 		display: flex;
 		background: rgba(0, 0, 0, 0.2);
-		padding: 2px;
+		padding: var(--space-2xs);
 		border-radius: var(--radius-md);
 		border: 1px solid var(--border-subtle);
 	}
@@ -256,7 +256,7 @@
 	.search-wrap {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 		position: relative;
 	}
 
@@ -267,7 +267,7 @@
 		border-radius: var(--radius-sm);
 		color: var(--text-primary);
 		width: 240px;
-		font-size: 13px;
+		font-size: var(--text-md);
 		transition:
 			border-color 0.2s,
 			width 0.3s;
@@ -298,15 +298,15 @@
 	.action-group {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 	}
 
 	.web-ingest-expand {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: var(--space-xs);
 		background: var(--bg-surface-elevated);
-		padding: 2px;
+		padding: var(--space-2xs);
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--accent-primary);
 	}
@@ -316,7 +316,7 @@
 		border: none;
 		padding: 4px 8px;
 		color: var(--text-primary);
-		font-size: 12px;
+		font-size: var(--text-base);
 		width: 180px;
 		outline: none;
 	}

@@ -61,16 +61,16 @@
 
 <style>
 	h2 {
-		font-size: 20px;
-		margin-bottom: 8px;
+		font-size: var(--text-3xl);
+		margin-bottom: var(--space-md);
 		color: var(--text-primary);
 		letter-spacing: 0.05em;
 	}
 
 	p {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		color: var(--text-secondary);
-		margin-bottom: 32px;
+		margin-bottom: var(--space-7xl);
 	}
 
 	.selection-view {
@@ -82,8 +82,8 @@
 
 	.tier-options {
 		display: flex;
-		gap: 16px;
-		margin-bottom: 40px;
+		gap: var(--space-3xl);
+		margin-bottom: var(--space-8xl);
 		width: 100%;
 	}
 
@@ -91,18 +91,18 @@
 		flex: 1;
 		background: rgba(255, 255, 255, 0.01);
 		border: 1px solid var(--border-subtle);
-		border-radius: 12px;
-		padding: 24px;
+		border-radius: var(--radius-md);
+		padding: var(--space-5xl);
 		text-align: left;
 		cursor: pointer;
 		transition: all 0.3s;
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-xl);
 	}
 
 	.tier-card p {
-		font-size: 12px;
+		font-size: var(--text-base);
 		margin: 0;
 		line-height: 1.5;
 		color: var(--text-tertiary);
@@ -126,14 +126,14 @@
 		background: var(--accent-primary);
 		color: #000;
 		padding: 2px 6px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		font-weight: 800;
 	}
 
 	.tier-head {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 		color: var(--accent-primary);
 	}
 
@@ -144,7 +144,7 @@
 	}
 
 	.tier-meta {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 		text-transform: uppercase;
 		margin-top: auto;
@@ -155,14 +155,14 @@
 		background: var(--accent-primary);
 		color: #000;
 		border: none;
-		border-radius: 8px;
-		padding: 16px;
+		border-radius: var(--radius-base);
+		padding: var(--space-3xl);
 		font-weight: 800;
 		font-size: 15px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 12px;
+		gap: var(--space-xl);
 		cursor: pointer;
 		transition: all 0.3s;
 		text-transform: uppercase;

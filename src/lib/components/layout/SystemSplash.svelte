@@ -56,12 +56,12 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 24px;
+		gap: var(--space-5xl);
 		text-align: center;
 	}
 
 	h2 {
-		font-size: 24px;
+		font-size: var(--text-4xl);
 		color: var(--text-primary);
 		margin: 0;
 	}
@@ -78,7 +78,7 @@
 		border-top: 3px solid var(--accent-primary);
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
-		margin-bottom: 24px;
+		margin-bottom: var(--space-5xl);
 	}
 
 	@keyframes spin {
@@ -91,12 +91,12 @@
 	}
 
 	.boot-log {
-		margin-top: 24px;
+		margin-top: var(--space-5xl);
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: var(--space-md);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--accent-primary);
 		opacity: 0.7;
 		text-align: left;
@@ -104,11 +104,11 @@
 	}
 
 	.long-load-msg {
-		margin-top: 32px;
+		margin-top: var(--space-7xl);
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-		font-size: 10px;
+		gap: var(--space-xs);
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;

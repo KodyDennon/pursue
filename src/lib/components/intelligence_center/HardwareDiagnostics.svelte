@@ -53,22 +53,22 @@
 		background: var(--bg-surface);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-lg);
-		padding: 24px;
+		padding: var(--space-5xl);
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: var(--space-4xl);
 	}
 
 	.center-card header {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 		color: var(--text-secondary);
 	}
 
 	.center-card h3 {
 		margin: 0;
-		font-size: 14px;
+		font-size: var(--text-lg);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 		font-weight: 700;
@@ -78,17 +78,17 @@
 	.diag-metrics {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 20px;
+		gap: var(--space-4xl);
 	}
 
 	.metric {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-xs);
 	}
 
 	.metric span {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 		text-transform: uppercase;
 	}
@@ -102,19 +102,19 @@
 		color: var(--accent-success) !important;
 	}
 	.text-warning {
-		color: #f3c46b !important;
+		color: var(--color-accent-primary) !important;
 	}
 
 	.tier-badge {
 		display: inline-block;
 		padding: 2px 8px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		background: rgba(231, 196, 107, 0.1);
 		color: var(--accent-primary);
 	}
 
 	.loading-state {
-		padding: 20px;
+		padding: var(--space-4xl);
 		text-align: center;
 		color: var(--text-tertiary);
 		font-style: italic;

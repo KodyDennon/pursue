@@ -34,19 +34,19 @@
 	.log-side {
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: var(--space-lg);
 		overflow: hidden;
 		border-left: 1px solid var(--border-subtle);
-		padding-left: 28px;
+		padding-left: var(--space-6xl);
 		height: 100%;
 	}
 
 	.section-head {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-md);
 		color: var(--text-tertiary);
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 800;
 		letter-spacing: 0.15em;
 		text-transform: uppercase;
@@ -57,9 +57,9 @@
 		background: rgba(0, 0, 0, 0.4);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
-		padding: 16px;
+		padding: var(--space-3xl);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-sm);
 		line-height: 1.5;
 		overflow-y: auto;
 		display: flex;
@@ -78,7 +78,7 @@
 
 	.log-entry {
 		display: flex;
-		gap: 12px;
+		gap: var(--space-xl);
 		margin-bottom: 5px;
 		word-break: break-all;
 	}

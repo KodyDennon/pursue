@@ -111,7 +111,7 @@
 	.dashboard-side {
 		display: flex;
 		flex-direction: column;
-		gap: 24px;
+		gap: var(--space-5xl);
 		justify-content: space-between;
 		height: 100%;
 	}
@@ -119,13 +119,13 @@
 	.progress-wrap {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: var(--space-md);
 	}
 
 	.stats-row {
 		display: flex;
 		justify-content: space-between;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 800;
 		letter-spacing: 0.1em;
 	}
@@ -165,7 +165,7 @@
 	.details-cards {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-xl);
 		flex: 1;
 		justify-content: center;
 	}
@@ -177,7 +177,7 @@
 		padding: 14px 16px;
 		display: flex;
 		align-items: center;
-		gap: 14px;
+		gap: var(--space-2xl);
 		color: var(--text-secondary);
 		transition: border-color 0.2s;
 	}
@@ -210,18 +210,18 @@
 	.info-card .val {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: var(--space-2xs);
 		min-width: 0;
 	}
 	.info-card .l {
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		text-transform: uppercase;
 		font-weight: 700;
 		opacity: 0.5;
 		letter-spacing: 0.05em;
 	}
 	.info-card .v {
-		font-size: 13px;
+		font-size: var(--text-md);
 		font-weight: 600;
 		color: #fff;
 		font-family: var(--font-mono);
@@ -243,13 +243,13 @@
 		border: none;
 		border-radius: var(--radius-md);
 		font-weight: 700;
-		font-size: 13px;
+		font-size: var(--text-md);
 		letter-spacing: 0.05em;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 8px;
+		gap: var(--space-md);
 		transition: all 0.2s;
 		box-shadow: 0 4px 15px rgba(231, 196, 107, 0.2);
 	}
@@ -269,23 +269,23 @@
 		width: 100%;
 		height: 44px;
 		background: rgba(255, 68, 68, 0.1);
-		color: #ff4444;
+		color: var(--color-accent-danger);
 		border: 1px solid rgba(255, 68, 68, 0.2);
 		border-radius: var(--radius-md);
 		font-weight: 700;
-		font-size: 13px;
+		font-size: var(--text-md);
 		letter-spacing: 0.05em;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 8px;
+		gap: var(--space-md);
 		transition: all 0.2s;
 	}
 
 	.abort-btn:hover {
 		background: rgba(255, 68, 68, 0.2);
-		border-color: #ff4444;
+		border-color: var(--color-accent-danger);
 	}
 
 	:global(.spin) {
@@ -303,9 +303,9 @@
 	.ocr-download-wrap {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
-		margin-top: 8px;
-		padding: 10px;
+		gap: var(--space-sm);
+		margin-top: var(--space-md);
+		padding: var(--space-lg);
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px dashed rgba(231, 196, 107, 0.2);
 		border-radius: var(--radius-sm);
@@ -314,7 +314,7 @@
 	.ocr-stats-row {
 		display: flex;
 		justify-content: space-between;
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 800;
 		letter-spacing: 0.05em;
 	}
@@ -328,7 +328,7 @@
 	}
 
 	.ocr-msg {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 		font-family: var(--font-mono);
 		overflow: hidden;

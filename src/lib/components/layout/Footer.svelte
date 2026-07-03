@@ -52,8 +52,8 @@
 		display: flex;
 		align-items: center;
 		padding: 0 32px;
-		gap: 32px;
-		font-size: 10px;
+		gap: var(--space-7xl);
+		font-size: var(--text-xs);
 		letter-spacing: 0.1em;
 		color: var(--text-tertiary);
 		text-transform: uppercase;
@@ -63,14 +63,14 @@
 
 	.f-section {
 		display: flex;
-		gap: 8px;
+		gap: var(--space-md);
 		align-items: center;
 	}
 
 	.resource-monitor {
 		margin-left: auto;
-		gap: 24px;
-		padding-right: 24px;
+		gap: var(--space-5xl);
+		padding-right: var(--space-5xl);
 		border-right: 1px solid var(--border-subtle);
 		height: 100%;
 	}
@@ -78,7 +78,7 @@
 	.res-item {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 	}
 
 	.res-bar-wrap {

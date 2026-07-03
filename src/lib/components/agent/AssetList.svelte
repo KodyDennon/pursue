@@ -51,14 +51,14 @@
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-		padding-right: 8px;
+		gap: var(--space-xs);
+		padding-right: var(--space-md);
 	}
 
 	.asset-item {
 		display: flex;
-		gap: 12px;
-		padding: 10px;
+		gap: var(--space-xl);
+		padding: var(--space-lg);
 		border-radius: var(--radius-sm);
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid transparent;
@@ -86,11 +86,11 @@
 	.asset-details {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: var(--space-2xs);
 	}
 
 	.asset-title {
-		font-size: 13px;
+		font-size: var(--text-md);
 		color: var(--text-primary);
 		white-space: nowrap;
 		overflow: hidden;
@@ -99,18 +99,18 @@
 	}
 
 	.asset-meta {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 
 	.text-success {
-		color: #00c864;
+		color: var(--color-accent-success);
 	}
 	.text-accent {
 		color: var(--accent-primary);
 	}
 	.text-error {
-		color: #ff4646 !important;
+		color: var(--color-accent-danger) !important;
 	}
 
 	:global(.spin) {

@@ -4,6 +4,7 @@
 	import GridView from './GridView.svelte';
 	import IntelCardsView from './IntelCardsView.svelte';
 	import ListView from './ListView.svelte';
+	import EmptyState from './EmptyState.svelte';
 	import IntelligenceDossier from '../IntelligenceDossier.svelte';
 	import type { CaseSummary, RecordSummary } from '$lib/types';
 
@@ -17,7 +18,9 @@
 		onChanged,
 		onAnalyze,
 		onSynthesize,
-		onViewMedia
+		onViewMedia,
+		onSync,
+		hasActiveQuery = false
 	} = $props<{
 		records: RecordSummary[];
 		libraryPath: string | null;
@@ -29,6 +32,8 @@
 		onAnalyze: () => void;
 		onSynthesize?: () => void;
 		onViewMedia: (record: RecordSummary) => void;
+		onSync?: () => void;
+		hasActiveQuery?: boolean;
 	}>();
 
 	onMount(() => {
@@ -48,6 +53,11 @@
 			{onAnalyze}
 			{onSynthesize}
 		/>
+	{:else if records.length === 0 && !hasActiveQuery && onSync}
+		<!-- Genuinely empty archive (never synced), as opposed to a search/filter that just
+		     matched zero records — that case falls through to each view's own lightweight
+		     "no records match" message instead, since suggesting a sync there would be wrong. -->
+		<EmptyState {onSync} />
 	{:else if viewMode === 'grid'}
 		<GridView
 			{records}

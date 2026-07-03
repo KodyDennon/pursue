@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { AlertCircle } from 'lucide-svelte';
 	import { synthesisStore } from '$lib/stores/synthesisStore.svelte';
+	import Modal from './Modal.svelte';
 
 	import IntelligenceModalHeader from './intelligence_modal/IntelligenceModalHeader.svelte';
 	import SynthesisTelemetry from './intelligence_modal/SynthesisTelemetry.svelte';
@@ -32,58 +33,44 @@
 	}
 </script>
 
-{#if isOpen}
-	<div class="modal-overlay">
-		<div class="synthesis-panel glass-panel">
-			<IntelligenceModalHeader {close} />
+<Modal bind:isOpen>
+	<div class="synthesis-panel glass-panel">
+		<IntelligenceModalHeader {close} />
 
-			<div class="panel-body">
-				<div class="overhaul-grid">
-					<SynthesisTelemetry
-						status={synthesisStore.status}
-						busy={synthesisStore.busy}
-						currentRecordId={synthesisStore.currentRecordId}
-						currentBatchIndex={synthesisStore.currentBatchIndex}
-						totalBatchCount={synthesisStore.totalBatchCount}
-						modelDownloadProgress={synthesisStore.modelDownloadProgress}
-						modelDownloadMsg={synthesisStore.modelDownloadMsg}
-						neuralTelemetry={synthesisStore.neuralTelemetry}
-						onDismiss={close}
-					/>
+		<div class="panel-body">
+			<div class="overhaul-grid">
+				<SynthesisTelemetry
+					status={synthesisStore.status}
+					busy={synthesisStore.busy}
+					currentRecordId={synthesisStore.currentRecordId}
+					currentBatchIndex={synthesisStore.currentBatchIndex}
+					totalBatchCount={synthesisStore.totalBatchCount}
+					modelDownloadProgress={synthesisStore.modelDownloadProgress}
+					modelDownloadMsg={synthesisStore.modelDownloadMsg}
+					neuralTelemetry={synthesisStore.neuralTelemetry}
+					onDismiss={close}
+				/>
 
-					<CognitiveStream
-						status={synthesisStore.status}
-						thoughtText={synthesisStore.thoughtText}
-						modelDownloadMsg={synthesisStore.modelDownloadMsg}
-					/>
-				</div>
+				<CognitiveStream
+					status={synthesisStore.status}
+					thoughtText={synthesisStore.thoughtText}
+					modelDownloadMsg={synthesisStore.modelDownloadMsg}
+				/>
 			</div>
-
-			<footer class="panel-footer">
-				<div class="notice">
-					<AlertCircle size={14} />
-					<span
-						>Neural inference utilizes Apple Neural Engine or local GPU. Keep application active.</span
-					>
-				</div>
-			</footer>
 		</div>
+
+		<footer class="panel-footer">
+			<div class="notice">
+				<AlertCircle size={14} />
+				<span
+					>Neural inference utilizes Apple Neural Engine or local GPU. Keep application active.</span
+				>
+			</div>
+		</footer>
 	</div>
-{/if}
+</Modal>
 
 <style>
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 2000;
-		background: rgba(0, 0, 0, 0.85);
-		backdrop-filter: blur(10px);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 40px;
-	}
-
 	.synthesis-panel {
 		width: 100%;
 		max-width: 960px;
@@ -96,14 +83,14 @@
 
 	.panel-body {
 		flex: 1;
-		padding: 28px;
+		padding: var(--space-6xl);
 		overflow: hidden;
 	}
 
 	.overhaul-grid {
 		display: grid;
 		grid-template-columns: 320px 1fr;
-		gap: 28px;
+		gap: var(--space-6xl);
 		height: 100%;
 	}
 
@@ -116,8 +103,8 @@
 	.notice {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: var(--space-lg);
 		color: var(--text-tertiary);
-		font-size: 11px;
+		font-size: var(--text-sm);
 	}
 </style>

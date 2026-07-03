@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { toasts, removeToast } from '$lib/toastStore';
+	import { toastStore, removeToast } from '$lib/stores/toastStore.svelte';
 	import { Info, AlertCircle, CheckCircle2, Loader2, X } from 'lucide-svelte';
 	import { fade, fly } from 'svelte/transition';
 </script>
 
 <div class="toast-container">
-	{#each $toasts as toast (toast.id)}
+	{#each toastStore.toasts as toast (toast.id)}
 		<div
 			class="toast-card {toast.type}"
 			in:fly={{ y: 20, duration: 300 }}
@@ -39,7 +39,7 @@
 		right: 24px;
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-xl);
 		z-index: 9999;
 		pointer-events: none;
 	}
@@ -47,7 +47,7 @@
 	.toast-card {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-xl);
 		background: var(--bg-surface-elevated);
 		border: 1px solid var(--border-subtle);
 		padding: 12px 16px;
@@ -95,7 +95,7 @@
 
 	.toast-message {
 		flex: 1;
-		font-size: 14px;
+		font-size: var(--text-lg);
 		color: var(--text-primary);
 		line-height: 1.4;
 	}
@@ -105,11 +105,11 @@
 		background: transparent;
 		border: none;
 		cursor: pointer;
-		padding: 4px;
+		padding: var(--space-xs);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		transition: var(--transition-fast);
 	}
 

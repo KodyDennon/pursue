@@ -5,21 +5,22 @@
 	import { appStore } from '$lib/stores/appStore.svelte';
 	import type { SearchResults } from '$lib/types';
 	import { logger } from '$lib/logger';
+	import Modal from './Modal.svelte';
 
 	let query = $state('');
 	let results = $state<SearchResults | null>(null);
 	let loading = $state(false);
 	let searchInput = $state<HTMLInputElement>();
+	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 	onMount(() => {
 		logger.debug('[GlobalSearch] Mounted.');
+		// Only the "open" shortcut lives here now — Escape-to-close and click-outside-to-close
+		// are handled by <Modal> below, the same as every other modal in the app.
 		const handleKeydown = (e: KeyboardEvent) => {
 			if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
 				e.preventDefault();
 				appStore.globalSearchOpen = true;
-			}
-			if (e.key === 'Escape' && appStore.globalSearchOpen) {
-				appStore.globalSearchOpen = false;
 			}
 		};
 		window.addEventListener('keydown', handleKeydown);
@@ -33,32 +34,39 @@
 	});
 
 	async function performSearch() {
-		if (!query.trim()) {
+		const searchedQuery = query.trim();
+		if (!searchedQuery) {
 			results = null;
 			return;
 		}
 		loading = true;
 		try {
-			results = await invoke<SearchResults>('search', {
-				request: { query: query.trim(), filters: {} }
+			const response = await invoke<SearchResults>('search', {
+				request: { query: searchedQuery, filters: {} }
 			});
+			// A later keystroke may have already started a newer search while this one was
+			// in flight — don't let a slow, stale response overwrite fresher results.
+			if (query.trim() === searchedQuery) {
+				results = response;
+			}
 		} catch (e) {
 			console.error(e);
 		} finally {
-			loading = false;
+			if (query.trim() === searchedQuery) {
+				loading = false;
+			}
 		}
 	}
 </script>
 
-{#if appStore.globalSearchOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="search-overlay"
-		onclick={(e) => {
-			if (e.target === e.currentTarget) appStore.globalSearchOpen = false;
-		}}
-	>
+<Modal
+	bind:isOpen={appStore.globalSearchOpen}
+	zIndex={1000}
+	background="rgba(0, 0, 0, 0.6)"
+	blur="4px"
+	padding="0"
+>
+	<div class="search-modal-wrap">
 		<div class="search-modal glass-panel">
 			<div class="search-bar">
 				<Search size={20} class="search-icon" />
@@ -67,8 +75,8 @@
 					bind:value={query}
 					placeholder="Query intelligence index..."
 					oninput={() => {
-						// Debounce simple
-						setTimeout(() => {
+						clearTimeout(debounceTimer);
+						debounceTimer = setTimeout(() => {
 							if (query.trim().length > 2) performSearch();
 						}, 300);
 					}}
@@ -110,19 +118,18 @@
 			</div>
 		</div>
 	</div>
-{/if}
+</Modal>
 
 <style>
-	.search-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
-		backdrop-filter: blur(4px);
-		-webkit-backdrop-filter: blur(4px);
-		z-index: 1000;
+	.search-modal-wrap {
 		display: flex;
 		justify-content: center;
 		align-items: flex-start;
+		width: 100%;
+		/* Modal's overlay centers its child by default (align-items: center); this wrap needs
+		   to fill that full cross-axis itself so its own align-items: flex-start actually
+		   positions the search bar near the top instead of dead-center. */
+		height: 100%;
 		padding-top: 10vh;
 	}
 
@@ -143,7 +150,7 @@
 
 	:global(.search-icon) {
 		color: var(--text-secondary);
-		margin-right: 16px;
+		margin-right: var(--space-3xl);
 	}
 
 	.search-bar input {
@@ -151,7 +158,7 @@
 		background: transparent;
 		border: none;
 		color: var(--text-primary);
-		font-size: 18px;
+		font-size: var(--text-2xl);
 		outline: none;
 	}
 
@@ -167,15 +174,15 @@
 	.search-results {
 		flex: 1;
 		overflow-y: auto;
-		padding: 16px;
+		padding: var(--space-3xl);
 	}
 
 	.results-meta {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 		text-transform: uppercase;
-		margin-bottom: 12px;
-		padding-left: 8px;
+		margin-bottom: var(--space-xl);
+		padding-left: var(--space-md);
 	}
 
 	.result-row {
@@ -183,7 +190,7 @@
 		flex-direction: column;
 		width: 100%;
 		text-align: left;
-		padding: 16px;
+		padding: var(--space-3xl);
 		border-radius: var(--radius-md);
 		transition: background 0.2s;
 	}
@@ -195,29 +202,29 @@
 	.r-head {
 		display: flex;
 		justify-content: space-between;
-		margin-bottom: 8px;
+		margin-bottom: var(--space-md);
 	}
 
 	.agency-badge {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		background: rgba(255, 255, 255, 0.1);
 		padding: 2px 8px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 	}
 
 	.match-score {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--accent-primary);
 		font-family: var(--font-mono);
 	}
 
 	.r-title {
 		font-size: 15px;
-		margin-bottom: 8px;
+		margin-bottom: var(--space-md);
 	}
 
 	.empty-state {
-		padding: 40px;
+		padding: var(--space-8xl);
 		text-align: center;
 		color: var(--text-secondary);
 	}

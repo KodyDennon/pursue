@@ -109,15 +109,15 @@
 
 <style>
 	.view-padding {
-		padding: 32px;
+		padding: var(--space-7xl);
 	}
 	.section-head {
-		margin-bottom: 20px;
+		margin-bottom: var(--space-4xl);
 		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-		padding-bottom: 8px;
+		padding-bottom: var(--space-md);
 	}
 	.prefix {
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 900;
 		letter-spacing: 0.15em;
 		color: var(--text-tertiary);
@@ -125,33 +125,33 @@
 	.case-work-section {
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: var(--space-4xl);
 	}
 	.case-status {
-		font-size: 13px;
+		font-size: var(--text-md);
 		font-weight: 600;
 		color: var(--accent-primary);
 	}
 	.case-work-section textarea {
 		background: rgba(0, 0, 0, 0.3);
 		border: 1px solid var(--border-subtle);
-		border-radius: 8px;
-		padding: 16px;
+		border-radius: var(--radius-base);
+		padding: var(--space-3xl);
 		color: #fff;
 		font-family: var(--font-display);
 		resize: none;
 	}
 	.case-actions {
 		display: flex;
-		gap: 12px;
+		gap: var(--space-xl);
 	}
 	.path-line {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 		font-family: var(--font-mono);
 	}
 	.error-msg {
-		color: var(--accent-error, #ff4d4d);
-		font-size: 12px;
+		color: var(--accent-error, var(--color-accent-danger));
+		font-size: var(--text-base);
 	}
 </style>

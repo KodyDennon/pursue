@@ -87,31 +87,31 @@
 
 <style>
 	.view-padding {
-		padding: 32px;
+		padding: var(--space-7xl);
 	}
 	.view-padding.compact {
-		padding: 20px;
+		padding: var(--space-4xl);
 	}
 	.section-head {
-		margin-bottom: 20px;
+		margin-bottom: var(--space-4xl);
 		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-		padding-bottom: 8px;
+		padding-bottom: var(--space-md);
 	}
 	.prefix {
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 900;
 		letter-spacing: 0.15em;
 		color: var(--text-tertiary);
 	}
 	.para {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		line-height: 1.7;
 		color: var(--text-primary);
 	}
 	.data-grid-tactical {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 16px;
+		gap: var(--space-3xl);
 		margin: 32px 0;
 	}
 	.compact .data-grid-tactical {
@@ -120,11 +120,11 @@
 	.t-card {
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid var(--border-subtle);
-		padding: 16px;
-		border-radius: 8px;
+		padding: var(--space-3xl);
+		border-radius: var(--radius-base);
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-xs);
 	}
 	.t-card.full {
 		grid-column: span 2;
@@ -133,31 +133,31 @@
 		grid-column: span 1;
 	}
 	.t-label {
-		font-size: 9px;
+		font-size: var(--text-2xs);
 		font-weight: 900;
 		color: var(--text-tertiary);
 	}
 	.t-val {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		font-weight: 600;
 	}
 	.t-tags {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 6px;
-		margin-top: 8px;
+		gap: var(--space-sm);
+		margin-top: var(--space-md);
 	}
 	.fidelity-dial-wrap {
 		background: #000;
 		border: 1px solid var(--border-subtle);
-		padding: 20px;
-		border-radius: 12px;
+		padding: var(--space-4xl);
+		border-radius: var(--radius-md);
 		text-align: center;
 	}
 	.dial {
-		font-size: 32px;
+		font-size: var(--text-6xl);
 		font-weight: 800;
-		margin-top: 12px;
+		margin-top: var(--space-xl);
 		color: var(--accent-primary);
 	}
 	.pending-state {
@@ -167,7 +167,7 @@
 		align-items: center;
 		justify-content: center;
 		text-align: center;
-		gap: 16px;
+		gap: var(--space-3xl);
 		color: var(--text-tertiary);
 	}
 	.primary-btn {
@@ -175,18 +175,18 @@
 		color: #000;
 		border: none;
 		padding: 12px 24px;
-		border-radius: 8px;
+		border-radius: var(--radius-base);
 		font-weight: 800;
 		cursor: pointer;
 	}
 
 	.intel-grid {
 		display: flex;
-		gap: 32px;
+		gap: var(--space-7xl);
 	}
 	.compact .intel-grid {
 		flex-direction: column;
-		gap: 24px;
+		gap: var(--space-5xl);
 	}
 	.intel-main {
 		flex: 1;
@@ -198,19 +198,19 @@
 		width: 100%;
 	}
 	.mini-gallery {
-		margin-top: 32px;
+		margin-top: var(--space-7xl);
 	}
 	.g-grid {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 8px;
-		margin-top: 12px;
+		gap: var(--space-md);
+		margin-top: var(--space-xl);
 	}
 	.g-grid img {
 		width: 100%;
 		height: 100px;
 		object-fit: cover;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		border: 1px solid var(--border-subtle);
 	}
 </style>

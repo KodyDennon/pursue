@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { Layers, X, AlertCircle } from 'lucide-svelte';
 	import { analysisStore } from '$lib/stores/analysisStore.svelte';
+	import Modal from './Modal.svelte';
 
 	import NeuralTelemetry from './analysis_modal/NeuralTelemetry.svelte';
 	import ThoughtStream from './analysis_modal/ThoughtStream.svelte';
@@ -34,64 +35,50 @@
 	}
 </script>
 
-{#if isOpen}
-	<div class="modal-overlay">
-		<div class="analysis-panel glass-panel">
-			<header class="panel-header glass-header">
-				<div class="brand">
-					<Layers size={24} class="accent-icon" />
-					<div>
-						<h2>Secure Ingestion & Foundation Audit</h2>
-						<p>High-resolution OCR extraction and semantic vector mapping.</p>
-					</div>
-				</div>
-				<button class="close-btn" onclick={close} aria-label="Close modal"><X size={20} /></button>
-			</header>
-
-			<div class="panel-body">
-				<div class="overhaul-grid">
-					<NeuralTelemetry
-						status={analysisStore.status}
-						processedCount={analysisStore.processedCount}
-						totalCount={analysisStore.totalCount}
-						progress={analysisStore.progress}
-						currentRecordId={analysisStore.currentRecordId}
-						busy={analysisStore.busy}
-						ocrDownloadProgress={analysisStore.ocrDownloadProgress}
-						ocrDownloadMsg={analysisStore.ocrDownloadMsg}
-						onStartAnalysis={() => analysisStore.startAnalysis()}
-					/>
-
-					<ThoughtStream logs={analysisStore.logs} />
+<Modal bind:isOpen>
+	<div class="analysis-panel glass-panel">
+		<header class="panel-header glass-header">
+			<div class="brand">
+				<Layers size={24} class="accent-icon" />
+				<div>
+					<h2>Secure Ingestion & Foundation Audit</h2>
+					<p>High-resolution OCR extraction and semantic vector mapping.</p>
 				</div>
 			</div>
+			<button class="close-btn" onclick={close} aria-label="Close modal"><X size={20} /></button>
+		</header>
 
-			<footer class="panel-footer">
-				<div class="notice">
-					<AlertCircle size={14} />
-					<span
-						>Ingestion and OCR are hardware intensive. Do not close the application during active
-						processing.</span
-					>
-				</div>
-			</footer>
+		<div class="panel-body">
+			<div class="overhaul-grid">
+				<NeuralTelemetry
+					status={analysisStore.status}
+					processedCount={analysisStore.processedCount}
+					totalCount={analysisStore.totalCount}
+					progress={analysisStore.progress}
+					currentRecordId={analysisStore.currentRecordId}
+					busy={analysisStore.busy}
+					ocrDownloadProgress={analysisStore.ocrDownloadProgress}
+					ocrDownloadMsg={analysisStore.ocrDownloadMsg}
+					onStartAnalysis={() => analysisStore.startAnalysis()}
+				/>
+
+				<ThoughtStream logs={analysisStore.logs} />
+			</div>
 		</div>
+
+		<footer class="panel-footer">
+			<div class="notice">
+				<AlertCircle size={14} />
+				<span
+					>Ingestion and OCR are hardware intensive. Do not close the application during active
+					processing.</span
+				>
+			</div>
+		</footer>
 	</div>
-{/if}
+</Modal>
 
 <style>
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 2000;
-		background: rgba(0, 0, 0, 0.85);
-		backdrop-filter: blur(10px);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 40px;
-	}
-
 	.analysis-panel {
 		width: 100%;
 		max-width: 960px;
@@ -112,19 +99,19 @@
 
 	.brand {
 		display: flex;
-		gap: 16px;
+		gap: var(--space-3xl);
 		align-items: center;
 	}
 
 	.brand h2 {
 		margin: 0;
-		font-size: 18px;
+		font-size: var(--text-2xl);
 		font-weight: 600;
 		letter-spacing: 0.02em;
 	}
 	.brand p {
 		margin: 2px 0 0 0;
-		font-size: 12px;
+		font-size: var(--text-base);
 		color: var(--text-secondary);
 	}
 
@@ -133,7 +120,7 @@
 		border: none;
 		color: var(--text-tertiary);
 		cursor: pointer;
-		padding: 6px;
+		padding: var(--space-sm);
 		border-radius: 50%;
 		transition: all 0.2s;
 	}
@@ -145,14 +132,14 @@
 
 	.panel-body {
 		flex: 1;
-		padding: 28px;
+		padding: var(--space-6xl);
 		overflow: hidden;
 	}
 
 	.overhaul-grid {
 		display: grid;
 		grid-template-columns: 320px 1fr;
-		gap: 28px;
+		gap: var(--space-6xl);
 		height: 100%;
 	}
 
@@ -165,9 +152,9 @@
 	.notice {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: var(--space-lg);
 		color: var(--text-tertiary);
-		font-size: 11px;
+		font-size: var(--text-sm);
 	}
 
 	:global(.accent-icon) {

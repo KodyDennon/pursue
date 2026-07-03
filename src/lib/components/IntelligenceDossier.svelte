@@ -16,7 +16,7 @@
 	import type { CaseSummary, RecordSummary, RecordAsset } from '$lib/types';
 	import { convertFileSrc } from '@tauri-apps/api/core';
 	import { openUrl } from '@tauri-apps/plugin-opener';
-	import { addToast } from '$lib/toastStore';
+	import { addToast } from '$lib/stores/toastStore.svelte';
 
 	let {
 		record,
@@ -239,16 +239,16 @@
 	}
 
 	.error-msg {
-		margin: 24px;
+		margin: var(--space-5xl);
 		padding: 12px 16px;
 		background: rgba(255, 77, 77, 0.1);
 		border: 1px solid rgba(255, 77, 77, 0.2);
-		border-radius: 8px;
+		border-radius: var(--radius-base);
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		color: #ff4d4d;
-		font-size: 13px;
+		gap: var(--space-xl);
+		color: var(--color-accent-danger);
+		font-size: var(--text-md);
 	}
 
 	.error-msg button {
@@ -257,7 +257,7 @@
 		border: none;
 		color: #fff;
 		padding: 4px 12px;
-		border-radius: 4px;
+		border-radius: var(--radius-xs);
 		cursor: pointer;
 	}
 </style>

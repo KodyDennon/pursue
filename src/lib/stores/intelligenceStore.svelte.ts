@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { DatabaseStatus } from '$lib/types';
-import { addToast } from '$lib/toastStore';
+import { addToast } from '$lib/stores/toastStore.svelte';
 import { logger } from '$lib/logger';
 
 export interface HardwareDiagnosticsType {
@@ -45,7 +45,7 @@ class IntelligenceStore {
 
 	async init() {
 		await this.loadStatus();
-		this.intervalId = setInterval(() => this.loadStatus(), 5000);
+		this.resumeStatusPolling();
 
 		this.unlistenProgress = await listen<{
 			model_id: string;
@@ -115,9 +115,24 @@ class IntelligenceStore {
 	}
 
 	destroy() {
-		if (this.intervalId) clearInterval(this.intervalId);
+		this.pauseStatusPolling();
 		if (this.unlistenProgress) this.unlistenProgress();
 		if (this.unlistenAnalysis) this.unlistenAnalysis();
+	}
+
+	// get_database_status runs 17 COUNT(*) subqueries; polling it every 5s regardless of
+	// whether anything is looking at it is wasted DB load. Callers pause this when the
+	// Intelligence Center view isn't active and resume it when it is.
+	pauseStatusPolling() {
+		if (this.intervalId) {
+			clearInterval(this.intervalId);
+			this.intervalId = null;
+		}
+	}
+
+	resumeStatusPolling() {
+		if (this.intervalId) return;
+		this.intervalId = setInterval(() => this.loadStatus(), 5000);
 	}
 
 	async loadStatus() {
