@@ -21,7 +21,10 @@ describe('download worker core', () => {
 	});
 
 	test('builds the Tauri camelCase payload for DVIDS metadata resolution', () => {
-		expect(buildResolveDvidsMetadataArgs('1007879').videoId).toBe('1007879');
+		const args = buildResolveDvidsMetadataArgs('1007879', 'record-1');
+		expect(args.videoId).toBe('1007879');
+		expect(args.recordId).toBe('record-1');
+		expect(buildResolveDvidsMetadataArgs('1007879', null).recordId).toBeNull();
 	});
 
 	test('encodes chunk bytes as base64 for compact Tauri IPC payloads', () => {

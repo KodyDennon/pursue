@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { discoverWarGovCsvUrl } from './warGovSource';
+import { discoverWarGovCsvUrl, validateWarGovCsv } from './warGovSource';
 
 describe('WAR.gov UFO source discovery', () => {
 	test('uses the active page script CSV and ignores hidden legacy anchors', () => {
@@ -24,5 +24,27 @@ describe('WAR.gov UFO source discovery', () => {
 		`;
 
 		expect(() => discoverWarGovCsvUrl(html)).toThrow(/active WAR.gov UFO CSV/i);
+	});
+});
+
+describe('WAR.gov UFO CSV validation', () => {
+	const validHeader =
+		'Redaction,Release Date,Title,Type,Video Pairing,PDF Pairing,Description Blurb,DVIDS Video ID,Video Title,Agency,Incident Date,Incident Location,PDF | Image Link,Modal Image,Image Alt Text,Image VIRIN\n';
+
+	test('accepts a CSV with all required headers', () => {
+		expect(() => validateWarGovCsv(validHeader)).not.toThrow();
+	});
+
+	test('rejects a CSV missing a download-driving column, not just the basic ones', () => {
+		const withoutDownloadColumns = validHeader.replace('PDF | Image Link,', '').replace('DVIDS Video ID,', '');
+		expect(() => validateWarGovCsv(withoutDownloadColumns)).toThrow(
+			/missing required header/i
+		);
+	});
+
+	test('rejects an HTML error page returned instead of CSV', () => {
+		expect(() => validateWarGovCsv('<!DOCTYPE html><html>...')).toThrow(
+			/missing required header/i
+		);
 	});
 });

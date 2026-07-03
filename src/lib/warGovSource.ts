@@ -30,7 +30,18 @@ export function discoverWarGovCsvUrl(html: string): string {
 
 export function validateWarGovCsv(csvText: string): void {
 	const firstLine = csvText.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0] ?? '';
-	const requiredHeaders = ['Release Date', 'Title', 'Type', 'Agency'];
+	// 'PDF | Image Link'/'DVIDS Video ID'/'Modal Image' drive downloads directly \u2014 if war.gov
+	// renames one of these, every record would silently classify as metadata-only and every
+	// download would be skipped even though sync itself "succeeds". Fail fast here instead.
+	const requiredHeaders = [
+		'Release Date',
+		'Title',
+		'Type',
+		'Agency',
+		'PDF | Image Link',
+		'DVIDS Video ID',
+		'Modal Image'
+	];
 	for (const header of requiredHeaders) {
 		if (!firstLine.includes(header)) {
 			throw new Error(`WAR.gov CSV is missing required header: ${header}`);

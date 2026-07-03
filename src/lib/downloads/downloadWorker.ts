@@ -147,7 +147,7 @@ async function downloadItem(jobId: string, item: BulkDownloadItem) {
 	controllers.set(`${jobId}:${item.id}`, controller);
 	try {
 		if (!item.url) throw new Error('No source URL available');
-		const source = await resolveSource(item.url, controller.signal);
+		const source = await resolveSource(item.url, item.record_id, controller.signal);
 		let begin = (await hostCall('begin_download_item', {
 			request: {
 				job_id: jobId,
@@ -255,6 +255,7 @@ async function downloadItem(jobId: string, item: BulkDownloadItem) {
 
 async function resolveSource(
 	rawUrl: string,
+	recordId: string | null,
 	_signal: AbortSignal
 ): Promise<{ url: string; host: string }> {
 	if (!rawUrl.startsWith('dvids://asset/')) {
@@ -264,11 +265,13 @@ async function resolveSource(
 	const assetId = rawUrl.slice('dvids://asset/'.length);
 	console.log(`[Worker] Resolving DVIDS asset: ${assetId}`);
 
-	// We use the host resolver (hidden webview) to bypass WAF.
-	// We add a 30-second timeout to prevent permanent hang in the worker thread.
+	// We use the host resolver (hidden webview) to bypass WAF. recordId lets the host look up
+	// whether this is a video or audio DVIDS asset (source_asset_class) instead of always
+	// requesting the video: namespace. We add a 30-second timeout to prevent permanent hang in
+	// the worker thread.
 	const resolutionPromise = hostCall(
 		'resolve_dvids_metadata',
-		buildResolveDvidsMetadataArgs(assetId)
+		buildResolveDvidsMetadataArgs(assetId, recordId)
 	);
 
 	const timeoutPromise = new Promise((_, reject) =>

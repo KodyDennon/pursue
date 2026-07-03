@@ -53,8 +53,11 @@ export function classifyDownloadError(error: unknown): DownloadErrorClass {
 	return 'unknown';
 }
 
-export function buildResolveDvidsMetadataArgs(assetId: string): { videoId: string } {
-	return { videoId: assetId };
+export function buildResolveDvidsMetadataArgs(
+	assetId: string,
+	recordId: string | null
+): { videoId: string; recordId: string | null } {
+	return { videoId: assetId, recordId };
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {
