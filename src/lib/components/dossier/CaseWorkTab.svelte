@@ -120,7 +120,7 @@
 		font-size: var(--text-2xs);
 		font-weight: 900;
 		letter-spacing: 0.15em;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 	.case-work-section {
 		display: flex;
@@ -130,11 +130,11 @@
 	.case-status {
 		font-size: var(--text-md);
 		font-weight: 600;
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 	.case-work-section textarea {
 		background: rgba(0, 0, 0, 0.3);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-base);
 		padding: var(--space-3xl);
 		color: #fff;
@@ -147,7 +147,7 @@
 	}
 	.path-line {
 		font-size: var(--text-sm);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-family: var(--font-mono);
 	}
 	.error-msg {

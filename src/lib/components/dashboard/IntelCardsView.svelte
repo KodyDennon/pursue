@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { convertFileSrc } from '@tauri-apps/api/core';
 	import type { RecordSummary } from '$lib/types';
-	import { formatBytes } from '$lib/utils';
+	import { formatBytes, resolveLibraryAssetPath } from '$lib/utils';
+	import { getRecordStatusClass } from '$lib/recordStatus';
 	import {
 		FileText,
 		MapPin,
@@ -30,10 +30,7 @@
 	}>();
 
 	function resolvePath(rel: string | null) {
-		if (!rel || !libraryPath) return '';
-		const cleanLib =
-			libraryPath.endsWith('/') || libraryPath.endsWith('\\') ? libraryPath : libraryPath + '/';
-		return convertFileSrc(cleanLib + rel);
+		return resolveLibraryAssetPath(libraryPath, rel);
 	}
 </script>
 
@@ -79,15 +76,7 @@
 					<div class="card-content">
 						<header>
 							<span class="agency">{record.agency || 'AARO_OFFICIAL'}</span>
-							<div
-								class="status"
-								class:ready={record.analysis_status === 'completed'}
-								class:indexed={record.analysis_status === 'indexed'}
-								class:busy={record.analysis_status === 'synthesizing'}
-								class:pending={record.analysis_status === 'indexing' ||
-									record.analysis_status === 'extracting-foundation'}
-								class:error={record.analysis_status === 'failed'}
-							>
+							<div class="status {getRecordStatusClass(record.analysis_status)}">
 								{#if record.analysis_status === 'completed'}
 									<CheckCircle2 size={10} /> <span>READY</span>
 								{:else if record.analysis_status === 'indexed'}
@@ -151,8 +140,8 @@
 	}
 
 	.intel-card {
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
+		background: var(--color-bg-surface);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-lg);
 		overflow: hidden;
 		display: flex;
@@ -164,13 +153,13 @@
 
 	.intel-card:hover {
 		transform: translateY(-4px);
-		border-color: var(--accent-primary);
-		background: var(--bg-surface-elevated);
+		border-color: var(--color-accent-primary);
+		background: var(--color-bg-surface-elevated);
 		box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
 	}
 
 	.intel-card.active {
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 		box-shadow: 0 0 0 2px rgba(231, 196, 107, 0.2);
 	}
 
@@ -200,7 +189,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		background: radial-gradient(circle at center, #111 0%, #000 100%);
 	}
 
@@ -228,7 +217,7 @@
 		font-size: var(--text-xs);
 		font-weight: 800;
 		letter-spacing: 0.15em;
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		text-transform: uppercase;
 	}
 
@@ -238,14 +227,14 @@
 		gap: var(--space-sm);
 		font-size: var(--text-2xs);
 		font-weight: 700;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		background: rgba(255, 255, 255, 0.05);
 		padding: 2px 8px;
 		border-radius: var(--radius-xs);
 	}
 
 	.status.ready {
-		color: var(--accent-success);
+		color: var(--color-accent-success);
 		background: rgba(77, 243, 169, 0.1);
 	}
 
@@ -255,7 +244,7 @@
 	}
 
 	.status.busy {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		background: rgba(231, 196, 107, 0.1);
 	}
 
@@ -265,7 +254,7 @@
 	}
 
 	.status.error {
-		color: var(--accent-danger);
+		color: var(--color-accent-danger);
 		background: rgba(243, 77, 77, 0.1);
 	}
 
@@ -274,7 +263,7 @@
 		font-weight: 600;
 		margin: 0 0 12px 0;
 		line-height: 1.4;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		display: -webkit-box;
 		line-clamp: 2;
 		-webkit-line-clamp: 2;
@@ -285,7 +274,7 @@
 	.summary {
 		font-size: var(--text-md);
 		line-height: 1.5;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin: 0 0 20px 0;
 		display: -webkit-box;
 		line-clamp: 3;
@@ -307,7 +296,7 @@
 		align-items: center;
 		gap: var(--space-md);
 		font-size: var(--text-sm);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	footer {
@@ -315,7 +304,7 @@
 		justify-content: space-between;
 		align-items: center;
 		padding-top: var(--space-3xl);
-		border-top: 1px solid var(--border-subtle);
+		border-top: 1px solid var(--color-border-subtle);
 	}
 
 	.source {
@@ -323,19 +312,19 @@
 		align-items: center;
 		gap: var(--space-sm);
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		text-transform: uppercase;
 	}
 
 	.size {
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.empty-intel {
 		padding: 100px;
 		text-align: center;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-style: italic;
 	}
 </style>

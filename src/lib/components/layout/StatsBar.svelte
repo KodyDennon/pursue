@@ -20,15 +20,15 @@
 		gap: var(--space-5xl);
 		padding: 8px 32px;
 		background: rgba(0, 0, 0, 0.2);
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--color-border-subtle);
 		font-size: var(--text-sm);
 		text-transform: uppercase;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		letter-spacing: 0.05em;
 	}
 
 	.stats-bar strong {
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		margin-left: var(--space-xs);
 	}
 </style>

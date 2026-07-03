@@ -48,14 +48,14 @@
 	.os-footer {
 		height: 32px;
 		background: #050608;
-		border-top: 1px solid var(--border-subtle);
+		border-top: 1px solid var(--color-border-subtle);
 		display: flex;
 		align-items: center;
 		padding: 0 32px;
 		gap: var(--space-7xl);
 		font-size: var(--text-xs);
 		letter-spacing: 0.1em;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		text-transform: uppercase;
 		width: 100%;
 		box-sizing: border-box;
@@ -71,7 +71,7 @@
 		margin-left: auto;
 		gap: var(--space-5xl);
 		padding-right: var(--space-5xl);
-		border-right: 1px solid var(--border-subtle);
+		border-right: 1px solid var(--color-border-subtle);
 		height: 100%;
 	}
 
@@ -91,7 +91,7 @@
 
 	.res-bar-fill {
 		height: 100%;
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		transition: width 0.3s ease;
 	}
 
@@ -100,13 +100,13 @@
 	}
 
 	.f-val {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		font-weight: 600;
 	}
 
 	.engine-status {
 		margin-left: auto;
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.status-orb {
@@ -117,8 +117,8 @@
 	}
 
 	.status-orb.busy {
-		background: var(--accent-primary);
-		box-shadow: 0 0 8px var(--accent-primary);
+		background: var(--color-accent-primary);
+		box-shadow: 0 0 8px var(--color-accent-primary);
 		animation: orb-pulse 2s infinite;
 	}
 

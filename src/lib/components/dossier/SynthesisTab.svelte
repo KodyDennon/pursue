@@ -101,12 +101,12 @@
 		font-size: var(--text-2xs);
 		font-weight: 900;
 		letter-spacing: 0.15em;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 	.para {
 		font-size: var(--text-lg);
 		line-height: 1.7;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 	.data-grid-tactical {
 		display: grid;
@@ -119,7 +119,7 @@
 	}
 	.t-card {
 		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		padding: var(--space-3xl);
 		border-radius: var(--radius-base);
 		display: flex;
@@ -135,7 +135,7 @@
 	.t-label {
 		font-size: var(--text-2xs);
 		font-weight: 900;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 	.t-val {
 		font-size: var(--text-lg);
@@ -149,7 +149,7 @@
 	}
 	.fidelity-dial-wrap {
 		background: #000;
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		padding: var(--space-4xl);
 		border-radius: var(--radius-md);
 		text-align: center;
@@ -158,7 +158,7 @@
 		font-size: var(--text-6xl);
 		font-weight: 800;
 		margin-top: var(--space-xl);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 	.pending-state {
 		height: 400px;
@@ -168,10 +168,10 @@
 		justify-content: center;
 		text-align: center;
 		gap: var(--space-3xl);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 	.primary-btn {
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
 		border: none;
 		padding: 12px 24px;
@@ -211,6 +211,6 @@
 		height: 100px;
 		object-fit: cover;
 		border-radius: var(--radius-xs);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 	}
 </style>

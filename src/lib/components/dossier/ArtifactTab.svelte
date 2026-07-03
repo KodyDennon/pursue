@@ -74,8 +74,8 @@
 
 	.action-btn {
 		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid var(--border-subtle);
-		color: var(--text-secondary);
+		border: 1px solid var(--color-border-subtle);
+		color: var(--color-text-secondary);
 		padding: 6px 12px;
 		border-radius: var(--radius-xs);
 		font-size: var(--text-sm);
@@ -89,12 +89,12 @@
 
 	.action-btn:hover {
 		background: rgba(255, 255, 255, 0.1);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.action-btn.accent {
-		border-color: var(--accent-primary-glow);
-		color: var(--accent-primary);
+		border-color: var(--color-accent-primary-glow);
+		color: var(--color-accent-primary);
 	}
 
 	.artifact-preview {
@@ -102,7 +102,7 @@
 		background: #000;
 		border-radius: var(--radius-md);
 		overflow: hidden;
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		min-height: 400px;
 	}
 
@@ -120,13 +120,13 @@
 		justify-content: center;
 		text-align: center;
 		gap: var(--space-3xl);
-		color: var(--text-tertiary);
-		border: 2px dashed var(--border-subtle);
+		color: var(--color-text-tertiary);
+		border: 2px dashed var(--color-border-subtle);
 		border-radius: var(--radius-md);
 	}
 
 	.pending-state h3 {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.pending-state p {
@@ -135,7 +135,7 @@
 	}
 
 	.primary-btn {
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
 		border: none;
 		padding: 10px 20px;

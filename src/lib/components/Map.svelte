@@ -211,10 +211,10 @@
 
 	.map-overlay .msg {
 		padding: 16px 32px;
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
+		background: var(--color-bg-surface);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-md);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		font-size: var(--text-lg);
 		font-weight: 600;
 		letter-spacing: 0.05em;

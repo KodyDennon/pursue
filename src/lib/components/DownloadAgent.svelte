@@ -151,8 +151,8 @@
 		gap: var(--space-4xl);
 		padding: var(--space-5xl);
 		border-radius: var(--radius-lg);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
+		background: var(--color-bg-surface);
+		border: 1px solid var(--color-border-subtle);
 		height: 100%;
 	}
 
@@ -171,7 +171,7 @@
 	.agent-settings-bar {
 		padding: 12px 16px;
 		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-md);
 		margin-bottom: var(--space-4xl);
 	}
@@ -188,7 +188,7 @@
 		cursor: pointer;
 		font-size: var(--text-sm);
 		font-weight: 700;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -216,7 +216,7 @@
 		transition: transform 0.3s;
 	}
 	input:checked + .slider {
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 	}
 	input:checked + .slider::after {
 		transform: translateX(14px);
@@ -232,17 +232,17 @@
 		font-size: var(--text-xl);
 		font-weight: 600;
 		margin: 0;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.agent-info p {
 		font-size: var(--text-md);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin: 4px 0 0 0;
 	}
 
 	.accent-icon {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.agent-btn {
@@ -258,15 +258,15 @@
 	}
 
 	.agent-btn.primary {
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
 		border: none;
 	}
 
 	.agent-btn.secondary {
 		background: rgba(255, 255, 255, 0.05);
-		color: var(--text-primary);
-		border: 1px solid var(--border-subtle);
+		color: var(--color-text-primary);
+		border: 1px solid var(--color-border-subtle);
 	}
 
 	.agent-btn.danger {
@@ -315,7 +315,7 @@
 
 	.count {
 		font-size: var(--text-base);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.progress-bar-bg {
@@ -327,20 +327,20 @@
 
 	.progress-bar-fill {
 		height: 100%;
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		transition: width 0.4s ease;
-		box-shadow: 0 0 10px var(--accent-primary);
+		box-shadow: 0 0 10px var(--color-accent-primary);
 	}
 
 	.mini-stats {
 		display: flex;
 		gap: var(--space-3xl);
 		font-size: var(--text-sm);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.mini-stats strong {
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 	.text-error {
 		color: var(--color-accent-danger) !important;
@@ -380,7 +380,7 @@
 		width: 4px;
 		height: 4px;
 		border-radius: 50%;
-		background: var(--text-tertiary);
+		background: var(--color-text-tertiary);
 	}
 
 	.asset-details {
@@ -391,7 +391,7 @@
 
 	.asset-title {
 		font-size: var(--text-md);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -400,14 +400,14 @@
 
 	.asset-meta {
 		font-size: var(--text-sm);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.text-success {
 		color: var(--color-accent-success);
 	}
 	.text-accent {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.agent-idle {
@@ -417,7 +417,7 @@
 		justify-content: center;
 		padding: var(--space-9xl);
 		text-align: center;
-		border: 1px dashed var(--border-subtle);
+		border: 1px dashed var(--color-border-subtle);
 		border-radius: var(--radius-md);
 		background: rgba(0, 0, 0, 0.1);
 	}
@@ -432,7 +432,7 @@
 	.status-indicator {
 		font-size: var(--text-xs);
 		font-weight: 900;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		padding: 4px 12px;
 		background: rgba(255, 255, 255, 0.05);
 		border-radius: var(--radius-xl);
@@ -440,7 +440,7 @@
 	}
 
 	.idle-content p {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin: 0;
 	}
 
@@ -458,14 +458,14 @@
 
 	.s-label {
 		font-size: var(--text-2xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-weight: 800;
 	}
 
 	.s-val {
 		font-size: var(--text-4xl);
 		font-weight: 300;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		font-family: var(--font-display);
 	}
 

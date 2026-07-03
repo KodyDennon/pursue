@@ -131,10 +131,10 @@
 	}
 
 	.status-label {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 	.count-label {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.progress-bar-bg {
@@ -147,8 +147,8 @@
 
 	.progress-bar-fill {
 		height: 100%;
-		background: var(--accent-primary);
-		box-shadow: 0 0 12px var(--accent-primary);
+		background: var(--color-accent-primary);
+		box-shadow: 0 0 12px var(--color-accent-primary);
 		transition: width 0.3s ease-out;
 	}
 
@@ -172,13 +172,13 @@
 
 	.info-card {
 		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-md);
 		padding: 14px 16px;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2xl);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		transition: border-color 0.2s;
 	}
 
@@ -188,11 +188,11 @@
 	}
 
 	:global(.card-icon) {
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.info-card.indexing :global(.pulse-active) {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		animation: pulse-light 1.5s infinite ease-in-out;
 	}
 
@@ -238,7 +238,7 @@
 	.start-btn {
 		width: 100%;
 		height: 44px;
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
 		border: none;
 		border-radius: var(--radius-md);
@@ -320,16 +320,16 @@
 	}
 
 	.ocr-status-label {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.ocr-count-label {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.ocr-msg {
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-family: var(--font-mono);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -341,6 +341,6 @@
 	}
 
 	.ocr-fill {
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 	}
 </style>

@@ -14,13 +14,13 @@
 	h2 {
 		font-size: var(--text-3xl);
 		margin-bottom: var(--space-md);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		letter-spacing: 0.05em;
 	}
 
 	.status-mono {
 		font-size: var(--text-sm);
-		color: var(--accent-success);
+		color: var(--color-accent-success);
 		margin-bottom: var(--space-5xl);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
@@ -28,7 +28,7 @@
 
 	.diagnostic-loader {
 		padding: var(--space-4xl);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	:global(.spin) {

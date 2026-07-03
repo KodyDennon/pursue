@@ -199,7 +199,7 @@
 	.hud-btn {
 		background: rgba(255, 255, 255, 0.05);
 		border: 1px solid rgba(255, 255, 255, 0.1);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		padding: 6px 12px;
 		border-radius: var(--radius-xs);
 		font-size: var(--text-xs);
@@ -211,9 +211,9 @@
 	}
 
 	.hud-btn.active {
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 	}
 
 	.document-stage {
@@ -297,8 +297,8 @@
 		left: 0;
 		width: 100%;
 		height: 2px;
-		background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
-		box-shadow: 0 0 10px var(--accent-primary);
+		background: linear-gradient(90deg, transparent, var(--color-accent-primary), transparent);
+		box-shadow: 0 0 10px var(--color-accent-primary);
 		animation: scan 4s linear infinite;
 		opacity: 0;
 		pointer-events: none;
@@ -319,7 +319,7 @@
 
 	.discovery-sidebar {
 		background: #0a0b0d;
-		border-left: 1px solid var(--border-subtle);
+		border-left: 1px solid var(--color-border-subtle);
 		padding: var(--space-7xl);
 		display: flex;
 		flex-direction: column;
@@ -334,7 +334,7 @@
 	.prefix {
 		font-size: var(--text-2xs);
 		font-weight: 900;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		letter-spacing: 0.2em;
 	}
 
@@ -346,7 +346,7 @@
 
 	.discovery-card {
 		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-base);
 		padding: var(--space-3xl);
 		transition: all 0.2s ease;
@@ -354,7 +354,7 @@
 	}
 
 	.discovery-card.active {
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 		background: rgba(255, 179, 0, 0.05);
 		transform: translateX(-4px);
 	}
@@ -362,7 +362,7 @@
 	.d-type-tag {
 		font-size: var(--text-2xs);
 		font-weight: 900;
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		margin-bottom: var(--space-xl);
 		letter-spacing: 0.1em;
 	}
@@ -377,21 +377,21 @@
 		display: flex;
 		justify-content: space-between;
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.page-nav {
 		padding: 16px 40px;
 		background: #0a0b0d;
-		border-top: 1px solid var(--border-subtle);
+		border-top: 1px solid var(--color-border-subtle);
 		display: flex;
 		gap: var(--space-xl);
 	}
 
 	.page-nav button {
 		background: none;
-		border: 1px solid var(--border-subtle);
-		color: var(--text-tertiary);
+		border: 1px solid var(--color-border-subtle);
+		color: var(--color-text-tertiary);
 		padding: 6px 16px;
 		border-radius: var(--radius-xs);
 		font-size: var(--text-sm);
@@ -400,7 +400,7 @@
 	}
 
 	.page-nav button.active {
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
 		border: none;
 	}
@@ -411,7 +411,7 @@
 		align-items: center;
 		justify-content: center;
 		gap: var(--space-5xl);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 	:global(.pulse) {
 		animation: pulse 2s ease-in-out infinite;

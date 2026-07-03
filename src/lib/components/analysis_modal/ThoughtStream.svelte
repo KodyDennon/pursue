@@ -36,7 +36,7 @@
 		flex-direction: column;
 		gap: var(--space-lg);
 		overflow: hidden;
-		border-left: 1px solid var(--border-subtle);
+		border-left: 1px solid var(--color-border-subtle);
 		padding-left: var(--space-6xl);
 		height: 100%;
 	}
@@ -45,7 +45,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-md);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-size: var(--text-2xs);
 		font-weight: 800;
 		letter-spacing: 0.15em;
@@ -55,7 +55,7 @@
 	.log-viewport {
 		flex: 1;
 		background: rgba(0, 0, 0, 0.4);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-md);
 		padding: var(--space-3xl);
 		font-family: var(--font-mono);
@@ -71,7 +71,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		opacity: 0.5;
 		font-style: italic;
 	}
@@ -84,17 +84,17 @@
 	}
 
 	.log-time {
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		opacity: 0.6;
 		flex-shrink: 0;
 	}
 	.log-msg {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 	.log-entry.success .log-msg {
-		color: var(--accent-success);
+		color: var(--color-accent-success);
 	}
 	.log-entry.error .log-msg {
-		color: var(--accent-danger);
+		color: var(--color-accent-danger);
 	}
 </style>

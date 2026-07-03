@@ -45,11 +45,11 @@
 	.settings-head h2 {
 		font-size: var(--text-5xl);
 		margin-bottom: var(--space-md);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.settings-head p {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		font-size: 15px;
 	}
 

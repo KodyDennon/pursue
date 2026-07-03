@@ -62,12 +62,12 @@
 
 	h2 {
 		font-size: var(--text-4xl);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		margin: 0;
 	}
 
 	p {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin: 0;
 	}
 
@@ -75,7 +75,7 @@
 		width: 40px;
 		height: 40px;
 		border: 3px solid rgba(231, 196, 107, 0.1);
-		border-top: 3px solid var(--accent-primary);
+		border-top: 3px solid var(--color-accent-primary);
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
 		margin-bottom: var(--space-5xl);
@@ -97,7 +97,7 @@
 		gap: var(--space-md);
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		opacity: 0.7;
 		text-align: left;
 		width: 300px;
@@ -109,7 +109,7 @@
 		flex-direction: column;
 		gap: var(--space-xs);
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		animation: pulse 2s ease-in-out infinite;

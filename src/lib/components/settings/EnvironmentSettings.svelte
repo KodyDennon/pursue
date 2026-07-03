@@ -85,8 +85,8 @@
 
 <style>
 	.settings-section {
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
+		background: var(--color-bg-surface);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-lg);
 		display: flex;
 		flex-direction: column;
@@ -97,7 +97,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-3xl);
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--color-border-subtle);
 	}
 
 	.s-header h3 {
@@ -124,12 +124,12 @@
 		font-size: var(--text-sm);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.d-val {
 		font-size: var(--text-md);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		word-break: break-all;
 	}
 
@@ -149,14 +149,14 @@
 
 	.usage-fill {
 		height: 100%;
-		background: var(--accent-primary);
-		box-shadow: 0 0 8px var(--accent-primary);
+		background: var(--color-accent-primary);
+		box-shadow: 0 0 8px var(--color-accent-primary);
 	}
 
 	.s-footer {
 		padding: 16px 24px;
 		background: rgba(255, 255, 255, 0.02);
-		border-top: 1px solid var(--border-subtle);
+		border-top: 1px solid var(--color-border-subtle);
 	}
 
 	.footer-buttons {
@@ -176,7 +176,7 @@
 		cursor: pointer;
 		border: 1px solid rgba(255, 255, 255, 0.15);
 		background: rgba(255, 255, 255, 0.05);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		transition: all 0.2s;
 	}
 
@@ -192,6 +192,6 @@
 	}
 
 	:global(.accent-icon) {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 </style>

@@ -78,8 +78,8 @@
 
 <style>
 	.center-card {
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
+		background: var(--color-bg-surface);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-lg);
 		padding: var(--space-5xl);
 		display: flex;
@@ -91,7 +91,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-xl);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.center-card h3 {
@@ -116,7 +116,7 @@
 		justify-content: space-between;
 		flex: 1;
 		font-size: var(--text-base);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.actions {
@@ -127,7 +127,7 @@
 	.text-btn {
 		background: none;
 		border: none;
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		font-size: var(--text-sm);
 		font-weight: 700;
 		text-transform: uppercase;
@@ -163,13 +163,13 @@
 
 	.metric span {
 		font-size: var(--text-sm);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		text-transform: uppercase;
 	}
 
 	.metric strong {
 		font-size: 15px;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.text-warning {
@@ -179,7 +179,7 @@
 	.loading-state {
 		padding: var(--space-4xl);
 		text-align: center;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-style: italic;
 	}
 
@@ -193,7 +193,7 @@
 
 	.status-text {
 		font-size: var(--text-sm);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.analysis-progress .progress-bar-bg {
@@ -206,7 +206,7 @@
 
 	.analysis-progress .progress-bar-fill {
 		height: 100%;
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		transition: width 0.2s ease;
 	}
 
@@ -240,6 +240,6 @@
 		margin: 0;
 		font-size: var(--text-sm);
 		line-height: 1.5;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 </style>

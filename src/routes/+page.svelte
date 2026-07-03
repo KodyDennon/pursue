@@ -521,7 +521,7 @@
 			{#if analysisBusy && !analysisModalOpen}
 				<button class="pipeline-pill" onclick={() => (analysisModalOpen = true)}>
 					<span class="indicator-glow pulse-active yellow"></span>
-					<Layers size={14} style="color: var(--accent-primary)" />
+					<Layers size={14} style="color: var(--color-accent-primary)" />
 					<span class="label">Ingestion In Progress ({analysisProgress.toFixed(0)}%)</span>
 				</button>
 			{/if}
@@ -554,7 +554,7 @@
 		justify-content: space-between;
 		padding: 0 32px;
 		z-index: 10;
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--color-border-subtle);
 		user-select: none;
 		-webkit-user-select: none;
 	}
@@ -568,7 +568,7 @@
 		font-size: var(--text-lg);
 		font-weight: 800;
 		letter-spacing: 0.15em;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin: 0;
 	}
 
@@ -604,16 +604,16 @@
 		align-items: center;
 		gap: var(--space-xl);
 		padding: 8px 12px;
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-sm);
-		background: var(--bg-surface);
+		background: var(--color-bg-surface);
 		font-size: var(--text-base);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		z-index: 20;
 	}
 
 	.load-more-btn {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		font-weight: 700;
 	}
 
@@ -648,9 +648,9 @@
 		background: rgba(10, 12, 16, 0.75);
 		backdrop-filter: blur(12px);
 		-webkit-backdrop-filter: blur(12px);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: 30px;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		font-family: var(--font-sans);
 		font-size: var(--text-sm);
 		font-weight: 600;
@@ -679,8 +679,8 @@
 	}
 
 	.indicator-glow.yellow {
-		background: var(--accent-primary);
-		box-shadow: 0 0 10px var(--accent-primary);
+		background: var(--color-accent-primary);
+		box-shadow: 0 0 10px var(--color-accent-primary);
 	}
 
 	.indicator-glow.blue {

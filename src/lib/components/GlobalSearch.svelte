@@ -145,11 +145,11 @@
 		display: flex;
 		align-items: center;
 		padding: 16px 24px;
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--color-border-subtle);
 	}
 
 	:global(.search-icon) {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin-right: var(--space-3xl);
 	}
 
@@ -157,7 +157,7 @@
 		flex: 1;
 		background: transparent;
 		border: none;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		font-size: var(--text-2xl);
 		outline: none;
 	}
@@ -165,8 +165,8 @@
 	.spinner {
 		width: 20px;
 		height: 20px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent-primary);
+		border: 2px solid var(--color-border-subtle);
+		border-top-color: var(--color-accent-primary);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
 	}
@@ -179,7 +179,7 @@
 
 	.results-meta {
 		font-size: var(--text-sm);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		text-transform: uppercase;
 		margin-bottom: var(--space-xl);
 		padding-left: var(--space-md);
@@ -214,7 +214,7 @@
 
 	.match-score {
 		font-size: var(--text-sm);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		font-family: var(--font-mono);
 	}
 
@@ -226,7 +226,7 @@
 	.empty-state {
 		padding: var(--space-8xl);
 		text-align: center;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	@keyframes spin {

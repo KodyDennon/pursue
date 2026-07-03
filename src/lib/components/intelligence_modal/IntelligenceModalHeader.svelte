@@ -23,7 +23,7 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--color-border-subtle);
 	}
 
 	.brand {
@@ -41,13 +41,13 @@
 	.brand p {
 		margin: 2px 0 0 0;
 		font-size: var(--text-base);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.close-btn {
 		background: none;
 		border: none;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		cursor: pointer;
 		padding: var(--space-sm);
 		border-radius: 50%;
@@ -60,7 +60,7 @@
 	}
 
 	:global(.accent-icon) {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	:global(.pulse-active) {

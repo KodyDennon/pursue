@@ -10,12 +10,11 @@
  * churn as components are migrated one folder at a time.
  *
  * Note: Tailwind v4 reserves the `--text-*` @theme namespace for font-size utilities, so the
- * existing `--text-primary` / `--text-secondary` / `--text-tertiary` *color* tokens are
- * renamed `--color-text-*` here to avoid colliding with it. The plain `:root` block below
- * keeps the old bare names working as aliases so already-written components referencing
- * `var(--text-primary)` etc. are unaffected until they're migrated in the folder-by-folder
- * pass (see OVERHAUL_PLAN.md Phase 3). Remove the alias block only once nothing references
- * the old names anymore.
+ * pre-existing `--text-primary` / `--text-secondary` / `--text-tertiary` *color* tokens are
+ * namespaced `--color-text-*` here to avoid colliding with it. (A temporary `:root` alias
+ * bridge kept the old bare names working during the folder-by-folder migration in
+ * OVERHAUL_PLAN.md Phase 3; it's been removed now that every component references the
+ * `--color-*` names directly.)
  *
  * `@theme static` (not plain `@theme`) is required here: Tailwind v4 only emits a theme
  * variable as a real CSS custom property when it detects a matching utility class (e.g.
@@ -122,24 +121,6 @@
 	--shadow-glow-sm: 0 0 8px var(--color-accent-primary);
 	--shadow-glow-md: 0 0 12px var(--color-accent-primary);
 	--shadow-glow-lg: 0 0 20px rgba(231, 196, 107, 0.3);
-}
-
-:root {
-	/* Alias bridge: old bare token names -> new @theme tokens, kept 1:1 identical so nothing
-	   visually changes until a component is migrated. Remove once nothing references these
-	   (Phase 3.6). */
-	--bg-base: var(--color-bg-base);
-	--bg-surface: var(--color-bg-surface);
-	--bg-surface-elevated: var(--color-bg-surface-elevated);
-	--border-subtle: var(--color-border-subtle);
-	--border-glow: var(--color-border-glow);
-	--text-primary: var(--color-text-primary);
-	--text-secondary: var(--color-text-secondary);
-	--text-tertiary: var(--color-text-tertiary);
-	--accent-primary: var(--color-accent-primary);
-	--accent-primary-glow: var(--color-accent-primary-glow);
-	--accent-success: var(--color-accent-success);
-	--accent-danger: var(--color-accent-danger);
 }
 
 * {

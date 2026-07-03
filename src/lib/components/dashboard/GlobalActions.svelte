@@ -227,7 +227,7 @@
 		background: rgba(0, 0, 0, 0.2);
 		padding: var(--space-2xs);
 		border-radius: var(--radius-md);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 	}
 
 	.toggle-btn {
@@ -237,7 +237,7 @@
 		align-items: center;
 		justify-content: center;
 		border-radius: var(--radius-sm);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		transition: all 0.2s;
 		cursor: pointer;
 		background: none;
@@ -245,11 +245,11 @@
 	}
 
 	.toggle-btn:hover {
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 	.toggle-btn.active {
-		background: var(--bg-surface-elevated);
-		color: var(--accent-primary);
+		background: var(--color-bg-surface-elevated);
+		color: var(--color-accent-primary);
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 	}
 
@@ -262,10 +262,10 @@
 
 	.search-wrap input {
 		background: rgba(0, 0, 0, 0.4);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		padding: 8px 36px 8px 16px;
 		border-radius: var(--radius-sm);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		width: 240px;
 		font-size: var(--text-md);
 		transition:
@@ -274,7 +274,7 @@
 	}
 
 	.search-wrap input:focus {
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 		outline: none;
 		width: 320px;
 	}
@@ -282,7 +282,7 @@
 	.clear-search {
 		position: absolute;
 		right: 10px;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		background: none;
 		border: none;
 		cursor: pointer;
@@ -292,7 +292,7 @@
 	}
 
 	.clear-search:hover {
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.action-group {
@@ -305,17 +305,17 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-xs);
-		background: var(--bg-surface-elevated);
+		background: var(--color-bg-surface-elevated);
 		padding: var(--space-2xs);
 		border-radius: var(--radius-sm);
-		border: 1px solid var(--accent-primary);
+		border: 1px solid var(--color-accent-primary);
 	}
 
 	.web-ingest-expand input {
 		background: transparent;
 		border: none;
 		padding: 4px 8px;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		font-size: var(--text-base);
 		width: 180px;
 		outline: none;
@@ -330,15 +330,15 @@
 		border-radius: var(--radius-xs);
 		background: none;
 		border: none;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		cursor: pointer;
 	}
 	.icon-action-btn:hover {
 		background: rgba(255, 255, 255, 0.05);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 	.icon-action-btn.success {
-		color: var(--accent-success);
+		color: var(--color-accent-success);
 	}
 
 	:global(.spin) {

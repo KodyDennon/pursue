@@ -36,7 +36,7 @@
 		font-size: var(--text-2xs);
 		font-weight: 900;
 		letter-spacing: 0.15em;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.raw-text-block {
@@ -47,8 +47,8 @@
 		font-size: var(--text-base);
 		line-height: 1.8;
 		white-space: pre-wrap;
-		color: var(--text-secondary);
-		border: 1px solid var(--border-subtle);
+		color: var(--color-text-secondary);
+		border: 1px solid var(--color-border-subtle);
 	}
 
 	.pending-state {
@@ -59,11 +59,11 @@
 		justify-content: center;
 		text-align: center;
 		gap: var(--space-3xl);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.pending-state button {
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
 		border: none;
 		padding: 8px 16px;

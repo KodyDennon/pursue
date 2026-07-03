@@ -33,7 +33,7 @@
 		font-size: var(--text-2xs);
 		font-weight: 900;
 		letter-spacing: 0.15em;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.chunk-list {
@@ -44,7 +44,7 @@
 
 	.chunk-card {
 		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		padding: var(--space-3xl);
 		border-radius: var(--radius-base);
 	}
@@ -52,7 +52,7 @@
 	.c-idx {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		margin-bottom: var(--space-md);
 		display: block;
 	}
@@ -61,6 +61,6 @@
 		margin: 0;
 		font-size: var(--text-md);
 		line-height: 1.6;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 </style>

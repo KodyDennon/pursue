@@ -68,7 +68,7 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.diff-summary-counts {
@@ -79,13 +79,13 @@
 	}
 
 	.count.added {
-		color: var(--accent-success);
+		color: var(--color-accent-success);
 	}
 	.count.changed {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 	.count.removed {
-		color: var(--accent-danger);
+		color: var(--color-accent-danger);
 	}
 
 	.dismiss-btn {
@@ -95,14 +95,14 @@
 		justify-content: center;
 		background: transparent;
 		border: none;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		cursor: pointer;
 		padding: var(--space-xs);
 		border-radius: var(--radius-sm);
 	}
 
 	.dismiss-btn:hover {
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		background: rgba(255, 255, 255, 0.05);
 	}
 
@@ -120,17 +120,17 @@
 		align-items: center;
 		gap: var(--space-md);
 		font-size: var(--text-base);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.diff-item.added .diff-icon {
-		color: var(--accent-success);
+		color: var(--color-accent-success);
 	}
 	.diff-item.changed .diff-icon {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 	.diff-item.removed .diff-icon {
-		color: var(--accent-danger);
+		color: var(--color-accent-danger);
 	}
 
 	.diff-title {
@@ -141,6 +141,6 @@
 
 	.diff-overflow {
 		font-size: var(--text-sm);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 </style>

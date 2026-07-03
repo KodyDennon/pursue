@@ -100,8 +100,8 @@
 	.dock {
 		width: 68px;
 		height: 100%;
-		background-color: var(--bg-surface);
-		border-right: 1px solid var(--border-subtle);
+		background-color: var(--color-bg-surface);
+		border-right: 1px solid var(--color-border-subtle);
 		display: flex;
 		flex-direction: column;
 		justify-content: space-between;
@@ -120,12 +120,12 @@
 	}
 
 	.brand {
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		margin-bottom: var(--space-xl);
 	}
 
 	:global(.brand-icon) {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.nav-items {
@@ -143,18 +143,18 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		transition: var(--transition-fast);
 		position: relative;
 	}
 
 	.nav-item:hover {
-		color: var(--text-primary);
-		background-color: var(--bg-surface-elevated);
+		color: var(--color-text-primary);
+		background-color: var(--color-bg-surface-elevated);
 	}
 
 	.nav-item.active {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		background-color: rgba(231, 196, 107, 0.1);
 	}
 
@@ -166,7 +166,7 @@
 		transform: translateY(-50%);
 		height: 24px;
 		width: 3px;
-		background-color: var(--accent-primary);
+		background-color: var(--color-accent-primary);
 		border-radius: 0 4px 4px 0;
 	}
 </style>

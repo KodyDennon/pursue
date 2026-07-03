@@ -35,8 +35,8 @@
 		display: flex;
 		height: 100vh;
 		width: 100vw;
-		background-color: var(--bg-base);
-		color: var(--text-primary);
+		background-color: var(--color-bg-base);
+		color: var(--color-text-primary);
 		overflow: hidden;
 	}
 

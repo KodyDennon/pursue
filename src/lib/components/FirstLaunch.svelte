@@ -312,7 +312,7 @@
 		font-weight: 700;
 		font-size: var(--text-7xl);
 		letter-spacing: 0.25em;
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		margin-bottom: var(--space-5xl);
 		text-shadow: 0 0 10px rgba(231, 196, 107, 0.2);
 	}

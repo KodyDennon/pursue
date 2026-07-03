@@ -1,3 +1,5 @@
+import { convertFileSrc } from '@tauri-apps/api/core';
+
 /**
  * Formats a byte value into a human-readable string.
  */
@@ -11,4 +13,18 @@ export function formatBytes(value: number | null | undefined): string {
 		unit += 1;
 	}
 	return `${next.toFixed(next >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+/**
+ * Resolves a record's library-relative asset path (thumbnail, artifact) to a src the webview
+ * can load, given the app's library root directory.
+ */
+export function resolveLibraryAssetPath(
+	libraryPath: string | null | undefined,
+	relativePath: string | null | undefined
+): string {
+	if (!relativePath || !libraryPath) return '';
+	const cleanLib =
+		libraryPath.endsWith('/') || libraryPath.endsWith('\\') ? libraryPath : libraryPath + '/';
+	return convertFileSrc(cleanLib + relativePath);
 }

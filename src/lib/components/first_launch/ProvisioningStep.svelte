@@ -51,19 +51,19 @@
 	h2 {
 		font-size: var(--text-3xl);
 		margin-bottom: var(--space-md);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		letter-spacing: 0.05em;
 	}
 
 	p {
 		font-size: var(--text-lg);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin-bottom: var(--space-7xl);
 	}
 
 	.status-mono {
 		font-size: var(--text-sm);
-		color: var(--accent-success);
+		color: var(--color-accent-success);
 		margin-bottom: var(--space-5xl);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
@@ -81,8 +81,8 @@
 
 	.progress-fill {
 		height: 100%;
-		background: linear-gradient(90deg, var(--accent-primary), #f5d547);
-		box-shadow: 0 0 15px var(--accent-primary);
+		background: linear-gradient(90deg, var(--color-accent-primary), #f5d547);
+		box-shadow: 0 0 15px var(--color-accent-primary);
 		transition: width 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 	}
 
@@ -91,7 +91,7 @@
 		justify-content: space-between;
 		width: 100%;
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 		font-weight: 700;
@@ -102,7 +102,7 @@
 		justify-content: space-between;
 		width: 100%;
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		margin-top: var(--space-sm);
 		font-family: var(--font-mono);
 	}
@@ -110,7 +110,7 @@
 	.step-counter {
 		margin-top: var(--space-3xl);
 		font-size: var(--text-2xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.15em;
 		font-weight: 600;

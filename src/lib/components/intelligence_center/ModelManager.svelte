@@ -112,8 +112,8 @@
 
 <style>
 	.center-card {
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
+		background: var(--color-bg-surface);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-lg);
 		padding: var(--space-5xl);
 		display: flex;
@@ -125,7 +125,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-xl);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.center-card h3 {
@@ -147,7 +147,7 @@
 	.text-btn {
 		background: none;
 		border: none;
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		font-size: var(--text-sm);
 		font-weight: 700;
 		text-transform: uppercase;
@@ -181,13 +181,13 @@
 		align-items: center;
 		padding: var(--space-3xl);
 		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-md);
 		transition: var(--transition-fast);
 	}
 
 	.model-item.busy {
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 		background: rgba(231, 196, 107, 0.05);
 	}
 
@@ -203,8 +203,8 @@
 
 	.progress-bar {
 		height: 100%;
-		background: var(--accent-primary);
-		box-shadow: 0 0 8px var(--accent-primary);
+		background: var(--color-accent-primary);
+		box-shadow: 0 0 8px var(--color-accent-primary);
 		transition: width 0.2s ease;
 	}
 
@@ -217,16 +217,16 @@
 	.m-type {
 		font-size: var(--text-xs);
 		text-transform: uppercase;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 	.m-name {
 		font-size: var(--text-lg);
 		font-weight: 600;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 	.m-size {
 		font-size: var(--text-base);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.m-stats {
@@ -237,7 +237,7 @@
 	}
 
 	.m-eta {
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-family: var(--font-mono);
 	}
 
@@ -250,18 +250,18 @@
 		align-items: center;
 		justify-content: center;
 		border-radius: 50%;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		cursor: pointer;
 		transition: var(--transition-fast);
 	}
 
 	.icon-btn:hover {
-		background: var(--bg-surface-elevated);
-		color: var(--accent-primary);
+		background: var(--color-bg-surface-elevated);
+		color: var(--color-accent-primary);
 	}
 
 	:global(.text-success) {
-		color: var(--accent-success) !important;
+		color: var(--color-accent-success) !important;
 	}
 
 	:global(.spin) {

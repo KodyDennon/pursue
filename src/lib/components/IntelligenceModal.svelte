@@ -97,14 +97,14 @@
 	.panel-footer {
 		padding: 16px 28px;
 		background: rgba(0, 0, 0, 0.2);
-		border-top: 1px solid var(--border-subtle);
+		border-top: 1px solid var(--color-border-subtle);
 	}
 
 	.notice {
 		display: flex;
 		align-items: center;
 		gap: var(--space-lg);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-size: var(--text-sm);
 	}
 </style>

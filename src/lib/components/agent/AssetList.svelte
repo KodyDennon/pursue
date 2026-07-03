@@ -80,7 +80,7 @@
 		width: 4px;
 		height: 4px;
 		border-radius: 50%;
-		background: var(--text-tertiary);
+		background: var(--color-text-tertiary);
 	}
 
 	.asset-details {
@@ -91,7 +91,7 @@
 
 	.asset-title {
 		font-size: var(--text-md);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -100,14 +100,14 @@
 
 	.asset-meta {
 		font-size: var(--text-sm);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.text-success {
 		color: var(--color-accent-success);
 	}
 	.text-accent {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 	.text-error {
 		color: var(--color-accent-danger) !important;

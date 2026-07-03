@@ -47,7 +47,7 @@
 		display: flex;
 		padding: 0 32px;
 		gap: var(--space-7xl);
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--color-border-subtle);
 	}
 	.dossier-tabs button {
 		background: none;
@@ -55,7 +55,7 @@
 		padding: 16px 0;
 		font-size: var(--text-base);
 		font-weight: 700;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		border-bottom: 2px solid transparent;
 		cursor: pointer;
 		display: flex;
@@ -63,7 +63,7 @@
 		gap: var(--space-lg);
 	}
 	.dossier-tabs button.active {
-		color: var(--accent-primary);
-		border-bottom-color: var(--accent-primary);
+		color: var(--color-accent-primary);
+		border-bottom-color: var(--color-accent-primary);
 	}
 </style>

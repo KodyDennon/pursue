@@ -77,7 +77,7 @@
 		align-items: center;
 		justify-content: center;
 		gap: var(--space-3xl);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		font-size: var(--text-lg);
 		font-weight: 500;
 	}
@@ -88,7 +88,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-8xl);
-		background: var(--bg-base);
+		background: var(--color-bg-base);
 		animation: fadeIn 0.4s ease-out;
 	}
 
@@ -122,12 +122,12 @@
 	}
 
 	.title-wrap p {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin: 4px 0 0 0;
 	}
 
 	:global(.accent-icon) {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.center-grid {

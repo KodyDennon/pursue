@@ -45,21 +45,21 @@
 	}
 
 	.hero-icon {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin-bottom: var(--space-5xl);
 		opacity: 0.5;
 	}
 
 	h1 {
 		font-size: var(--text-6xl);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		margin-bottom: var(--space-3xl);
 		letter-spacing: -0.02em;
 	}
 
 	p {
 		font-size: var(--text-xl);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		line-height: 1.6;
 		margin-bottom: 48px;
 	}
@@ -77,17 +77,17 @@
 		align-items: center;
 		gap: var(--space-4xl);
 		padding: var(--space-5xl);
-		background: var(--bg-surface-elevated);
-		border: 1px solid var(--border-subtle);
+		background: var(--color-bg-surface-elevated);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-lg);
 		text-align: left;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		cursor: pointer;
 		transition: all 0.2s;
 	}
 
 	.action-card:hover {
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 		transform: translateY(-2px);
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
 	}
@@ -98,12 +98,12 @@
 	}
 
 	.action-card.primary:hover {
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 		background: rgba(231, 196, 107, 0.1);
 	}
 
 	.action-card :global(svg) {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		flex-shrink: 0;
 	}
 
@@ -116,7 +116,7 @@
 	.ac-text span {
 		display: block;
 		font-size: var(--text-md);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		line-height: 1.4;
 	}
 </style>

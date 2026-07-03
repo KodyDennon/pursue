@@ -33,7 +33,7 @@
 		font-size: var(--text-2xs);
 		font-weight: 900;
 		letter-spacing: 0.15em;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.log-stack {
@@ -44,7 +44,7 @@
 
 	.log-entry-item {
 		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-base);
 		overflow: hidden;
 	}
@@ -54,15 +54,15 @@
 		padding: 8px 16px;
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		color: var(--accent-primary);
-		border-bottom: 1px solid var(--border-subtle);
+		color: var(--color-accent-primary);
+		border-bottom: 1px solid var(--color-border-subtle);
 	}
 
 	.log-entry-item pre {
 		padding: var(--space-3xl);
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		white-space: pre-wrap;
 		margin: 0;
 	}

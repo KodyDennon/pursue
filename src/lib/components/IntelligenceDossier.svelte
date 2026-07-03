@@ -14,9 +14,9 @@
 	import ChunksTab from './dossier/ChunksTab.svelte';
 	import { dossierStore } from '$lib/stores/dossierStore.svelte';
 	import type { CaseSummary, RecordSummary, RecordAsset } from '$lib/types';
-	import { convertFileSrc } from '@tauri-apps/api/core';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import { addToast } from '$lib/stores/toastStore.svelte';
+	import { resolveLibraryAssetPath } from '$lib/utils';
 
 	let {
 		record,
@@ -39,10 +39,7 @@
 	}>();
 
 	function resolvePath(rel: string | null) {
-		if (!rel || !libraryPath) return '';
-		const cleanLib =
-			libraryPath.endsWith('/') || libraryPath.endsWith('\\') ? libraryPath : libraryPath + '/';
-		return convertFileSrc(cleanLib + rel);
+		return resolveLibraryAssetPath(libraryPath, rel);
 	}
 
 	let activeDomain = $state<'intelligence' | 'foundation'>('intelligence');
@@ -222,14 +219,14 @@
 
 	.panes-wrapper.split {
 		gap: 1px;
-		background: var(--border-subtle);
+		background: var(--color-border-subtle);
 	}
 
 	.artifact-pane {
 		width: 45%;
 		background: #000;
 		overflow: hidden;
-		border-right: 1px solid var(--border-subtle);
+		border-right: 1px solid var(--color-border-subtle);
 	}
 
 	.tab-content {

@@ -63,13 +63,13 @@
 	h2 {
 		font-size: var(--text-3xl);
 		margin-bottom: var(--space-md);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		letter-spacing: 0.05em;
 	}
 
 	p {
 		font-size: var(--text-lg);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		margin-bottom: var(--space-7xl);
 	}
 
@@ -90,7 +90,7 @@
 	.tier-card {
 		flex: 1;
 		background: rgba(255, 255, 255, 0.01);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-md);
 		padding: var(--space-5xl);
 		text-align: left;
@@ -105,11 +105,11 @@
 		font-size: var(--text-base);
 		margin: 0;
 		line-height: 1.5;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.tier-card.active {
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 		background: rgba(231, 196, 107, 0.05);
 		box-shadow: 0 0 20px rgba(231, 196, 107, 0.1);
 	}
@@ -123,7 +123,7 @@
 		top: -10px;
 		right: 12px;
 		font-size: 8px;
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
 		padding: 2px 6px;
 		border-radius: var(--radius-xs);
@@ -134,25 +134,25 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-xl);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.t-title {
 		font-weight: 700;
 		font-size: 15px;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.tier-meta {
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		text-transform: uppercase;
 		margin-top: auto;
 	}
 
 	.provision-btn {
 		width: 100%;
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
 		border: none;
 		border-radius: var(--radius-base);

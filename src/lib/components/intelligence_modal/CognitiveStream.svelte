@@ -36,7 +36,7 @@
 		flex-direction: column;
 		gap: var(--space-lg);
 		overflow: hidden;
-		border-left: 1px solid var(--border-subtle);
+		border-left: 1px solid var(--color-border-subtle);
 		padding-left: var(--space-6xl);
 	}
 
@@ -44,7 +44,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-md);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-size: var(--text-2xs);
 		font-weight: 800;
 		letter-spacing: 0.15em;
@@ -54,7 +54,7 @@
 	.stream-viewport {
 		flex: 1;
 		background: rgba(0, 0, 0, 0.4);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-md);
 		padding: var(--space-4xl);
 		overflow-y: auto;
@@ -73,13 +73,13 @@
 	.model-loading-fullscreen h3 {
 		font-size: var(--text-md);
 		letter-spacing: 0.1em;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.model-loading-fullscreen p {
 		font-size: var(--text-sm);
 		font-family: var(--font-mono);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		opacity: 0.8;
 	}
 
@@ -87,7 +87,7 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-base);
 		line-height: 1.7;
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		white-space: pre-wrap;
 		word-break: break-all;
 		text-shadow: 0 0 5px rgba(231, 196, 107, 0.2);
@@ -98,7 +98,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		opacity: 0.5;
 		font-style: italic;
 		font-size: var(--text-sm);
@@ -107,7 +107,7 @@
 	.cursor {
 		display: inline-block;
 		animation: blink 1s step-end infinite;
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	@keyframes blink {
@@ -139,6 +139,6 @@
 	}
 
 	:global(.accent-icon) {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 </style>

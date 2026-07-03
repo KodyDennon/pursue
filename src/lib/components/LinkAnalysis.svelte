@@ -64,11 +64,11 @@
 
 	.la-header h2 {
 		font-size: var(--text-4xl);
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.la-header p {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.matrix-grid {
@@ -80,7 +80,7 @@
 	.node-cluster {
 		padding: var(--space-5xl);
 		background: rgba(16, 17, 20, 0.8);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 	}
 
 	.cluster-head {
@@ -94,7 +94,7 @@
 
 	.cluster-head h3 {
 		font-size: var(--text-xl);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.node-count {
@@ -121,7 +121,7 @@
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
-		background: var(--text-secondary);
+		background: var(--color-text-secondary);
 	}
 
 	.title {
@@ -129,7 +129,7 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.status {
@@ -140,8 +140,8 @@
 	}
 
 	.status.completed {
-		background: var(--accent-success);
-		box-shadow: 0 0 8px var(--accent-success);
+		background: var(--color-accent-success);
+		box-shadow: 0 0 8px var(--color-accent-success);
 	}
 
 	.status.indexed {
@@ -151,7 +151,7 @@
 
 	.more-link {
 		font-size: var(--text-sm);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 		text-align: center;
 		margin-top: var(--space-md);
 		font-style: italic;

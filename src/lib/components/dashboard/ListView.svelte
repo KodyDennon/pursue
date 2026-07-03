@@ -133,12 +133,12 @@
 		top: 0;
 		background: #0a0b0d;
 		padding: 12px 16px;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 		font-size: var(--text-xs);
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--color-border-subtle);
 		z-index: 1;
 	}
 
@@ -172,11 +172,11 @@
 	}
 	.col-date {
 		width: 120px;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 	.col-size {
 		width: 100px;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 	}
@@ -192,12 +192,12 @@
 		justify-content: center;
 		border-radius: var(--radius-xs);
 		background: rgba(255, 255, 255, 0.05);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.status-indicator.ready {
 		background: rgba(77, 243, 169, 0.1);
-		color: var(--accent-success);
+		color: var(--color-accent-success);
 	}
 
 	.status-indicator.indexed {
@@ -207,12 +207,12 @@
 
 	.status-indicator.busy {
 		background: rgba(231, 196, 107, 0.1);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.status-indicator.error {
 		background: rgba(243, 77, 77, 0.1);
-		color: var(--accent-danger);
+		color: var(--color-accent-danger);
 	}
 
 	.title-cell {
@@ -223,7 +223,7 @@
 
 	.main-title {
 		font-weight: 500;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -232,7 +232,7 @@
 	.sub-id {
 		font-size: var(--text-xs);
 		font-family: var(--font-mono);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		opacity: 0.7;
 	}
 
@@ -242,7 +242,7 @@
 		background: rgba(255, 255, 255, 0.05);
 		padding: 2px 6px;
 		border-radius: var(--radius-xs);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.row-actions {
@@ -251,18 +251,18 @@
 	}
 
 	.source-link {
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		transition: color 0.2s;
 	}
 
 	.source-link:hover {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.empty-state {
 		padding: var(--space-9xl);
 		text-align: center;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-style: italic;
 	}
 </style>

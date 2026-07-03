@@ -21,7 +21,7 @@
 <style>
 	.dossier-header {
 		padding: 20px 32px;
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--color-border-subtle);
 		background: linear-gradient(to right, rgba(231, 196, 107, 0.05), transparent);
 		display: flex;
 		align-items: center;
@@ -31,7 +31,7 @@
 	.back-btn {
 		background: none;
 		border: none;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		display: flex;
 		align-items: center;
 		gap: var(--space-md);
@@ -43,7 +43,7 @@
 	}
 
 	.back-btn:hover {
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 	}
 
 	.header-main h2 {
@@ -51,7 +51,7 @@
 		font-family: var(--font-display);
 		font-weight: 600;
 		letter-spacing: -0.01em;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;

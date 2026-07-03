@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { convertFileSrc } from '@tauri-apps/api/core';
 	import type { RecordSummary } from '$lib/types';
-	import { formatBytes } from '$lib/utils';
+	import { formatBytes, resolveLibraryAssetPath } from '$lib/utils';
+	import { getRecordStatusClass } from '$lib/recordStatus';
 	import {
 		FileText,
 		MapPin,
@@ -29,10 +29,7 @@
 	}>();
 
 	function resolvePath(rel: string | null) {
-		if (!rel || !libraryPath) return '';
-		const cleanLib =
-			libraryPath.endsWith('/') || libraryPath.endsWith('\\') ? libraryPath : libraryPath + '/';
-		return convertFileSrc(cleanLib + rel);
+		return resolveLibraryAssetPath(libraryPath, rel);
 	}
 </script>
 
@@ -85,15 +82,7 @@
 						</div>
 					{/if}
 					<span class="agency-tag">{record.agency || 'AARO_OFFICIAL'}</span>
-					<div
-						class="status-indicator"
-						class:ready={record.analysis_status === 'completed'}
-						class:indexed={record.analysis_status === 'indexed'}
-						class:busy={record.analysis_status === 'synthesizing'}
-						class:pending={record.analysis_status === 'indexing' ||
-							record.analysis_status === 'extracting-foundation'}
-						class:error={record.analysis_status === 'failed'}
-					>
+					<div class="status-indicator {getRecordStatusClass(record.analysis_status)}">
 						{#if record.analysis_status === 'completed'}
 							<CheckCircle2 size={12} />
 						{:else if record.analysis_status === 'indexed'}
@@ -139,15 +128,7 @@
 							? formatBytes(record.artifact_size)
 							: 'Cloud Source'}</span
 					>
-					<div
-						class="intel-tag"
-						class:active={record.analysis_status === 'completed'}
-						class:indexed={record.analysis_status === 'indexed'}
-						class:pending={record.analysis_status === 'indexing' ||
-							record.analysis_status === 'extracting-foundation'}
-						class:busy={record.analysis_status === 'synthesizing'}
-						class:error={record.analysis_status === 'failed'}
-					>
+					<div class="intel-tag {getRecordStatusClass(record.analysis_status)}">
 						{#if record.analysis_status === 'completed'}
 							INTELLIGENCE READY
 						{:else if record.analysis_status === 'indexed'}
@@ -185,7 +166,7 @@
 
 	.evidence-card {
 		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-lg);
 		display: flex;
 		flex-direction: column;
@@ -197,13 +178,13 @@
 
 	.evidence-card:hover {
 		background: rgba(255, 255, 255, 0.04);
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 		transform: translateY(-2px);
 	}
 
 	.evidence-card.selected {
 		background: rgba(231, 196, 107, 0.05);
-		border-color: var(--accent-primary);
+		border-color: var(--color-accent-primary);
 		box-shadow: 0 0 20px rgba(231, 196, 107, 0.1);
 	}
 
@@ -266,8 +247,8 @@
 		left: 0;
 		width: 100%;
 		height: 2px;
-		background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
-		box-shadow: 0 0 15px var(--accent-primary);
+		background: linear-gradient(90deg, transparent, var(--color-accent-primary), transparent);
+		box-shadow: 0 0 15px var(--color-accent-primary);
 		opacity: 0;
 		pointer-events: none;
 		z-index: 5;
@@ -292,7 +273,7 @@
 		background: #000;
 		overflow: hidden;
 		position: relative;
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: 1px solid var(--color-border-subtle);
 	}
 
 	.card-preview img {
@@ -329,13 +310,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.agency-tag {
 		font-size: var(--text-xs);
 		font-weight: 700;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -351,12 +332,12 @@
 		padding: 2px 6px;
 		border-radius: var(--radius-xs);
 		background: rgba(255, 255, 255, 0.05);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.status-indicator.ready {
 		background: rgba(77, 243, 169, 0.1);
-		color: var(--accent-success);
+		color: var(--color-accent-success);
 	}
 
 	.status-indicator.indexed {
@@ -366,7 +347,7 @@
 
 	.status-indicator.busy {
 		background: rgba(231, 196, 107, 0.1);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.status-indicator.pending {
@@ -376,7 +357,7 @@
 
 	.status-indicator.error {
 		background: rgba(243, 77, 77, 0.1);
-		color: var(--accent-danger);
+		color: var(--color-accent-danger);
 	}
 
 	.card-body {
@@ -387,7 +368,7 @@
 		font-size: 15px;
 		font-weight: 600;
 		margin: 0;
-		color: var(--text-primary);
+		color: var(--color-text-primary);
 		line-height: 1.4;
 		display: -webkit-box;
 		line-clamp: 2;
@@ -408,7 +389,7 @@
 		align-items: center;
 		gap: var(--space-md);
 		font-size: var(--text-sm);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	.card-footer {
@@ -423,7 +404,7 @@
 
 	.file-info {
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.intel-tag {
@@ -437,8 +418,8 @@
 		transition: var(--transition-normal);
 	}
 
-	.intel-tag.active {
-		background: var(--accent-primary);
+	.intel-tag.ready {
+		background: var(--color-accent-primary);
 		color: #000;
 		box-shadow: 0 0 10px rgba(231, 196, 107, 0.3);
 	}
@@ -450,7 +431,7 @@
 
 	.intel-tag.busy {
 		background: rgba(231, 196, 107, 0.15);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.intel-tag.pending {
@@ -460,13 +441,13 @@
 
 	.intel-tag.error {
 		background: rgba(243, 77, 77, 0.15);
-		color: var(--accent-danger);
+		color: var(--color-accent-danger);
 	}
 
 	.empty-intel {
 		padding: 100px;
 		text-align: center;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-style: italic;
 	}
 </style>

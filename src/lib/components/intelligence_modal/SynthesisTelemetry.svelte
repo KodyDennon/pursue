@@ -153,7 +153,7 @@
 		padding: 16px 0;
 		background: rgba(255, 255, 255, 0.01);
 		border-radius: var(--radius-md);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 	}
 
 	.neural-network-glow {
@@ -177,12 +177,12 @@
 	}
 
 	:global(.neural-brain) {
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		transition: color 0.5s;
 	}
 
 	.neural-network-glow.active :global(.neural-brain) {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	:global(.pulse-brain) {
@@ -207,11 +207,11 @@
 		font-size: var(--text-xs);
 		font-weight: 800;
 		letter-spacing: 0.15em;
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 	}
 
 	.engine-state-label.busy {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 	}
 
 	.details-cards {
@@ -224,17 +224,17 @@
 
 	.info-card {
 		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--color-border-subtle);
 		border-radius: var(--radius-md);
 		padding: 14px 16px;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2xl);
-		color: var(--text-secondary);
+		color: var(--color-text-secondary);
 	}
 
 	:global(.card-icon) {
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		flex-shrink: 0;
 	}
 
@@ -290,12 +290,12 @@
 	}
 
 	.telemetry-row span {
-		color: var(--text-tertiary);
+		color: var(--color-text-tertiary);
 		font-weight: 500;
 	}
 
 	.telemetry-row strong {
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		font-weight: 600;
 	}
 
@@ -317,14 +317,14 @@
 
 	.model-progress-fill {
 		height: 100%;
-		background: var(--accent-primary);
-		box-shadow: 0 0 10px var(--accent-primary);
+		background: var(--color-accent-primary);
+		box-shadow: 0 0 10px var(--color-accent-primary);
 		transition: width 0.3s ease-out;
 	}
 
 	.model-progress-text {
 		font-family: var(--font-mono);
-		color: var(--accent-primary);
+		color: var(--color-accent-primary);
 		font-size: var(--text-xs);
 		font-weight: 700;
 		width: 40px;
@@ -340,8 +340,8 @@
 		width: 100%;
 		height: 44px;
 		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid var(--border-subtle);
-		color: var(--text-secondary);
+		border: 1px solid var(--color-border-subtle);
+		color: var(--color-text-secondary);
 		border-radius: var(--radius-md);
 		font-weight: 700;
 		font-size: var(--text-md);
@@ -355,7 +355,7 @@
 	}
 
 	.dismiss-btn.completed {
-		background: var(--accent-primary);
+		background: var(--color-accent-primary);
 		color: #000;
 		box-shadow: 0 4px 15px rgba(231, 196, 107, 0.2);
 		border: none;
