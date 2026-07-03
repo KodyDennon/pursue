@@ -1098,8 +1098,10 @@ pub async fn resolve_dvids_metadata(
 ) -> Result<serde_json::Value, String> {
     use tokio::sync::oneshot;
 
-    // Acquire permit to respect concurrency limit for the hidden webview
-    let _permit = state.webview_semaphore.acquire().await.map_err(to_error)?;
+    // Own semaphore, separate from webview_semaphore (used by actual file downloads) — a
+    // burst of DVIDS metadata lookups shouldn't be able to starve real downloads sharing the
+    // same hidden webview, or vice versa.
+    let _permit = state.dvids_semaphore.acquire().await.map_err(to_error)?;
 
     let asset_type = dvids_asset_type_for_record(&state.db, record_id.as_deref()).await;
 

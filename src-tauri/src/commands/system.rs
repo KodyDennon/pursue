@@ -108,7 +108,7 @@ pub async fn verify_vault_integrity(
     let pool = state.db.clone();
     let library = state.library.clone();
 
-    let records = sqlx::query("SELECT r.id, r.local_path, a.sha256 AS artifact_sha256 FROM records r LEFT JOIN artifacts a ON a.record_id = r.id WHERE r.local_path IS NOT NULL")
+    let records = sqlx::query("SELECT r.id, r.local_path, a.sha256 AS artifact_sha256 FROM records r LEFT JOIN artifacts a ON a.relative_path = r.local_path WHERE r.local_path IS NOT NULL")
         .fetch_all(&pool)
         .await
         .map_err(to_error)?;

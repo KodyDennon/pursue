@@ -106,7 +106,7 @@ pub async fn vector_search(pool: &SqlitePool, request: SearchRequest) -> Result<
         FROM vec_analysis_chunks v
         JOIN analysis_chunks c ON c.id = v.chunk_id
         JOIN records r ON r.id = c.record_id
-        LEFT JOIN artifacts a ON a.record_id = r.id
+        LEFT JOIN artifacts a ON a.relative_path = r.local_path
         WHERE v.embedding MATCH ? AND k = 20
           AND (? IS NULL OR r.source_type = ?)
           AND (? = 0 OR r.local_path IS NOT NULL)
@@ -157,6 +157,19 @@ pub async fn vectorize_text(text: &str) -> Result<Vec<f32>> {
 }
 
 async fn vectorize_text_with_model(text: &str) -> Result<Vec<f32>> {
+    // The whole body below is synchronous CPU-bound work (tokenization + ONNX inference +
+    // mean pooling, no .await anywhere) that was previously running directly on the calling
+    // tokio worker thread — meaning a live search blocked, and was blocked by, any concurrent
+    // per-chunk indexing embedding sharing the same global EMBEDDING_SESSION mutex. Running it
+    // via spawn_blocking moves it off the async worker pool onto tokio's blocking thread pool,
+    // so it no longer starves other async tasks while it holds the lock.
+    let text = text.to_string();
+    tokio::task::spawn_blocking(move || vectorize_text_with_model_blocking(&text))
+        .await
+        .map_err(|e| anyhow::anyhow!("embedding task panicked: {e}"))?
+}
+
+fn vectorize_text_with_model_blocking(text: &str) -> Result<Vec<f32>> {
     let tokenizer = get_tokenizer()?;
     let encoding = tokenizer
         .encode(text, true)
@@ -236,6 +249,13 @@ async fn keyword_search(
     query: &str,
     filters: &SearchFilters,
 ) -> Result<Vec<SearchResultItem>> {
+    // Uses the existing analysis_chunks_fts index (already populated by analysis/persistence.rs
+    // for every indexed chunk) instead of `LIKE '%...%'` over chunk text, which can't use any
+    // index and was scanning every analyzed chunk's full text on every fallback search.
+    let Some(fts_query) = crate::db::records::to_fts5_query(query) else {
+        return Ok(Vec::new());
+    };
+
     sqlx::query_as::<_, SearchResultItem>(
         r#"
         SELECT
@@ -243,10 +263,11 @@ async fn keyword_search(
             r.intelligence_json as summary, a.sha256 as artifact_sha256,
             0.0 as distance,
             c.text as excerpt
-        FROM analysis_chunks c
-        JOIN records r ON r.id = c.record_id
-        LEFT JOIN artifacts a ON a.record_id = r.id
-        WHERE (r.title LIKE ? OR c.text LIKE ?)
+        FROM analysis_chunks_fts f
+        JOIN analysis_chunks c ON c.id = f.chunk_id
+        JOIN records r ON r.id = f.record_id
+        LEFT JOIN artifacts a ON a.relative_path = r.local_path
+        WHERE analysis_chunks_fts MATCH ?
           AND (? IS NULL OR r.source_type = ?)
           AND (? = 0 OR r.local_path IS NOT NULL)
           AND (
@@ -258,8 +279,7 @@ async fn keyword_search(
         LIMIT 20
         "#,
     )
-    .bind(format!("%{}%", query))
-    .bind(format!("%{}%", query))
+    .bind(fts_query)
     .bind(&filters.source_type)
     .bind(&filters.source_type)
     .bind(if filters.local_only.unwrap_or(false) {

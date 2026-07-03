@@ -23,7 +23,12 @@ pub struct AppState {
     pub db: sqlx::SqlitePool,
     pub library: Arc<LibraryManager>,
     pub analysis: Arc<AnalysisManager>,
+    // Separate semaphores: a burst of DVIDS metadata resolutions (fast, small requests) and
+    // actual file downloads (slow, high-throughput) both drive the same hidden webview, but
+    // previously shared one 4-permit semaphore, letting a resolution burst starve real
+    // downloads (or vice versa).
     pub webview_semaphore: Arc<tokio::sync::Semaphore>,
+    pub dvids_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -76,6 +81,7 @@ pub fn run() {
                     library,
                     analysis,
                     webview_semaphore: Arc::new(tokio::sync::Semaphore::new(4)), // Avoid deadlock with concurrency
+                    dvids_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
                 });
                 anyhow::Ok(())
             })?;
