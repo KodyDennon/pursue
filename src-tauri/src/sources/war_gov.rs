@@ -478,18 +478,21 @@ pub async fn repair_official_record_identities(pool: &SqlitePool) -> Result<usiz
             continue;
         }
 
+        // One transaction per duplicate group, not one for the whole repair pass, so an
+        // unrelated group's failure can't roll this one back.
         for duplicate in candidates.iter().skip(1) {
-            merge_duplicate_record(pool, &keeper, &duplicate.id).await?;
+            let mut tx = pool.begin().await?;
+            merge_duplicate_record(&mut tx, &keeper, &duplicate.id).await?;
+            sqlx::query(
+                "UPDATE records SET stable_key = ?, removed_from_source_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            )
+            .bind(&canonical_key)
+            .bind(&keeper)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
             repaired += 1;
         }
-
-        sqlx::query(
-            "UPDATE records SET stable_key = ?, removed_from_source_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        )
-        .bind(&canonical_key)
-        .bind(&keeper)
-        .execute(pool)
-        .await?;
     }
 
     Ok(repaired)
@@ -504,7 +507,11 @@ fn candidate_rank(candidate: &RepairCandidate, canonical_key: &str) -> (u8, u8, 
     )
 }
 
-async fn merge_duplicate_record(pool: &SqlitePool, keeper: &str, duplicate: &str) -> Result<()> {
+async fn merge_duplicate_record(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    keeper: &str,
+    duplicate: &str,
+) -> Result<()> {
     sqlx::query(
         r#"
         UPDATE records
@@ -533,48 +540,48 @@ async fn merge_duplicate_record(pool: &SqlitePool, keeper: &str, duplicate: &str
     .bind(duplicate)
     .bind(duplicate)
     .bind(keeper)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
 
     sqlx::query("UPDATE artifacts SET record_id = ? WHERE record_id = ?")
         .bind(keeper)
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("UPDATE record_assets SET record_id = ? WHERE record_id = ?")
         .bind(keeper)
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("UPDATE analysis_chunks SET record_id = ? WHERE record_id = ?")
         .bind(keeper)
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     let _ = sqlx::query("UPDATE analysis_chunks_fts SET record_id = ? WHERE record_id = ?")
         .bind(keeper)
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await;
     sqlx::query("UPDATE intelligence_fragments SET record_id = ? WHERE record_id = ?")
         .bind(keeper)
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("UPDATE record_forensics SET record_id = ? WHERE record_id = ?")
         .bind(keeper)
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("UPDATE intelligence_logs SET record_id = ? WHERE record_id = ?")
         .bind(keeper)
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("UPDATE download_job_items SET record_id = ? WHERE record_id = ?")
         .bind(keeper)
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
 
     sqlx::query(
@@ -585,11 +592,11 @@ async fn merge_duplicate_record(pool: &SqlitePool, keeper: &str, duplicate: &str
     )
     .bind(keeper)
     .bind(duplicate)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     sqlx::query("DELETE FROM analysis_results WHERE record_id = ?")
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
 
     sqlx::query(
@@ -600,11 +607,11 @@ async fn merge_duplicate_record(pool: &SqlitePool, keeper: &str, duplicate: &str
     )
     .bind(keeper)
     .bind(duplicate)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     sqlx::query("DELETE FROM record_entities WHERE record_id = ?")
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
 
     sqlx::query(
@@ -615,21 +622,21 @@ async fn merge_duplicate_record(pool: &SqlitePool, keeper: &str, duplicate: &str
     )
     .bind(keeper)
     .bind(duplicate)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     sqlx::query("DELETE FROM case_records WHERE record_id = ?")
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("UPDATE case_notes SET record_id = ? WHERE record_id = ?")
         .bind(keeper)
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
 
     sqlx::query("DELETE FROM records WHERE id = ?")
         .bind(duplicate)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
 
     Ok(())

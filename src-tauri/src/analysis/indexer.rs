@@ -1,6 +1,8 @@
 use crate::analysis::ocr::OcrEngine;
 use crate::analysis::pdf::PdfAnalyzer;
+use crate::models::Record;
 use anyhow::{anyhow, Result};
+use std::fmt::Write as _;
 use std::path::Path;
 use tauri::Emitter;
 
@@ -19,6 +21,7 @@ impl TextExtractor {
         app: &tauri::AppHandle,
         id: &str,
         path: &Path,
+        record: &Record,
     ) -> Result<(String, String)> {
         let extension = path
             .extension()
@@ -92,11 +95,52 @@ impl TextExtractor {
                 let text = self.ocr.extract_text(app, &img).await?;
                 Ok((text, "onnx-ocr".to_string()))
             }
-            "mp4" | "mov" | "avi" | "mkv" | "webm" => Ok((
-                "[Media file: foundation text extraction skipped]".to_string(),
-                "media-placeholder".to_string(),
-            )),
+            "mp4" | "mov" | "avi" | "mkv" | "webm" | "mp3" | "wav" | "m4a" | "aac" | "ogg"
+            | "flac" => {
+                let _ = app.emit(
+                    "analysis-progress",
+                    serde_json::json!({
+                        "status": "extracting-foundation",
+                        "record_id": id,
+                        "step": "No local speech-to-text model is installed; indexing disclosure metadata instead..."
+                    }),
+                );
+
+                Ok((media_record_text(record), "disclosure-metadata".to_string()))
+            }
             _ => Err(anyhow!("unsupported type `{}`", extension)),
         }
     }
+}
+
+/// No local speech-to-text model is bundled, so audio/video records are indexed on their
+/// real disclosure metadata (title, agency, dates, location, DVIDS captions) instead of a
+/// transcript.
+fn media_record_text(record: &Record) -> String {
+    let mut text = String::new();
+    let _ = writeln!(text, "{}", record.title);
+    if let Some(video_title) = &record.video_title {
+        if video_title != &record.title {
+            let _ = writeln!(text, "{video_title}");
+        }
+    }
+    if let Some(agency) = &record.agency {
+        let _ = writeln!(text, "Agency: {agency}");
+    }
+    if let Some(release_date) = &record.release_date {
+        let _ = writeln!(text, "Release date: {release_date}");
+    }
+    if let Some(incident_date) = &record.incident_date {
+        let _ = writeln!(text, "Incident date: {incident_date}");
+    }
+    if let Some(incident_location) = &record.incident_location {
+        let _ = writeln!(text, "Incident location: {incident_location}");
+    }
+    if let Some(summary) = &record.summary {
+        let _ = writeln!(text, "{summary}");
+    }
+    if let Some(alt_text) = &record.image_alt_text {
+        let _ = writeln!(text, "{alt_text}");
+    }
+    text.trim().to_string()
 }

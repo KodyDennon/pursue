@@ -50,7 +50,9 @@ async fn connect_db(db_path: &std::path::Path) -> anyhow::Result<SqlitePool> {
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
-        .busy_timeout(std::time::Duration::from_secs(30));
+        // WAL allows only one writer at a time, and the sync transaction can hold the write
+        // lock for a while; give concurrent download writes room to wait it out.
+        .busy_timeout(std::time::Duration::from_secs(60));
 
     Ok(sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(10) // Allow more concurrent reads/writes

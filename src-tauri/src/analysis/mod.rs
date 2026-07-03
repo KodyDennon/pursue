@@ -220,7 +220,10 @@ impl AnalysisManager {
                 "total": total
             }),
         );
-        let (text, engine) = self.indexer.extract(_app, record_id, &full_path).await?;
+        let (text, engine) = self
+            .indexer
+            .extract(_app, record_id, &full_path, &record)
+            .await?;
 
         info!("Foundation captured for {}: used {}", record_id, engine);
 

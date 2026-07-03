@@ -236,7 +236,7 @@ impl PdfAnalyzer {
             }
             #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             {
-                Err(anyhow::anyhow!("Unsupported OS for PDF rendering"))
+                render_pdf_to_images_linux(&path)
             }
         })
         .await?
@@ -339,6 +339,64 @@ fn render_pdf_to_images_windows(path: &Path) -> Result<Vec<image::DynamicImage>>
     }
 
     Ok(images)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn render_pdf_to_images_linux(path: &Path) -> Result<Vec<image::DynamicImage>> {
+    let render_dir = std::env::temp_dir().join(format!("pursue-pdf-render-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&render_dir)?;
+    let result = render_pdf_to_images_via_poppler(path, &render_dir);
+    let _ = std::fs::remove_dir_all(&render_dir);
+    result
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn render_pdf_to_images_via_poppler(
+    path: &Path,
+    render_dir: &Path,
+) -> Result<Vec<image::DynamicImage>> {
+    let out_prefix = render_dir.join("page");
+    let status = std::process::Command::new("pdftoppm")
+        .arg("-png")
+        .arg("-r")
+        .arg("200")
+        .arg(path)
+        .arg(&out_prefix)
+        .status()
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "failed to run pdftoppm (install poppler-utils, e.g. `apt install poppler-utils`): {e}"
+            )
+        })?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!(
+            "pdftoppm exited with status {status} while rendering {}",
+            path.display()
+        ));
+    }
+
+    let mut page_files: Vec<std::path::PathBuf> = std::fs::read_dir(render_dir)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("png"))
+        .collect();
+    page_files.sort();
+
+    if page_files.is_empty() {
+        return Err(anyhow::anyhow!(
+            "pdftoppm produced no pages for {}",
+            path.display()
+        ));
+    }
+
+    page_files
+        .iter()
+        .map(|page_path| {
+            image::open(page_path)
+                .map_err(|e| anyhow::anyhow!("failed to load rendered page {page_path:?}: {e}"))
+        })
+        .collect()
 }
 
 #[cfg(test)]

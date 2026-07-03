@@ -125,9 +125,15 @@ impl ThumbnailManager {
             }
         }
 
-        // Fallback or non-mac/win: use image crate if it's already an image-based PDF or failed
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            return generate_pdf_thumbnail_linux(_input, _output).await;
+        }
+
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         Err(anyhow!(
-            "high-fidelity PDF thumbnailing requires native platform support (macOS or Windows)"
+            "native PDF thumbnailing failed for {}",
+            _input.display()
         ))
     }
 
@@ -155,4 +161,58 @@ impl ThumbnailManager {
             )),
         }
     }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+async fn generate_pdf_thumbnail_linux(input: &Path, output: &Path) -> Result<()> {
+    let render_dir = std::env::temp_dir().join(format!("pursue-pdf-thumb-{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir_all(&render_dir).await?;
+    let result = render_pdf_thumbnail_via_poppler(input, output, &render_dir).await;
+    let _ = tokio::fs::remove_dir_all(&render_dir).await;
+    result
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+async fn render_pdf_thumbnail_via_poppler(
+    input: &Path,
+    output: &Path,
+    render_dir: &Path,
+) -> Result<()> {
+    let out_prefix = render_dir.join("page");
+    let status = Command::new("pdftoppm")
+        .arg("-png")
+        .arg("-f")
+        .arg("1")
+        .arg("-l")
+        .arg("1")
+        .arg("-scale-to")
+        .arg("512")
+        .arg(input)
+        .arg(&out_prefix)
+        .status()
+        .await
+        .map_err(|e| {
+            anyhow!("failed to run pdftoppm (install poppler-utils, e.g. `apt install poppler-utils`): {e}")
+        })?;
+
+    if !status.success() {
+        return Err(anyhow!(
+            "pdftoppm exited with status {status} while thumbnailing {}",
+            input.display()
+        ));
+    }
+
+    let mut entries = tokio::fs::read_dir(render_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("png") {
+            tokio::fs::rename(&path, output).await?;
+            return Ok(());
+        }
+    }
+
+    Err(anyhow!(
+        "pdftoppm produced no output page for {}",
+        input.display()
+    ))
 }

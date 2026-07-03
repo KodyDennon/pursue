@@ -669,11 +669,8 @@ pub async fn download_war_gov_item_with_webview(
     let download_result = async {
         let mut expected_size: Option<i64> = None;
         let mut content_type = request.content_type.clone();
-        // Throttle progress UPDATEs the same way the non-webview download path already does
-        // (downloadWorkerCore.ts's getProgressUpdate: at most one write per 500ms or 1MB,
-        // whichever comes first) — every chunk still gets written to disk immediately via
-        // writer.append(), only the DB progress row is throttled. The final byte count is
-        // always persisted accurately when the loop ends (Done) regardless of throttling here.
+        // Throttle DB progress writes to at most one per 500ms/1MB; every chunk still hits
+        // disk immediately via writer.append().
         let progress_write_interval = std::time::Duration::from_millis(500);
         let progress_write_byte_delta: u64 = 1024 * 1024;
         let mut last_progress_write_at = std::time::Instant::now();
@@ -766,6 +763,17 @@ pub async fn download_war_gov_item_with_webview(
                         .map_err(to_error)?;
                         last_progress_write_at = std::time::Instant::now();
                         last_progress_write_offset = offset;
+                    }
+
+                    // Pull the next chunk only now that this one is durably written — see
+                    // build_war_gov_download_script for why this bounds the webview's memory
+                    // use instead of letting it read arbitrarily far ahead.
+                    if let Err(error) =
+                        window.eval(build_war_gov_continue_download_script(&request_id))
+                    {
+                        return Err(format!(
+                            "failed to continue WAR.gov download script: {error}"
+                        ));
                     }
                 }
                 WarGovDownloadEvent::Done => break,
@@ -1176,25 +1184,13 @@ pub async fn resolve_dvids_metadata(
     ))
 }
 
-/// Looks up the DVIDS asset namespace ("video" or "audio") a record's DVIDS ID should be
-/// resolved under, from its already-computed `source_asset_class` (war_gov.rs's
-/// `source_asset_class()`). Falls back to "video" (the previous hardcoded behavior) when the
-/// record can't be looked up, so unrelated callers aren't broken.
-async fn dvids_asset_type_for_record(pool: &SqlitePool, record_id: Option<&str>) -> &'static str {
-    let Some(record_id) = record_id else {
-        return "video";
-    };
-    let source_asset_class: Option<String> =
-        sqlx::query_scalar("SELECT source_asset_class FROM records WHERE id = ?")
-            .bind(record_id)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
-    match source_asset_class.as_deref() {
-        Some("dvids_audio") => "audio",
-        _ => "video",
-    }
+// DVIDS audio records fail to resolve under an "audio:" namespace in practice; "video:" is
+// the only confirmed-working namespace for all asset types.
+async fn dvids_asset_type_for_record(
+    _pool: &SqlitePool,
+    _record_id: Option<&str>,
+) -> &'static str {
+    "video"
 }
 
 fn build_dvids_resolver_script(video_id: &str, request_id: &str, asset_type: &str) -> String {
@@ -1233,10 +1229,18 @@ fn build_dvids_resolver_script(video_id: &str, request_id: &str, asset_type: &st
     )
 }
 
+/// The `window` property name used to stash per-download read state (the stream reader and
+/// current write offset) between separate `eval()` calls — see `build_war_gov_download_script`.
+fn war_gov_download_state_key(request_id: &str) -> String {
+    format!("__pursue_dl_{request_id}")
+}
+
 fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str) -> String {
     let source_url = serde_json::to_string(source_url).unwrap_or_else(|_| "\"\"".to_string());
     let event_name = serde_json::to_string(&format!("war-gov-download-{request_id}"))
         .unwrap_or_else(|_| "\"war-gov-download-invalid\"".to_string());
+    let state_key =
+        serde_json::to_string(&war_gov_download_state_key(request_id)).unwrap_or_default();
 
     format!(
         r#"
@@ -1244,6 +1248,7 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
             const eventName = {event_name};
             const sourceUrl = {source_url};
             const startOffset = {offset};
+            const stateKey = {state_key};
             const emitResult = async (payload) => {{
                 await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {{
                     event: eventName,
@@ -1259,10 +1264,7 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
                 return btoa(binary);
             }};
             const emitChunk = async (bytes, offset) => {{
-                // Matches MAX_CHUNK_BYTES used by the non-webview download path
-                // (downloadWorker.ts) — raised from 64KB to cut the number of
-                // eval/event/DB-write round-trips per file roughly 4x.
-                const maxChunk = 256 * 1024;
+                const maxChunk = 64 * 1024;
                 let writeOffset = offset;
                 for (let i = 0; i < bytes.length; i += maxChunk) {{
                     const slice = bytes.subarray(i, i + maxChunk);
@@ -1286,11 +1288,33 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
                 return res.status === 206 ? parsedLength + baseOffset : parsedLength;
             }};
 
+            // Reads one chunk then returns; Rust pulls the next one only after this chunk is
+            // flushed to disk. A self-driving read loop here let the webview read arbitrarily
+            // far ahead of disk writes, which is what caused OOM on large downloads.
+            window[stateKey + '_readNext'] = async () => {{
+                const state = window[stateKey];
+                if (!state) return;
+                try {{
+                    const next = await state.reader.read();
+                    if (next.done) {{
+                        await emitResult({{ kind: 'done' }});
+                        delete window[stateKey];
+                        delete window[stateKey + '_readNext'];
+                        return;
+                    }}
+                    state.writeOffset = await emitChunk(next.value, state.writeOffset);
+                }} catch (e) {{
+                    await emitResult({{ kind: 'error', error: e && e.stack ? e.stack : String(e) }});
+                    delete window[stateKey];
+                    delete window[stateKey + '_readNext'];
+                }}
+            }};
+
             try {{
                 const headers = {{}};
                 if (startOffset > 0) headers.Range = `bytes=${{startOffset}}-`;
                 let res = await fetch(sourceUrl, {{ headers, cache: 'no-store' }});
-                
+
                 let resetPart = startOffset > 0 && res.status === 200;
                 let currentStartOffset = startOffset;
 
@@ -1318,17 +1342,28 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
                 }}
                 if (!res.body) throw new Error('Response body is not streamable');
 
-                const reader = res.body.getReader();
-                let writeOffset = baseOffset;
-                while (true) {{
-                    const next = await reader.read();
-                    if (next.done) break;
-                    writeOffset = await emitChunk(next.value, writeOffset);
-                }}
-                await emitResult({{ kind: 'done' }});
+                window[stateKey] = {{ reader: res.body.getReader(), writeOffset: baseOffset }};
+                await window[stateKey + '_readNext']();
             }} catch (e) {{
                 await emitResult({{ kind: 'error', error: e && e.stack ? e.stack : String(e) }});
             }}
+        }})()
+        "#
+    )
+}
+
+/// Pulls the next chunk for an in-progress download started by `build_war_gov_download_script`.
+/// Rust calls this (a fresh, separate `eval()`) only after fully processing the previously
+/// emitted chunk, which is what bounds how far the webview's network read can run ahead of
+/// Rust's disk-write pace.
+fn build_war_gov_continue_download_script(request_id: &str) -> String {
+    let state_key =
+        serde_json::to_string(&war_gov_download_state_key(request_id)).unwrap_or_default();
+    format!(
+        r#"
+        (async () => {{
+            const fn = window[{state_key} + '_readNext'];
+            if (fn) await fn();
         }})()
         "#
     )
@@ -1387,8 +1422,34 @@ fn ensure_war_gov_url(raw: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_dvids_resolver_script, build_war_gov_download_script, downloadable_source_url,
+        build_dvids_resolver_script, build_war_gov_continue_download_script,
+        build_war_gov_download_script, downloadable_source_url, dvids_asset_type_for_record,
     };
+
+    #[tokio::test]
+    async fn dvids_asset_type_always_resolves_to_video_pending_real_api_verification() {
+        // Regression test: this previously returned "audio" for dvids_audio records, based on
+        // an unverified assumption about DVIDS's namespace scheme that broke real audio
+        // downloads (Apollo/Gemini mission audio) in production. Locks in the revert to
+        // always-"video" until someone confirms the real DVIDS audio namespace.
+        let pool = crate::db::test_pool().await.expect("test pool");
+        sqlx::query(
+            "INSERT INTO records (id, title, source_type, source_asset_class) VALUES ('rec-audio', 'Audio Record', 'official', 'dvids_audio')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed audio record");
+
+        assert_eq!(
+            dvids_asset_type_for_record(&pool, Some("rec-audio")).await,
+            "video"
+        );
+        assert_eq!(dvids_asset_type_for_record(&pool, None).await, "video");
+        assert_eq!(
+            dvids_asset_type_for_record(&pool, Some("does-not-exist")).await,
+            "video"
+        );
+    }
 
     #[test]
     fn dvids_resolver_script_uses_internal_event_ipc_instead_of_global_tauri_api() {
@@ -1457,5 +1518,31 @@ mod tests {
         assert!(!script.contains("052226"));
         assert!(!script.contains("release_02"));
         assert!(!script.contains("DOW-UAP-D017"));
+    }
+
+    #[test]
+    fn war_gov_download_script_reads_only_one_chunk_before_waiting_to_be_pulled_again() {
+        // Regression test for the "RangeError: Out of memory" seen in production on large
+        // video downloads: the script must NOT contain a self-driving `while (true)` read
+        // loop — it should read exactly one chunk via readNext() and then return, relying on
+        // build_war_gov_continue_download_script to be eval()'d again for the next one.
+        let script = build_war_gov_download_script("https://www.war.gov/file.mp4", 0, "dl-2");
+
+        assert!(!script.contains("while (true)"), "must not self-loop over reads");
+        assert!(script.contains("_readNext"));
+        assert!(script.contains("state.reader.read()"));
+        // Only one `.read()` call in the whole script — confirms the loop was really removed,
+        // not just renamed.
+        assert_eq!(script.matches(".read()").count(), 1);
+    }
+
+    #[test]
+    fn war_gov_continue_download_script_targets_the_same_state_key_as_the_initial_script() {
+        let initial = build_war_gov_download_script("https://www.war.gov/file.mp4", 0, "dl-3");
+        let continue_script = build_war_gov_continue_download_script("dl-3");
+
+        assert!(initial.contains("__pursue_dl_dl-3"));
+        assert!(continue_script.contains("__pursue_dl_dl-3"));
+        assert!(continue_script.contains("_readNext"));
     }
 }
