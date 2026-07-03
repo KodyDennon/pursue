@@ -84,6 +84,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             sync_official_source_with_csv,
             repair_official_source_records,
+            get_latest_sync_diffs,
             list_records,
             list_records_page,
             get_record,

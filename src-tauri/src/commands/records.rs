@@ -86,6 +86,47 @@ pub async fn repair_official_source_records(state: State<'_, AppState>) -> Resul
         .map_err(to_error)
 }
 
+/// Returns the added/changed/removed diffs from the most recent completed war.gov sync.
+/// `SyncReport.diffs` already carries this for the sync that just ran; this command lets the
+/// UI re-fetch the same information later (e.g. after a reload) without re-syncing.
+#[tauri::command]
+pub async fn get_latest_sync_diffs(
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::models::SnapshotDiff>, String> {
+    let limit = limit.unwrap_or(50).clamp(1, 500);
+
+    let snapshot_id: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM source_snapshots WHERE source_name = 'war.gov/UFO' AND status = 'completed' ORDER BY fetched_at DESC LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .map_err(to_error)?;
+
+    let Some(snapshot_id) = snapshot_id else {
+        return Ok(Vec::new());
+    };
+
+    let rows = sqlx::query(
+        "SELECT change_type, title, document_url, stable_key FROM source_diffs WHERE snapshot_id = ? ORDER BY created_at DESC LIMIT ?",
+    )
+    .bind(&snapshot_id)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .map_err(to_error)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| crate::models::SnapshotDiff {
+            change_type: row.get("change_type"),
+            title: row.get("title"),
+            document_url: row.get("document_url"),
+            stable_key: row.get("stable_key"),
+        })
+        .collect())
+}
+
 #[tauri::command]
 pub async fn list_records(
     filter: Option<RecordFilter>,
@@ -158,7 +199,7 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
     // The frontend will drive the download loop.
     let candidates = sqlx::query(
         r#"
-        SELECT id, title, document_url, dvids_video_id, local_path
+        SELECT id, title, document_url, dvids_video_id, modal_image, local_path
         FROM records
         WHERE source_type = 'official'
         ORDER BY COALESCE(release_date, created_at) DESC, title ASC
@@ -168,6 +209,10 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
     .await
     .map_err(to_error)?;
 
+    // One transaction for the whole queue-build instead of one commit per INSERT — for a
+    // large archive this was previously thousands of individual round trips before the
+    // download job even started.
+    let mut tx = state.db.begin().await.map_err(to_error)?;
     let mut queued = 0_i64;
     let mut skipped = 0_i64;
     for row in &candidates {
@@ -175,8 +220,13 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
         let title = row.get::<String, _>("title");
         let document_url = row.get::<Option<String>, _>("document_url");
         let dvids_video_id = row.get::<Option<String>, _>("dvids_video_id");
+        let modal_image = row.get::<Option<String>, _>("modal_image");
         let local_path = row.get::<Option<String>, _>("local_path");
-        let url = downloadable_source_url(document_url.as_deref(), dvids_video_id.as_deref());
+        let url = downloadable_source_url(
+            document_url.as_deref(),
+            dvids_video_id.as_deref(),
+            modal_image.as_deref(),
+        );
         if local_path.is_some() || url.is_none() {
             skipped += 1;
             continue;
@@ -194,7 +244,7 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
         .bind(title)
         .bind(url)
         .bind(now())
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await
         .map_err(to_error)?;
     }
@@ -207,9 +257,10 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
     .bind(skipped)
     .bind(now())
     .bind(&job_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(to_error)?;
+    tx.commit().await.map_err(to_error)?;
 
     Ok(job_id)
 }
@@ -221,7 +272,7 @@ pub async fn queue_record_download(
 ) -> Result<String, String> {
     let row = sqlx::query(
         r#"
-        SELECT id, title, document_url, dvids_video_id, local_path
+        SELECT id, title, document_url, dvids_video_id, modal_image, local_path
         FROM records
         WHERE id = ?
         "#,
@@ -235,12 +286,17 @@ pub async fn queue_record_download(
     let title = row.get::<String, _>("title");
     let document_url = row.get::<Option<String>, _>("document_url");
     let dvids_video_id = row.get::<Option<String>, _>("dvids_video_id");
+    let modal_image = row.get::<Option<String>, _>("modal_image");
     let local_path = row.get::<Option<String>, _>("local_path");
     if local_path.is_some() {
         return Err("record already has a local artifact".to_string());
     }
-    let url = downloadable_source_url(document_url.as_deref(), dvids_video_id.as_deref())
-        .ok_or_else(|| "record has no downloadable source URL".to_string())?;
+    let url = downloadable_source_url(
+        document_url.as_deref(),
+        dvids_video_id.as_deref(),
+        modal_image.as_deref(),
+    )
+    .ok_or_else(|| "record has no downloadable source URL".to_string())?;
     let job_id = create_download_job(&state.db).await.map_err(to_error)?;
     sqlx::query(
         r#"
@@ -613,6 +669,15 @@ pub async fn download_war_gov_item_with_webview(
     let download_result = async {
         let mut expected_size: Option<i64> = None;
         let mut content_type = request.content_type.clone();
+        // Throttle progress UPDATEs the same way the non-webview download path already does
+        // (downloadWorkerCore.ts's getProgressUpdate: at most one write per 500ms or 1MB,
+        // whichever comes first) — every chunk still gets written to disk immediately via
+        // writer.append(), only the DB progress row is throttled. The final byte count is
+        // always persisted accurately when the loop ends (Done) regardless of throttling here.
+        let progress_write_interval = std::time::Duration::from_millis(500);
+        let progress_write_byte_delta: u64 = 1024 * 1024;
+        let mut last_progress_write_at = std::time::Instant::now();
+        let mut last_progress_write_offset = offset;
 
         loop {
             let event = tokio::time::timeout(std::time::Duration::from_secs(120), rx.recv())
@@ -634,11 +699,7 @@ pub async fn download_war_gov_item_with_webview(
                         return Err(format!("HTTP {status}: {status_text}"));
                     }
                     if reset_part {
-                        if writer.path().exists() {
-                            tokio::fs::remove_file(writer.path())
-                                .await
-                                .map_err(to_error)?;
-                        }
+                        writer.reset().await.map_err(to_error)?;
                         offset = 0;
                     }
                     expected_size = next_expected_size;
@@ -682,21 +743,30 @@ pub async fn download_war_gov_item_with_webview(
                         .append(chunk_offset, &bytes)
                         .await
                         .map_err(to_error)?;
-                    sqlx::query(
-                        r#"
-                        UPDATE download_job_items
-                        SET bytes_downloaded = ?, last_progress_at = ?, updated_at = ?
-                        WHERE id = ? AND job_id = ?
-                        "#,
-                    )
-                    .bind(i64::try_from(offset).unwrap_or(i64::MAX))
-                    .bind(now())
-                    .bind(now())
-                    .bind(&request.item_id)
-                    .bind(&request.job_id)
-                    .execute(&state.db)
-                    .await
-                    .map_err(to_error)?;
+
+                    let elapsed_since_last_write = last_progress_write_at.elapsed();
+                    let bytes_since_last_write = offset.saturating_sub(last_progress_write_offset);
+                    if elapsed_since_last_write >= progress_write_interval
+                        || bytes_since_last_write >= progress_write_byte_delta
+                    {
+                        sqlx::query(
+                            r#"
+                            UPDATE download_job_items
+                            SET bytes_downloaded = ?, last_progress_at = ?, updated_at = ?
+                            WHERE id = ? AND job_id = ?
+                            "#,
+                        )
+                        .bind(i64::try_from(offset).unwrap_or(i64::MAX))
+                        .bind(now())
+                        .bind(now())
+                        .bind(&request.item_id)
+                        .bind(&request.job_id)
+                        .execute(&state.db)
+                        .await
+                        .map_err(to_error)?;
+                        last_progress_write_at = std::time::Instant::now();
+                        last_progress_write_offset = offset;
+                    }
                 }
                 WarGovDownloadEvent::Done => break,
                 WarGovDownloadEvent::Error { error } => return Err(error),
@@ -806,11 +876,7 @@ pub async fn reset_download_item_part(
     let writer = download_part_writer(&state, &item_id)
         .await
         .map_err(to_error)?;
-    if writer.path().exists() {
-        tokio::fs::remove_file(writer.path())
-            .await
-            .map_err(to_error)?;
-    }
+    writer.reset().await.map_err(to_error)?;
     sqlx::query(
         r#"
         UPDATE download_job_items
@@ -1026,6 +1092,7 @@ pub async fn create_download_job(db: &SqlitePool) -> Result<String> {
 #[tauri::command]
 pub async fn resolve_dvids_metadata(
     video_id: String,
+    record_id: Option<String>,
     state: State<'_, AppState>,
     handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
@@ -1033,6 +1100,8 @@ pub async fn resolve_dvids_metadata(
 
     // Acquire permit to respect concurrency limit for the hidden webview
     let _permit = state.webview_semaphore.acquire().await.map_err(to_error)?;
+
+    let asset_type = dvids_asset_type_for_record(&state.db, record_id.as_deref()).await;
 
     let window = handle
         .get_webview_window("war-gov-resolver")
@@ -1064,7 +1133,7 @@ pub async fn resolve_dvids_metadata(
             }
         });
 
-        let script = build_dvids_resolver_script(&video_id, &request_id);
+        let script = build_dvids_resolver_script(&video_id, &request_id, asset_type);
 
         if let Err(e) = window.eval(&script) {
             handle.unlisten(handler_id);
@@ -1105,10 +1174,32 @@ pub async fn resolve_dvids_metadata(
     ))
 }
 
-fn build_dvids_resolver_script(video_id: &str, request_id: &str) -> String {
+/// Looks up the DVIDS asset namespace ("video" or "audio") a record's DVIDS ID should be
+/// resolved under, from its already-computed `source_asset_class` (war_gov.rs's
+/// `source_asset_class()`). Falls back to "video" (the previous hardcoded behavior) when the
+/// record can't be looked up, so unrelated callers aren't broken.
+async fn dvids_asset_type_for_record(pool: &SqlitePool, record_id: Option<&str>) -> &'static str {
+    let Some(record_id) = record_id else {
+        return "video";
+    };
+    let source_asset_class: Option<String> =
+        sqlx::query_scalar("SELECT source_asset_class FROM records WHERE id = ?")
+            .bind(record_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    match source_asset_class.as_deref() {
+        Some("dvids_audio") => "audio",
+        _ => "video",
+    }
+}
+
+fn build_dvids_resolver_script(video_id: &str, request_id: &str, asset_type: &str) -> String {
     let video_id = serde_json::to_string(video_id).unwrap_or_else(|_| "\"\"".to_string());
     let event_name = serde_json::to_string(&format!("dvids-resolved-{request_id}"))
         .unwrap_or_else(|_| "\"dvids-resolved-invalid\"".to_string());
+    let asset_type = serde_json::to_string(asset_type).unwrap_or_else(|_| "\"video\"".to_string());
 
     format!(
         r#"
@@ -1124,8 +1215,9 @@ fn build_dvids_resolver_script(video_id: &str, request_id: &str) -> String {
             try {{
                 const DVIDS_API_KEY = 'key-68bb60d16b35e';
                 const videoId = {video_id};
-                console.log(`[DVIDS] Resolving video: ${{videoId}}`);
-                const res = await fetch(`https://api.dvidshub.net/asset?api_key=${{DVIDS_API_KEY}}&id=video:${{encodeURIComponent(videoId)}}&thumb_width=720`);
+                const assetType = {asset_type};
+                console.log(`[DVIDS] Resolving ${{assetType}}: ${{videoId}}`);
+                const res = await fetch(`https://api.dvidshub.net/asset?api_key=${{DVIDS_API_KEY}}&id=${{assetType}}:${{encodeURIComponent(videoId)}}&thumb_width=720`);
                 if (!res.ok) throw new Error(`HTTP ${{res.status}}: ${{res.statusText}}`);
                 const data = await res.json();
                 console.log(`[DVIDS] Success: ${{videoId}}`);
@@ -1165,7 +1257,10 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
                 return btoa(binary);
             }};
             const emitChunk = async (bytes, offset) => {{
-                const maxChunk = 64 * 1024;
+                // Matches MAX_CHUNK_BYTES used by the non-webview download path
+                // (downloadWorker.ts) — raised from 64KB to cut the number of
+                // eval/event/DB-write round-trips per file roughly 4x.
+                const maxChunk = 256 * 1024;
                 let writeOffset = offset;
                 for (let i = 0; i < bytes.length; i += maxChunk) {{
                     const slice = bytes.subarray(i, i + maxChunk);
@@ -1240,16 +1335,34 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
 fn downloadable_source_url(
     document_url: Option<&str>,
     dvids_video_id: Option<&str>,
+    modal_image: Option<&str>,
 ) -> Option<String> {
-    document_url
+    let document_url = document_url
         .map(str::trim)
-        .filter(|url| !url.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
+        .filter(|url| !url.is_empty());
+    let dvids_video_id = dvids_video_id.map(str::trim).filter(|id| !id.is_empty());
+
+    if document_url.is_some() && dvids_video_id.is_some() {
+        // `document_with_dvids` records (source_asset_class in war_gov.rs) have both a document
+        // and a paired DVIDS video; only the document is queued today, so the video is silently
+        // never downloaded. Not fixed here (would need modeling a record as two download
+        // candidates) but at least made observable.
+        tauri_plugin_log::log::warn!(
+            "record has both document_url and dvids_video_id ({:?}); only the document will be queued, the DVIDS asset is skipped",
             dvids_video_id
+        );
+    }
+
+    document_url
+        .map(str::to_string)
+        .or_else(|| dvids_video_id.map(|id| format!("dvids://asset/{id}")))
+        .or_else(|| {
+            // Thumbnail-only fallback for image records whose "PDF | Image Link" column is
+            // empty but "Modal Image" is populated. Never preferred over a real document_url.
+            modal_image
                 .map(str::trim)
-                .filter(|id| !id.is_empty())
-                .map(|id| format!("dvids://asset/{id}"))
+                .filter(|url| !url.is_empty())
+                .map(str::to_string)
         })
 }
 
@@ -1277,7 +1390,7 @@ mod tests {
 
     #[test]
     fn dvids_resolver_script_uses_internal_event_ipc_instead_of_global_tauri_api() {
-        let script = build_dvids_resolver_script("1006087", "request-1");
+        let script = build_dvids_resolver_script("1006087", "request-1", "video");
 
         assert!(script.contains("window.__TAURI_INTERNALS__.invoke('plugin:event|emit'"));
         assert!(script.contains("\"dvids-resolved-request-1\""));
@@ -1287,18 +1400,46 @@ mod tests {
 
     #[test]
     fn dvids_resolver_script_json_escapes_ids_before_injecting_javascript() {
-        let script = build_dvids_resolver_script("100\";throw new Error('x')//", "request-2");
+        let script =
+            build_dvids_resolver_script("100\";throw new Error('x')//", "request-2", "video");
 
         assert!(script.contains(r#""100\";throw new Error('x')//""#));
         assert!(!script.contains("const videoId = 100\";throw"));
     }
 
     #[test]
+    fn dvids_resolver_script_requests_the_audio_namespace_for_audio_assets() {
+        let video_script = build_dvids_resolver_script("1006087", "request-3", "video");
+        let audio_script = build_dvids_resolver_script("1006087", "request-4", "audio");
+
+        assert!(video_script.contains("id=${assetType}:") && video_script.contains("\"video\""));
+        assert!(audio_script.contains("id=${assetType}:") && audio_script.contains("\"audio\""));
+    }
+
+    #[test]
     fn dvids_asset_url_is_used_when_record_has_no_document_url() {
         assert_eq!(
-            downloadable_source_url(None, Some("1006087")).as_deref(),
+            downloadable_source_url(None, Some("1006087"), None).as_deref(),
             Some("dvids://asset/1006087")
         );
+    }
+
+    #[test]
+    fn modal_image_is_a_last_resort_fallback_never_preferred_over_a_real_document() {
+        assert_eq!(
+            downloadable_source_url(None, None, Some("https://www.war.gov/thumb.jpg")).as_deref(),
+            Some("https://www.war.gov/thumb.jpg")
+        );
+        assert_eq!(
+            downloadable_source_url(
+                Some("https://www.war.gov/doc.pdf"),
+                None,
+                Some("https://www.war.gov/thumb.jpg")
+            )
+            .as_deref(),
+            Some("https://www.war.gov/doc.pdf")
+        );
+        assert_eq!(downloadable_source_url(None, None, None), None);
     }
 
     #[test]

@@ -202,6 +202,27 @@ async fn validate_required_schema(pool: &SqlitePool) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+pub async fn test_pool() -> anyhow::Result<SqlitePool> {
+    use std::sync::Once;
+    static REGISTER_VEC_EXTENSION: Once = Once::new();
+    REGISTER_VEC_EXTENSION.call_once(|| unsafe {
+        sqlite3_auto_extension(Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    });
+
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await?;
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await?;
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    Ok(pool)
+}
+
+#[cfg(test)]
 mod tests {
     const BASELINE_SCHEMA: &str = include_str!("../../migrations/20260511000000_v1_baseline.sql");
 

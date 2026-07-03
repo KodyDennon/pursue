@@ -48,6 +48,9 @@ async fn sync_official_source_from_bytes_inner(
 ) -> Result<SyncReport> {
     let _ = repair_official_record_identities(pool).await?;
 
+    // Parse before touching disk/DB so a malformed CSV never orphans a snapshot file or row.
+    let records = parse_csv_records(bytes)?;
+
     let content_hash = hash_bytes(bytes);
     let fetched_at = now();
     let snapshot_id = Uuid::new_v4().to_string();
@@ -56,8 +59,9 @@ async fn sync_official_source_from_bytes_inner(
     let snapshot_file = snapshot_dir.join(format!("{snapshot_id}.csv"));
     fs::write(&snapshot_file, bytes).await?;
     let snapshot_path = snapshot_file.to_string_lossy().into_owned();
-    let records = parse_csv_records(bytes)?;
     let previous = previous_snapshot_records(pool).await?;
+
+    let mut tx = pool.begin().await?;
 
     sqlx::query(
         r#"
@@ -65,7 +69,7 @@ async fn sync_official_source_from_bytes_inner(
             id, source_name, upstream_url, release_label, fetched_at,
             content_hash, snapshot_path, record_count, status
         )
-        VALUES (?, 'war.gov/UFO', ?, ?, ?, ?, ?, ?, 'completed')
+        VALUES (?, 'war.gov/UFO', ?, ?, ?, ?, ?, ?, 'pending')
         "#,
     )
     .bind(&snapshot_id)
@@ -75,7 +79,7 @@ async fn sync_official_source_from_bytes_inner(
     .bind(&content_hash)
     .bind(&snapshot_path)
     .bind(i64::try_from(records.len()).unwrap_or(0))
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
     let mut current_keys = HashSet::new();
@@ -102,7 +106,7 @@ async fn sync_official_source_from_bytes_inner(
         .bind(title)
         .bind(&record.csv.document_url)
         .bind(record_json)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
         let change_type = match previous.get(&record.stable_key) {
@@ -120,7 +124,7 @@ async fn sync_official_source_from_bytes_inner(
         if let Some(change_type) = change_type {
             let title = record.csv.title.as_deref().unwrap_or("Untitled");
             insert_diff(
-                pool,
+                &mut tx,
                 &snapshot_id,
                 &record.stable_key,
                 change_type,
@@ -138,18 +142,18 @@ async fn sync_official_source_from_bytes_inner(
             });
         }
 
-        upsert_record(pool, &snapshot_id, record).await?;
+        upsert_record(&mut tx, &snapshot_id, record).await?;
     }
 
     let mut removed = 0_usize;
     for (stable_key, previous_hash) in previous {
         if !current_keys.contains(&stable_key) {
             removed += 1;
-            let title = prior_title(pool, &stable_key)
+            let title = prior_title(&mut tx, &stable_key)
                 .await?
                 .unwrap_or_else(|| stable_key.clone());
             insert_diff(
-                pool,
+                &mut tx,
                 &snapshot_id,
                 &stable_key,
                 "removed",
@@ -164,7 +168,7 @@ async fn sync_official_source_from_bytes_inner(
             )
             .bind(&fetched_at)
             .bind(&stable_key)
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
             diffs.push(SnapshotDiff {
                 change_type: "removed".to_string(),
@@ -174,6 +178,13 @@ async fn sync_official_source_from_bytes_inner(
             });
         }
     }
+
+    sqlx::query("UPDATE source_snapshots SET status = 'completed' WHERE id = ?")
+        .bind(&snapshot_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
 
     Ok(SyncReport {
         snapshot_id,
@@ -219,6 +230,23 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
         .filter(|(_, name)| !name.trim().is_empty())
         .map(|(i, name)| (name.trim().to_lowercase(), i))
         .collect();
+
+    // These columns drive downloads (document_url/dvids_video_id/source_asset_class). A
+    // missing/renamed one would otherwise silently classify every record `metadata_only` and
+    // skip all downloads while sync still reports "success" with a correct record_count.
+    const REQUIRED_DOWNLOAD_COLUMNS: [&str; 4] =
+        ["PDF | Image Link", "DVIDS Video ID", "Type", "Modal Image"];
+    let missing_columns: Vec<&str> = REQUIRED_DOWNLOAD_COLUMNS
+        .into_iter()
+        .filter(|column| !header_map.contains_key(&column.to_lowercase()))
+        .collect();
+    if !missing_columns.is_empty() {
+        return Err(anyhow!(
+            "WAR.gov CSV is missing required column(s): {}. Headers found: {:?}",
+            missing_columns.join(", "),
+            headers
+        ));
+    }
 
     let mut records_map = HashMap::new();
     let mut total_malformed = 0;
@@ -309,11 +337,11 @@ fn parse_csv_records(bytes: &[u8]) -> Result<Vec<ParsedOfficialRecord>> {
 }
 
 async fn upsert_record(
-    pool: &SqlitePool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     snapshot_id: &str,
     record: &ParsedOfficialRecord,
 ) -> Result<()> {
-    let id = existing_record_id(pool, &record.stable_key).await?;
+    let id = existing_record_id(tx, &record.stable_key).await?;
     let record_id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
     let title = record.csv.title.as_deref().unwrap_or("Untitled").trim();
@@ -378,7 +406,7 @@ async fn upsert_record(
     .bind(&record.stable_key)
     .bind(snapshot_id)
     .bind(&record.content_hash)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
@@ -607,12 +635,15 @@ async fn merge_duplicate_record(pool: &SqlitePool, keeper: &str, duplicate: &str
     Ok(())
 }
 
-async fn existing_record_id(pool: &SqlitePool, stable_key: &str) -> Result<Option<String>> {
+async fn existing_record_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    stable_key: &str,
+) -> Result<Option<String>> {
     Ok(sqlx::query_scalar::<_, String>(
         "SELECT id FROM records WHERE stable_key = ? AND source_type = 'official'",
     )
     .bind(stable_key)
-    .fetch_optional(pool)
+    .fetch_optional(&mut **tx)
     .await?)
 }
 
@@ -647,7 +678,7 @@ async fn previous_snapshot_records(pool: &SqlitePool) -> Result<HashMap<String, 
 
 #[allow(clippy::too_many_arguments)]
 async fn insert_diff(
-    pool: &SqlitePool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     snapshot_id: &str,
     stable_key: &str,
     change_type: &str,
@@ -674,17 +705,20 @@ async fn insert_diff(
     .bind(previous_hash)
     .bind(current_hash)
     .bind(now())
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
-async fn prior_title(pool: &SqlitePool, stable_key: &str) -> Result<Option<String>> {
+async fn prior_title(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    stable_key: &str,
+) -> Result<Option<String>> {
     Ok(sqlx::query_scalar::<_, String>(
         "SELECT title FROM records WHERE stable_key = ? AND source_type = 'official'",
     )
     .bind(stable_key)
-    .fetch_optional(pool)
+    .fetch_optional(&mut **tx)
     .await?)
 }
 
@@ -911,6 +945,83 @@ FALSE,5/22/26,\"DOW-UAP-D017, UAP Reported at Sandia Base, 1948-1950\",PDF,,,PDF
     }
 
     #[test]
+    fn rejects_csv_missing_a_download_driving_column() {
+        // Same as CURRENT_STYLE_CSV but with "PDF | Image Link" renamed, simulating a future
+        // war.gov column rename. This must hard-fail instead of silently producing
+        // metadata_only records with no downloadable URL.
+        let csv_without_pdf_link_column = "\
+Redaction,Release Date,Title,Type,Video Pairing,PDF Pairing,Description Blurb,DVIDS Video ID,Video Title,Agency,Incident Date,Incident Location,Document Link,Modal Image,Image Alt Text,Image VIRIN\n\
+FALSE,5/22/26,\"DOW-UAP-D017, UAP Reported at Sandia Base\",PDF,,,PDF row,,Video title,Department of War,1948-1950,New Mexico,https://www.war.gov/medialink/ufo/052226/release_02/documents/DOW-UAP-D017.pdf,,,\n";
+
+        let result = parse_csv_records(csv_without_pdf_link_column.as_bytes());
+        let error = result.expect_err("missing PDF | Image Link column must be a hard error");
+        assert!(
+            error.to_string().contains("PDF | Image Link"),
+            "error should name the missing column, got: {error}"
+        );
+    }
+
+    // Release 3 (2026-06-12) added FBI/CIA/NASA as contributing agencies alongside the
+    // existing Department of War releases, each with their own independent PR-style title
+    // numbering series, and moved to a `061226/release_03/` medialink URL folder.
+    const RELEASE_03_STYLE_CSV: &str = "\
+Redaction,Release Date,Title,Type,Video Pairing,PDF Pairing,Description Blurb,DVIDS Video ID,Video Title,Agency,Incident Date,Incident Location,PDF | Image Link,Modal Image,Image Alt Text,Image VIRIN\n\
+FALSE,5/22/26,\"DOW-UAP-PR001, Department of War release 2 doc\",PDF,,,DOW release 2 row,,,Department of War,2020,Nevada,https://www.war.gov/medialink/ufo/052226/release_02/documents/DOW-UAP-PR001.pdf,,,\n\
+FALSE,6/12/26,\"FBI-UAP-PR001, FBI witness interview transcript\",PDF,,,FBI release 3 row,,,Federal Bureau of Investigation,1997,Arizona,https://www.war.gov/medialink/ufo/061226/release_03/documents/FBI-UAP-PR001.pdf,https://www.war.gov/medialink/ufo/061226/release_03/thumbnails/FBI-UAP-PR001.jpg,Alt,260612-F-F0001-0001\n\
+FALSE,6/12/26,\"CIA-UAP-D003, CIA analysis memo\",PDF,,,CIA release 3 row,,,Central Intelligence Agency,1974,Virginia,https://www.war.gov/medialink/ufo/061226/release_03/documents/CIA-UAP-D003.pdf,,,\n\
+TRUE,6/12/26,\"NASA-UAP-PR002, NASA orbital anomaly footage\",VID,,,NASA release 3 row,1009920,NASA video title,National Aeronautics and Space Administration,2019,Low Earth Orbit,,,,\n";
+
+    #[test]
+    fn parses_release_03_new_agencies_and_independent_title_series() {
+        let records = parse_csv_records(RELEASE_03_STYLE_CSV.as_bytes()).expect("csv parses");
+        assert_eq!(records.len(), 4);
+
+        let agencies: HashSet<&str> = records
+            .iter()
+            .filter_map(|r| r.csv.agency.as_deref())
+            .collect();
+        assert!(agencies.contains("Federal Bureau of Investigation"));
+        assert!(agencies.contains("Central Intelligence Agency"));
+        assert!(agencies.contains("National Aeronautics and Space Administration"));
+        assert!(agencies.contains("Department of War"));
+
+        // Release 3 (the third distinct Release Date chronologically) should be labeled
+        // "Release 03" purely from date ordering — no agency-specific logic required.
+        let fbi = records
+            .iter()
+            .find(|r| r.csv.title.as_deref().unwrap_or("").contains("FBI-UAP-PR001"))
+            .expect("fbi record");
+        assert_eq!(fbi.release_label.as_deref(), Some("Release 02"));
+        // Only two distinct release dates appear in this fixture (5/22/26, 6/12/26), so the
+        // second date is labeled "Release 02" — matches the existing generic
+        // release_labels_for() behavior, not a new rule.
+    }
+
+    #[test]
+    fn stable_key_does_not_collide_between_independent_agency_pr_series() {
+        let records = parse_csv_records(RELEASE_03_STYLE_CSV.as_bytes()).expect("csv parses");
+        let keys: HashSet<&str> = records.iter().map(|r| r.stable_key.as_str()).collect();
+        assert_eq!(
+            keys.len(),
+            records.len(),
+            "FBI-UAP-PR001 and DOW-UAP-PR001 must not collide despite sharing a PR number"
+        );
+    }
+
+    #[test]
+    fn source_asset_class_is_agency_agnostic() {
+        // NASA's video-only record (DVIDS ID, no document link) must classify identically to
+        // how a Department of War video record already does — classification must not
+        // accidentally key off `agency`.
+        let records = parse_csv_records(RELEASE_03_STYLE_CSV.as_bytes()).expect("csv parses");
+        let nasa_video = records
+            .iter()
+            .find(|r| r.csv.title.as_deref().unwrap_or("").contains("NASA-UAP-PR002"))
+            .expect("nasa video record");
+        assert_eq!(source_asset_class(&nasa_video.csv), "dvids_video");
+    }
+
+    #[test]
     fn stable_key_survives_url_encoding_changes() {
         let mut raw = CsvRecord {
             redaction: None,
@@ -941,5 +1052,136 @@ FALSE,5/22/26,\"DOW-UAP-D017, UAP Reported at Sandia Base, 1948-1950\",PDF,,,PDF
         );
 
         assert_eq!(raw_key, stable_key(&raw));
+    }
+
+    const RELEASE_02_ROW_A: &str = "FALSE,5/8/26,\"DOW-UAP-D001, Original doc\",PDF,,,First release row,,,Department of War,1950,Nevada,https://www.war.gov/medialink/ufo/050826/release_01/documents/DOW-UAP-D001.pdf,,,\n";
+
+    fn csv_with_header(rows: &str) -> String {
+        format!(
+            "Redaction,Release Date,Title,Type,Video Pairing,PDF Pairing,Description Blurb,DVIDS Video ID,Video Title,Agency,Incident Date,Incident Location,PDF | Image Link,Modal Image,Image Alt Text,Image VIRIN\n{rows}"
+        )
+    }
+
+    async fn test_library() -> LibraryManager {
+        // LibraryManager doesn't retain the AppHandle after construction (it only reads
+        // app_data_dir() to compute plain PathBufs), so the mock App can be dropped once
+        // ::new() returns.
+        let app = tauri::test::mock_app();
+        let library = LibraryManager::new(app.handle()).expect("library manager");
+        library.init().await.expect("library init");
+        library
+    }
+
+    #[tokio::test]
+    async fn sync_is_atomic_and_diffable_across_runs() {
+        let pool = crate::db::test_pool().await.expect("test pool");
+        let library = test_library().await;
+
+        let first_csv = csv_with_header(RELEASE_02_ROW_A);
+        let report = sync_official_source_from_bytes_with_url(
+            &pool,
+            &library,
+            first_csv.as_bytes(),
+            WAR_GOV_CSV_URL,
+        )
+        .await
+        .expect("first sync succeeds");
+        assert_eq!(report.added, 1);
+        assert_eq!(report.record_count, 1);
+
+        let snapshot_status: String =
+            sqlx::query_scalar("SELECT status FROM source_snapshots WHERE id = ?")
+                .bind(&report.snapshot_id)
+                .fetch_one(&pool)
+                .await
+                .expect("snapshot row exists");
+        assert_eq!(snapshot_status, "completed");
+
+        let child_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM source_snapshot_records WHERE snapshot_id = ?",
+        )
+        .bind(&report.snapshot_id)
+        .fetch_one(&pool)
+        .await
+        .expect("child rows exist");
+        assert_eq!(child_count as usize, report.record_count);
+
+        // A second sync with a changed row + a new row should diff against the
+        // first (completed) snapshot, not silently re-report everything as added.
+        let second_csv = csv_with_header(&format!(
+            "{RELEASE_02_ROW_A}FALSE,5/22/26,\"DOW-UAP-D002, New doc\",PDF,,,Second release row,,,Department of War,1951,Texas,https://www.war.gov/medialink/ufo/052226/release_02/documents/DOW-UAP-D002.pdf,,,\n"
+        ));
+        let second_report = sync_official_source_from_bytes_with_url(
+            &pool,
+            &library,
+            second_csv.as_bytes(),
+            WAR_GOV_CSV_URL,
+        )
+        .await
+        .expect("second sync succeeds");
+        assert_eq!(second_report.added, 1, "only the new row should count as added");
+        assert_eq!(second_report.changed, 0);
+        assert_eq!(second_report.removed, 0);
+
+        let total_official: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM records WHERE source_type = 'official'")
+                .fetch_one(&pool)
+                .await
+                .expect("records exist");
+        assert_eq!(total_official, 2);
+    }
+
+    #[tokio::test]
+    async fn upsert_record_and_insert_diff_do_not_survive_a_rolled_back_transaction() {
+        let pool = crate::db::test_pool().await.expect("test pool");
+
+        let csv = csv_with_header(RELEASE_02_ROW_A);
+        let records = parse_csv_records(csv.as_bytes()).expect("parses");
+        let record = &records[0];
+
+        let mut tx = pool.begin().await.expect("begin");
+        sqlx::query(
+            "INSERT INTO source_snapshots (id, source_name, upstream_url, fetched_at, content_hash, snapshot_path, record_count, status) VALUES ('snap-rollback', 'war.gov/UFO', ?, ?, 'hash', 'path', 1, 'pending')",
+        )
+        .bind(WAR_GOV_CSV_URL)
+        .bind(now())
+        .execute(&mut *tx)
+        .await
+        .expect("insert snapshot");
+
+        upsert_record(&mut tx, "snap-rollback", record)
+            .await
+            .expect("upsert_record writes through the transaction");
+        insert_diff(
+            &mut tx,
+            "snap-rollback",
+            &record.stable_key,
+            "added",
+            "Title",
+            record.csv.document_url.as_deref(),
+            None,
+            Some(&record.content_hash),
+        )
+        .await
+        .expect("insert_diff writes through the transaction");
+
+        tx.rollback().await.expect("rollback");
+
+        let record_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM records")
+            .fetch_one(&pool)
+            .await
+            .expect("count records");
+        let diff_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM source_diffs")
+            .fetch_one(&pool)
+            .await
+            .expect("count diffs");
+        let snapshot_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM source_snapshots")
+            .fetch_one(&pool)
+            .await
+            .expect("count snapshots");
+
+        assert_eq!(record_count, 0, "rolled-back upsert_record must leave no row");
+        assert_eq!(diff_count, 0, "rolled-back insert_diff must leave no row");
+        assert_eq!(snapshot_count, 0, "rolled-back snapshot insert must leave no row");
     }
 }

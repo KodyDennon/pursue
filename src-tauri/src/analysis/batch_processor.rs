@@ -30,55 +30,76 @@ impl BatchProcessor {
         let handle = app_handle.clone();
         let analysis_clone = analysis.clone();
 
+        // Concurrency matches analyze_all_records below, which calls this same
+        // analysis.index_record() work via buffer_unordered(2) — there was no reason for
+        // this batch to run strictly sequentially when the other one doing identical work
+        // doesn't.
         tauri::async_runtime::spawn(async move {
+            use futures::stream::StreamExt;
+            use std::sync::atomic::{AtomicUsize, Ordering};
+
+            let processed_count = Arc::new(AtomicUsize::new(0));
+            let total_count = count;
             let cancel_token = analysis_clone.get_cancel_token();
-            for (idx, row) in records.into_iter().enumerate() {
-                if cancel_token.is_cancelled() {
-                    let _ = handle.emit(
-                        "analysis-progress",
-                        serde_json::json!({
-                            "status": "failed",
-                            "error": "Batch indexing cancelled by user."
-                        }),
-                    );
-                    break;
-                }
-                let id: String = row.get("id");
-                let current_idx = idx + 1;
 
-                let _ = handle.emit(
-                    "analysis-progress",
-                    serde_json::json!({
-                        "current": current_idx,
-                        "total": count,
-                        "status": "extracting-foundation",
-                        "record_id": id
-                    }),
-                );
+            futures::stream::iter(records)
+                .map(|row| {
+                    let id: String = row.get("id");
+                    let handle = handle.clone();
+                    let analysis = analysis_clone.clone();
+                    let processed = processed_count.clone();
+                    let cancel_token = cancel_token.clone();
 
-                if let Err(e) = analysis_clone
-                    .index_record(&handle, &id, current_idx, count)
-                    .await
-                {
-                    let _ = handle.emit(
-                        "analysis-progress",
-                        serde_json::json!({
-                            "status": "record-failed",
-                            "record_id": id,
-                            "current": current_idx,
-                            "total": count,
-                            "error": format!("Indexing failed: {}", e)
-                        }),
-                    );
-                }
-            }
+                    async move {
+                        if cancel_token.is_cancelled() {
+                            return;
+                        }
 
+                        let current_idx = processed.fetch_add(1, Ordering::SeqCst) + 1;
+
+                        let _ = handle.emit(
+                            "analysis-progress",
+                            serde_json::json!({
+                                "current": current_idx,
+                                "total": total_count,
+                                "status": "extracting-foundation",
+                                "record_id": id
+                            }),
+                        );
+
+                        if let Err(e) = analysis
+                            .index_record(&handle, &id, current_idx, total_count)
+                            .await
+                        {
+                            let _ = handle.emit(
+                                "analysis-progress",
+                                serde_json::json!({
+                                    "status": "record-failed",
+                                    "record_id": id,
+                                    "current": current_idx,
+                                    "total": total_count,
+                                    "error": format!("Indexing failed: {}", e)
+                                }),
+                            );
+                        }
+                    }
+                })
+                .buffer_unordered(2)
+                .collect::<Vec<_>>()
+                .await;
+
+            let status = if cancel_token.is_cancelled() {
+                "failed"
+            } else {
+                "completed"
+            };
             let _ = handle.emit(
                 "analysis-progress",
                 serde_json::json!({
                     "current": count,
                     "total": count,
-                    "status": "completed",
+                    "status": status,
+                    "error": if cancel_token.is_cancelled() { Some("Batch indexing cancelled by user.") } else { None },
                     "record_id": null
                 }),
             );

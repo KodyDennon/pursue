@@ -312,6 +312,10 @@ pub async fn cleanup_duplicates(state: State<'_, AppState>) -> Result<usize, Str
     .await
     .map_err(to_error)?;
 
+    // Runs after every sync, so wrap the whole pass in one transaction rather than leaving
+    // each DELETE individually committed — a failure partway through previously left some
+    // duplicate groups half-cleaned with no way to tell which.
+    let mut tx = pool.begin().await.map_err(to_error)?;
     let mut removed = 0;
     for dup in duplicates {
         use sqlx::Row;
@@ -323,7 +327,7 @@ pub async fn cleanup_duplicates(state: State<'_, AppState>) -> Result<usize, Str
         )
         .bind(&title)
         .bind(&url)
-        .fetch_all(&pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(to_error)?;
 
@@ -351,12 +355,13 @@ pub async fn cleanup_duplicates(state: State<'_, AppState>) -> Result<usize, Str
             let id: String = record.get("id");
             sqlx::query("DELETE FROM records WHERE id = ?")
                 .bind(&id)
-                .execute(&pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(to_error)?;
             removed += 1;
         }
     }
+    tx.commit().await.map_err(to_error)?;
 
     Ok(removed)
 }
@@ -374,31 +379,39 @@ pub async fn cleanup_poisoned_artifacts(state: State<'_, AppState>) -> Result<us
     .await
     .map_err(to_error)?;
 
+    // Poisoned artifacts should be rare, so one transaction for the whole batch (rather than
+    // per-row) is both simpler and sufficient — same rationale as cleanup_duplicates.
+    let mut tx = pool.begin().await.map_err(to_error)?;
     let mut removed = 0;
+    let mut files_to_delete = Vec::new();
     for row in poisoned {
         let path: String = row.get("relative_path");
-        let full_path = library.get_full_path(&path);
+        files_to_delete.push(library.get_full_path(&path));
 
         // Reset record
         sqlx::query("UPDATE records SET local_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE local_path = ?")
             .bind(&path)
-            .execute(&pool)
+            .execute(&mut *tx)
             .await
             .map_err(to_error)?;
 
         // Delete artifact record
         sqlx::query("DELETE FROM artifacts WHERE relative_path = ?")
             .bind(&path)
-            .execute(&pool)
+            .execute(&mut *tx)
             .await
             .map_err(to_error)?;
 
-        // Delete local file
+        removed += 1;
+    }
+    tx.commit().await.map_err(to_error)?;
+
+    // Delete the actual files only after the DB transaction commits, so a mid-batch DB
+    // failure can't leave files removed with no matching DB change (rolled back) or vice versa.
+    for full_path in files_to_delete {
         if full_path.exists() {
             let _ = tokio::fs::remove_file(&full_path).await;
         }
-
-        removed += 1;
     }
 
     Ok(removed)

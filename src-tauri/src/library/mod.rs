@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::Manager;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
@@ -42,7 +42,9 @@ pub struct IngestPartRequest {
 }
 
 impl LibraryManager {
-    pub fn new(app_handle: &AppHandle) -> Result<Self> {
+    // Generic over the Tauri runtime (not just the production Wry runtime) so tests can build a
+    // LibraryManager from `tauri::test::mock_app()`, which returns an `AppHandle<MockRuntime>`.
+    pub fn new<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> Result<Self> {
         let app_data_dir = app_handle.path().app_data_dir()?;
         let library_path = app_data_dir.join("library");
         let snapshot_path = app_data_dir.join("snapshots");
@@ -171,11 +173,7 @@ impl LibraryManager {
         request: IngestPartRequest,
     ) -> Result<DownloadResult> {
         let original_filename = filename_from_url(&request.url);
-        let extension = original_filename
-            .as_deref()
-            .and_then(|name| Path::new(name).extension())
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_ascii_lowercase());
+        let extension = extension_from_filename(original_filename.as_deref());
         let final_path = self.path_for_hash(&request.sha256, extension.as_deref());
         let skipped_existing = final_path.exists();
 
@@ -282,10 +280,16 @@ impl LibraryManager {
         };
 
         if let Some(record_id) = record_id {
+            // Overwrite records.file_type with the real downloaded extension. The value set at
+            // sync time is the raw CSV `Type` code (VID/AUD/IMG/PDF), which MediaViewer.svelte
+            // never matches against real extensions — this is the authoritative correction once
+            // an actual file lands on disk.
+            let real_extension = extension_from_filename(artifact.original_filename.as_deref());
             sqlx::query(
-                "UPDATE records SET local_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "UPDATE records SET local_path = ?, file_type = COALESCE(?, file_type), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             )
             .bind(&artifact.relative_path)
+            .bind(&real_extension)
             .bind(record_id)
             .execute(&mut *tx)
             .await?;
@@ -404,13 +408,20 @@ fn percent_decode(value: &str) -> String {
         .into_owned()
 }
 
+fn extension_from_filename(filename: Option<&str>) -> Option<String> {
+    filename
+        .and_then(|name| Path::new(name).extension())
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+}
+
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::filename_from_url;
+    use super::{extension_from_filename, filename_from_url};
 
     #[test]
     fn extracts_filename_from_url() {
@@ -418,5 +429,22 @@ mod tests {
             filename_from_url("https://www.war.gov/files/example%20file.pdf"),
             Some("example file.pdf".to_string())
         );
+    }
+
+    #[test]
+    fn extracts_real_extension_for_video_and_audio_records() {
+        // records.file_type is seeded at sync time from the raw CSV `Type` code (VID/AUD/IMG),
+        // which MediaViewer.svelte never matches against real extensions. This is what
+        // attach_artifact uses to overwrite it with the real, downloaded-file extension.
+        assert_eq!(
+            extension_from_filename(Some("DOW-UAP-PR050.mp4")),
+            Some("mp4".to_string())
+        );
+        assert_eq!(
+            extension_from_filename(Some("DOW-UAP-A012.MP3")),
+            Some("mp3".to_string())
+        );
+        assert_eq!(extension_from_filename(None), None);
+        assert_eq!(extension_from_filename(Some("no-extension")), None);
     }
 }
