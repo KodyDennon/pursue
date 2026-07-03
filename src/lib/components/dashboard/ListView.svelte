@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { RecordSummary } from '$lib/types';
 	import { formatBytes } from '$lib/utils';
+	import { getRecordStatusClass } from '$lib/recordStatus';
+	import { infiniteReveal, nextRenderCount } from '$lib/actions/infiniteReveal';
 	import {
 		FileText,
 		CheckCircle2,
@@ -24,6 +26,12 @@
 		onSelect: (record: RecordSummary) => void;
 		onView?: (record: RecordSummary) => void;
 	}>();
+
+	// See GridView.svelte for the rationale — progressive rendering that grows on scroll
+	// instead of resetting on every `records` reference change (which would fight Load More).
+	const BATCH_SIZE = 60;
+	let renderCount = $state(BATCH_SIZE);
+	const visibleRecords = $derived(records.slice(0, renderCount));
 </script>
 
 <div class="list-view custom-scrollbar">
@@ -42,18 +50,10 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each records as record (record.id)}
+				{#each visibleRecords as record (record.id)}
 					<tr class:selected={selectedRecordId === record.id} onclick={() => onSelect(record)}>
 						<td class="col-status">
-							<div
-								class="status-indicator"
-								class:ready={record.analysis_status === 'completed'}
-								class:indexed={record.analysis_status === 'indexed'}
-								class:pending={record.analysis_status === 'indexing' ||
-									record.analysis_status === 'extracting-foundation'}
-								class:busy={record.analysis_status === 'synthesizing'}
-								class:error={record.analysis_status === 'failed'}
-							>
+							<div class="status-indicator {getRecordStatusClass(record.analysis_status)}">
 								{#if record.analysis_status === 'completed'}
 									<CheckCircle2 size={12} />
 								{:else if record.analysis_status === 'indexed'}
@@ -112,10 +112,20 @@
 				{/each}
 			</tbody>
 		</table>
+		{#if renderCount < records.length}
+			<div
+				class="reveal-sentinel"
+				use:infiniteReveal={() => (renderCount = nextRenderCount(renderCount, records.length, BATCH_SIZE))}
+			></div>
+		{/if}
 	{/if}
 </div>
 
 <style>
+	.reveal-sentinel {
+		height: 1px;
+	}
+
 	.list-view {
 		height: 100%;
 		overflow-y: auto;

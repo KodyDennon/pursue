@@ -2,6 +2,7 @@
 	import type { RecordSummary } from '$lib/types';
 	import { formatBytes, resolveLibraryAssetPath } from '$lib/utils';
 	import { getRecordStatusClass } from '$lib/recordStatus';
+	import { infiniteReveal, nextRenderCount } from '$lib/actions/infiniteReveal';
 	import {
 		FileText,
 		MapPin,
@@ -31,6 +32,15 @@
 	function resolvePath(rel: string | null) {
 		return resolveLibraryAssetPath(libraryPath, rel);
 	}
+
+	// Progressive rendering: only mount BATCH_SIZE cards initially, growing as the sentinel at
+	// the end of the grid scrolls into view. slice() naturally handles `records` shrinking
+	// (a new search) or growing (Load More on the dashboard) without needing to reset this —
+	// resetting on every `records` reference change would fight with Load More, which appends
+	// via a new array reference on every click.
+	const BATCH_SIZE = 60;
+	let renderCount = $state(BATCH_SIZE);
+	const visibleRecords = $derived(records.slice(0, renderCount));
 </script>
 
 <div class="cards-view custom-scrollbar">
@@ -38,7 +48,7 @@
 		<div class="empty-intel">No intelligence records match the current filter.</div>
 	{:else}
 	<div class="cards-grid">
-		{#each records as record (record.id)}
+		{#each visibleRecords as record (record.id)}
 			<div
 				role="button"
 				tabindex="0"
@@ -147,10 +157,20 @@
 			</div>
 		{/each}
 	</div>
+	{#if renderCount < records.length}
+		<div
+			class="reveal-sentinel"
+			use:infiniteReveal={() => (renderCount = nextRenderCount(renderCount, records.length, BATCH_SIZE))}
+		></div>
+	{/if}
 	{/if}
 </div>
 
 <style>
+	.reveal-sentinel {
+		height: 1px;
+	}
+
 	.cards-view {
 		height: 100%;
 		overflow-y: auto;

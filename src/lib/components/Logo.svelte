@@ -16,9 +16,9 @@
 			<stop offset="100%" stop-color="#020617" />
 		</radialGradient>
 		<linearGradient id="dataFlow" x1="0%" y1="0%" x2="100%" y2="100%">
-			<stop offset="0%" stop-color="#22d3ee" />
-			<stop offset="50%" stop-color="#06b6d4" />
-			<stop offset="100%" stop-color="#0891b2" />
+			<stop offset="0%" style="stop-color: var(--color-accent-primary, #e7c46b)" />
+			<stop offset="50%" style="stop-color: #f3c46b" />
+			<stop offset="100%" style="stop-color: #c4a148" />
 		</linearGradient>
 		<filter id="ultraGlow" x="-50%" y="-50%" width="200%" height="200%">
 			<feGaussianBlur stdDeviation="4" result="blur1" />
@@ -65,16 +65,32 @@
 			/>
 			<!-- Active Signal Nodes -->
 			<circle cx="0" cy="0" r="16" fill="#fff" />
-			<circle cx="-160" cy="120" r="6" fill="#22d3ee" />
-			<circle cx="160" cy="-120" r="6" fill="#22d3ee" />
+			<circle cx="-160" cy="120" r="6" style="fill: var(--color-accent-primary, #e7c46b)" />
+			<circle cx="160" cy="-120" r="6" style="fill: var(--color-accent-primary, #e7c46b)" />
 		</g>
 
 		<!-- Holographic Metadata -->
-		<g fill="#0891b2" font-family="monospace" font-size="10" letter-spacing="3" opacity="0.8">
+		<g
+			style="fill: var(--color-accent-primary, #e7c46b)"
+			font-family="monospace"
+			font-size="10"
+			letter-spacing="3"
+			opacity="0.8"
+		>
 			<text x="-180" y="-180">SYS_AUTH: P-90</text>
 			<text x="60" y="200">EXTRACT_v4</text>
-			<path d="M -190 -170 L -190 -195 L -160 -195" fill="none" stroke="#0891b2" stroke-width="1" />
-			<path d="M 190 190 L 190 215 L 160 215" fill="none" stroke="#0891b2" stroke-width="1" />
+			<path
+				d="M -190 -170 L -190 -195 L -160 -195"
+				fill="none"
+				style="stroke: var(--color-accent-primary, #e7c46b)"
+				stroke-width="1"
+			/>
+			<path
+				d="M 190 190 L 190 215 L 160 215"
+				fill="none"
+				style="stroke: var(--color-accent-primary, #e7c46b)"
+				stroke-width="1"
+			/>
 		</g>
 	</g>
 </svg>
