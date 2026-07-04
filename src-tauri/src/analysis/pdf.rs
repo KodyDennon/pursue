@@ -406,8 +406,10 @@ fn render_pdf_page_windows(
     let size = page.Size()?;
 
     let render_options = PdfPageRenderOptions::new()?;
-    let scale = bounded_render_scale(size.Width, size.Height, options);
-    let dest_width = (size.Width * scale).round().max(1.0) as u32;
+    let width_points = f64::from(size.Width);
+    let height_points = f64::from(size.Height);
+    let scale = bounded_render_scale(width_points, height_points, options);
+    let dest_width = (width_points * scale).round().max(1.0) as u32;
     render_options.SetDestinationWidth(dest_width)?;
 
     let stream = InMemoryRandomAccessStream::new()?;
