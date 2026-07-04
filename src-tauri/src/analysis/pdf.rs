@@ -5,7 +5,7 @@ use std::path::Path;
 const DEFAULT_PDF_RENDER_SCALE: f64 = 3.0;
 const DEFAULT_MAX_RENDERED_PAGE_PIXELS: u64 = 24_000_000;
 const MAX_EXTRACTED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
-const MAX_PDF_DIGITAL_TEXT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PDF_DIGITAL_TEXT_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PdfRenderOptions {

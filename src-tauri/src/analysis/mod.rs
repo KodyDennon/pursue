@@ -39,7 +39,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-const MAX_SEMANTIC_CHUNKS_PER_RECORD: usize = 512;
+// Keep semantic coverage high for large records while bounding pathological inputs. At the
+// current 1200-character chunk size, this allows roughly 4.9M characters of searchable content
+// per record before warning and capping.
+const MAX_SEMANTIC_CHUNKS_PER_RECORD: usize = 4096;
 
 pub struct AnalysisManager {
     db: SqlitePool,

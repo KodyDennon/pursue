@@ -7,7 +7,10 @@ use std::path::Path;
 use tauri::Emitter;
 use tokio::io::AsyncReadExt;
 
-const MAX_TEXT_EXTRACTION_BYTES: usize = 2 * 1024 * 1024;
+// Quality-first ceiling: ~16 MiB of UTF-8 text is far beyond normal OCR/digital-text output
+// for a single disclosure record, but still prevents pathological inputs from growing without
+// bound and taking the desktop process down.
+const MAX_TEXT_EXTRACTION_BYTES: usize = 16 * 1024 * 1024;
 
 pub struct TextExtractor {
     pub ocr: OcrEngine,

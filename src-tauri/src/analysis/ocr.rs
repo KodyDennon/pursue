@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 const MAX_OCR_IMAGE_PIXELS: u64 = 12_000_000;
-const MAX_REDACTION_IMAGE_PIXELS: u64 = 4_000_000;
+const MAX_REDACTION_IMAGE_PIXELS: u64 = 8_000_000;
 
 pub struct OcrEngine {
     ocr: Arc<Mutex<Option<Arc<OAROCR>>>>,
