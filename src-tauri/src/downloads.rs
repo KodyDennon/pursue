@@ -245,12 +245,16 @@ mod tests {
         let offset = writer.append(0, b"fresh-download").await.unwrap();
         assert_eq!(offset, "fresh-download".len() as u64);
         let finalized = writer.finalize().await.unwrap();
-        assert_eq!(finalized.sha256, hex::encode(Sha256::digest(b"fresh-download")));
+        assert_eq!(
+            finalized.sha256,
+            hex::encode(Sha256::digest(b"fresh-download"))
+        );
         let _ = tokio::fs::remove_dir_all(root).await;
     }
 
     #[tokio::test]
-    async fn offset_reflects_disk_state_from_a_previous_writer_instance_even_after_reset_style_use() {
+    async fn offset_reflects_disk_state_from_a_previous_writer_instance_even_after_reset_style_use()
+    {
         // Mirrors existing_part_file_reports_resume_offset but confirms a brand-new writer
         // instance (as constructed fresh per Tauri command call) still correctly picks up
         // on-disk state written by an earlier instance's persistent handle.

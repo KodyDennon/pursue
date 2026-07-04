@@ -47,7 +47,7 @@ pub fn get_model_registry() -> Vec<ModelDefinition> {
             size_label: "10.2 GB".to_string(),
             repo_id: "google/gemma-4-E2B-it".to_string(),
             filename: None,
-            description: "Standard forensic intelligence model for automated synthesis."
+            description: "Standard local intelligence model for evidence-grounded synthesis."
                 .to_string(),
         },
         ModelDefinition {
@@ -57,8 +57,9 @@ pub fn get_model_registry() -> Vec<ModelDefinition> {
             size_label: "16.0 GB".to_string(),
             repo_id: "google/gemma-4-E4B-it".to_string(),
             filename: None,
-            description: "Elite multimodal model for deep forensic audits (Requires 18GB+ VRAM)."
-                .to_string(),
+            description:
+                "Elite local intelligence model with vision-runtime support (Requires 18GB+ VRAM)."
+                    .to_string(),
         },
     ]
 }

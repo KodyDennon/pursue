@@ -201,18 +201,26 @@ pub async fn search(
 
 #[tauri::command]
 pub async fn check_neural_runtime_status(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     _app_handle: AppHandle,
 ) -> Result<bool, String> {
-    Ok(true)
+    state
+        .analysis
+        .check_neural_runtime_status()
+        .await
+        .map_err(to_error)
 }
 
 #[tauri::command]
 pub async fn provision_neural_runtime(
-    _state: State<'_, AppState>,
-    _app_handle: AppHandle,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
 ) -> Result<(), String> {
-    Ok(())
+    state
+        .analysis
+        .provision_neural_runtime(&app_handle)
+        .await
+        .map_err(to_error)
 }
 
 #[tauri::command]

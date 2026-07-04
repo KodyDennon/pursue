@@ -190,6 +190,8 @@ export interface AnalysisReport {
 	engine: string;
 	intelligence_json?: string | null;
 	assets: RecordAsset[];
+	extraction_metadata_json?: string | null;
+	extraction_warnings_json?: string | null;
 }
 
 export interface SearchRequest {

@@ -1250,10 +1250,7 @@ pub async fn resolve_dvids_metadata(
 
 // DVIDS audio records fail to resolve under an "audio:" namespace in practice; "video:" is
 // the only confirmed-working namespace for all asset types.
-async fn dvids_asset_type_for_record(
-    _pool: &SqlitePool,
-    _record_id: Option<&str>,
-) -> &'static str {
+async fn dvids_asset_type_for_record(_pool: &SqlitePool, _record_id: Option<&str>) -> &'static str {
     "video"
 }
 
@@ -1438,9 +1435,7 @@ fn downloadable_source_url(
     dvids_video_id: Option<&str>,
     modal_image: Option<&str>,
 ) -> Option<String> {
-    let document_url = document_url
-        .map(str::trim)
-        .filter(|url| !url.is_empty());
+    let document_url = document_url.map(str::trim).filter(|url| !url.is_empty());
     let dvids_video_id = dvids_video_id.map(str::trim).filter(|id| !id.is_empty());
 
     if document_url.is_some() && dvids_video_id.is_some() {
@@ -1592,7 +1587,10 @@ mod tests {
         // build_war_gov_continue_download_script to be eval()'d again for the next one.
         let script = build_war_gov_download_script("https://www.war.gov/file.mp4", 0, "dl-2");
 
-        assert!(!script.contains("while (true)"), "must not self-loop over reads");
+        assert!(
+            !script.contains("while (true)"),
+            "must not self-loop over reads"
+        );
         assert!(script.contains("_readNext"));
         assert!(script.contains("state.reader.read()"));
         // Only one `.read()` call in the whole script — confirms the loop was really removed,

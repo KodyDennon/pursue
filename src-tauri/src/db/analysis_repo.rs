@@ -35,15 +35,25 @@ impl AnalysisRepository {
         Ok(())
     }
 
-    pub async fn save_ocr_result(&self, record_id: &str, text: &str) -> Result<()> {
+    pub async fn save_ocr_result(
+        &self,
+        record_id: &str,
+        text: &str,
+        engine: &str,
+        metadata: &serde_json::Value,
+        warnings: &[String],
+    ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO analysis_results (record_id, ocr_text, status, processed_at) \
-             VALUES (?, ?, 'indexed', ?) \
-             ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'indexed', processed_at = excluded.processed_at"
+            "INSERT INTO analysis_results (record_id, ocr_text, status, processed_at, engine, metadata_json, warnings_json) \
+             VALUES (?, ?, 'indexed', ?, ?, ?, ?) \
+             ON CONFLICT(record_id) DO UPDATE SET ocr_text = excluded.ocr_text, status = 'indexed', processed_at = excluded.processed_at, engine = excluded.engine, metadata_json = excluded.metadata_json, warnings_json = excluded.warnings_json"
         )
         .bind(record_id)
         .bind(text)
         .bind(now())
+        .bind(engine)
+        .bind(serde_json::to_string(metadata)?)
+        .bind(serde_json::to_string(warnings)?)
         .execute(&self.db)
         .await?;
         Ok(())

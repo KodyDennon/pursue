@@ -11,7 +11,7 @@
 		<Brain size={24} class="accent-icon pulse-active" />
 		<div>
 			<h2>Cognitive Synthesis Terminal</h2>
-			<p>Gemma 4 Deep Intelligence Generation & Forensic Audit</p>
+				<p>Evidence-Grounded Intelligence Generation</p>
 		</div>
 	</div>
 	<button class="close-btn" onclick={close} aria-label="Close terminal"><X size={20} /></button>

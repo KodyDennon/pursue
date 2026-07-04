@@ -76,8 +76,8 @@
 	{:else}
 		<div class="pending-state">
 			<Brain size={48} class="accent-icon" />
-			<h3>Deep Intelligence Synthesis Pending</h3>
-			<p>Gemma 4 must perform a semantic audit to generate executive intelligence.</p>
+			<h3>Evidence Synthesis Pending</h3>
+			<p>Gemma 4 must generate evidence-grounded synthesis for this record.</p>
 			<button class="primary-btn" onclick={onRunDeepSynthesis} disabled={busy === 'synthesis'}>
 				RUN NEURAL SYNTHESIS
 			</button>

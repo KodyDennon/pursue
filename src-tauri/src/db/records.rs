@@ -280,7 +280,10 @@ mod tests {
 
     #[test]
     fn to_fts5_query_quotes_and_escapes_every_token() {
-        assert_eq!(to_fts5_query("AARO sensor"), Some("\"AARO\"* \"sensor\"*".to_string()));
+        assert_eq!(
+            to_fts5_query("AARO sensor"),
+            Some("\"AARO\"* \"sensor\"*".to_string())
+        );
         assert_eq!(
             to_fts5_query("weird\"quote"),
             Some("\"weird\"\"quote\"*".to_string())
@@ -309,7 +312,13 @@ mod tests {
     #[tokio::test]
     async fn list_page_query_filter_uses_the_fts_index_via_triggers() {
         let pool = crate::db::test_pool().await.expect("test pool");
-        seed_record(&pool, "rec-1", "UAP Sensor Anomaly Report", "Department of War").await;
+        seed_record(
+            &pool,
+            "rec-1",
+            "UAP Sensor Anomaly Report",
+            "Department of War",
+        )
+        .await;
         seed_record(&pool, "rec-2", "Routine Budget Memo", "Department of War").await;
 
         let filter = RecordFilter {
@@ -318,7 +327,9 @@ mod tests {
             local_only: None,
             query: Some("sensor".to_string()),
         };
-        let page = list_page(&pool, Some(filter), 25, 0).await.expect("list_page");
+        let page = list_page(&pool, Some(filter), 25, 0)
+            .await
+            .expect("list_page");
 
         assert_eq!(page.total, 1);
         assert_eq!(page.records.len(), 1);
@@ -378,7 +389,9 @@ mod tests {
             local_only: None,
             query: Some("Deletable".to_string()),
         };
-        let page = list_page(&pool, Some(filter), 25, 0).await.expect("list_page");
+        let page = list_page(&pool, Some(filter), 25, 0)
+            .await
+            .expect("list_page");
         assert_eq!(page.total, 0);
     }
 

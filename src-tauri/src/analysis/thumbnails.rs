@@ -165,7 +165,8 @@ impl ThumbnailManager {
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 async fn generate_pdf_thumbnail_linux(input: &Path, output: &Path) -> Result<()> {
-    let render_dir = std::env::temp_dir().join(format!("pursue-pdf-thumb-{}", uuid::Uuid::new_v4()));
+    let render_dir =
+        std::env::temp_dir().join(format!("pursue-pdf-thumb-{}", uuid::Uuid::new_v4()));
     tokio::fs::create_dir_all(&render_dir).await?;
     let result = render_pdf_thumbnail_via_poppler(input, output, &render_dir).await;
     let _ = tokio::fs::remove_dir_all(&render_dir).await;

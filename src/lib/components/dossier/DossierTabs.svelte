@@ -21,7 +21,7 @@
 			<Brain size={14} /> Synthesis
 		</button>
 		<button class:active={activeTab === 'forensics'} onclick={() => (activeTab = 'forensics')}>
-			<ShieldCheck size={14} /> Forensic Audit
+			<ShieldCheck size={14} /> Forensic Signals
 		</button>
 		<button class:active={activeTab === 'thoughts'} onclick={() => (activeTab = 'thoughts')}>
 			<Terminal size={14} /> Thought Stream

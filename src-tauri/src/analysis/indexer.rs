@@ -21,6 +21,7 @@ pub struct TextExtractionResult {
     pub text: String,
     pub engine: String,
     pub warnings: Vec<String>,
+    pub metadata: serde_json::Value,
 }
 
 impl TextExtractor {
@@ -58,6 +59,10 @@ impl TextExtractor {
                     text,
                     engine: "text-file".to_string(),
                     warnings,
+                    metadata: serde_json::json!({
+                        "mode": "bounded_text_file",
+                        "truncated": truncated
+                    }),
                 })
             }
             "pdf" => {
@@ -71,7 +76,8 @@ impl TextExtractor {
                     }),
                 );
 
-                let mut digital_text = self.pdf.extract_text(path).await.unwrap_or_default();
+                let digital_pages = self.pdf.extract_text_pages(path).unwrap_or_default();
+                let mut digital_text = digital_pages.join("\n");
                 let mut warnings = Vec::new();
                 if truncate_to_utf8_boundary(&mut digital_text, MAX_TEXT_EXTRACTION_BYTES) {
                     let warning = format!(
@@ -81,28 +87,28 @@ impl TextExtractor {
                     emit_analysis_warning(app, id, &warning);
                     warnings.push(warning);
                 }
-                if digital_text.trim().len() > 30 {
-                    return Ok(TextExtractionResult {
-                        text: digital_text,
-                        engine: "pdf-digital".to_string(),
-                        warnings,
-                    });
-                }
-
-                // Step 2: Fallback to rendering and local ONNX OCR
-                let _ = app.emit(
-                    "analysis-progress",
-                    serde_json::json!({
-                        "status": "extracting-foundation",
-                        "record_id": id,
-                        "step": "Digital text layer empty. Running local ONNX OCR..."
-                    }),
-                );
 
                 let mut full_text = String::new();
                 let total_pages = self.pdf.page_count(path)?;
+                let mut page_metadata = Vec::with_capacity(total_pages);
+                let mut used_digital_pages = 0usize;
+                let mut used_ocr_pages = 0usize;
 
                 for idx in 0..total_pages {
+                    let digital_page_text = digital_pages.get(idx).cloned().unwrap_or_default();
+                    if is_reliable_pdf_text(&digital_page_text) {
+                        used_digital_pages += 1;
+                        full_text.push_str(digital_page_text.trim());
+                        full_text.push('\n');
+                        page_metadata.push(serde_json::json!({
+                            "page": idx + 1,
+                            "source": "pdf_digital",
+                            "digital_chars": digital_page_text.trim().chars().count(),
+                            "reliable": true
+                        }));
+                        continue;
+                    }
+
                     let _ = app.emit(
                         "analysis-progress",
                         serde_json::json!({
@@ -117,10 +123,22 @@ impl TextExtractor {
                         .render_page(path, idx, PdfRenderOptions::default())
                         .await
                     {
-                        Ok(page_img) => match self.ocr.extract_text(app, &page_img).await {
-                            Ok(page_text) => {
-                                full_text.push_str(&page_text);
+                        Ok(page_img) => match self.ocr.extract_structured(app, &page_img).await {
+                            Ok(ocr_output) => {
+                                used_ocr_pages += 1;
+                                full_text.push_str(&ocr_output.text);
                                 full_text.push('\n');
+                                page_metadata.push(serde_json::json!({
+                                    "page": idx + 1,
+                                    "source": "onnx_ocr",
+                                    "digital_chars": digital_page_text.trim().chars().count(),
+                                    "reliable": false,
+                                    "average_confidence": ocr_output.average_confidence,
+                                    "region_count": ocr_output.regions.len(),
+                                    "image_width": ocr_output.image_width,
+                                    "image_height": ocr_output.image_height,
+                                    "resized": ocr_output.resized
+                                }));
                                 if truncate_to_utf8_boundary(
                                     &mut full_text,
                                     MAX_TEXT_EXTRACTION_BYTES,
@@ -145,6 +163,13 @@ impl TextExtractor {
                                 );
                                 emit_analysis_warning(app, id, &warning);
                                 warnings.push(warning);
+                                page_metadata.push(serde_json::json!({
+                                    "page": idx + 1,
+                                    "source": "failed",
+                                    "digital_chars": digital_page_text.trim().chars().count(),
+                                    "reliable": false,
+                                    "error": error.to_string()
+                                }));
                             }
                         },
                         Err(error) => {
@@ -156,14 +181,34 @@ impl TextExtractor {
                             );
                             emit_analysis_warning(app, id, &warning);
                             warnings.push(warning);
+                            page_metadata.push(serde_json::json!({
+                                "page": idx + 1,
+                                "source": "failed",
+                                "digital_chars": digital_page_text.trim().chars().count(),
+                                "reliable": false,
+                                "error": error.to_string()
+                            }));
                         }
                     }
                 }
 
+                let engine = match (used_digital_pages > 0, used_ocr_pages > 0) {
+                    (true, true) => "pdf-hybrid",
+                    (true, false) => "pdf-digital",
+                    (false, true) => "onnx-ocr",
+                    (false, false) => "pdf-empty",
+                };
                 Ok(TextExtractionResult {
                     text: full_text.trim().to_string(),
-                    engine: "onnx-ocr".to_string(),
+                    engine: engine.to_string(),
                     warnings,
+                    metadata: serde_json::json!({
+                        "mode": "pdf_hybrid_page_extraction",
+                        "pages": page_metadata,
+                        "used_digital_pages": used_digital_pages,
+                        "used_ocr_pages": used_ocr_pages,
+                        "total_pages": total_pages
+                    }),
                 })
             }
             "png" | "jpg" | "jpeg" | "tif" | "tiff" | "bmp" | "webp" => {
@@ -177,11 +222,20 @@ impl TextExtractor {
                 );
 
                 let img = image::open(path)?;
-                let text = self.ocr.extract_text(app, &img).await?;
+                let ocr_output = self.ocr.extract_structured(app, &img).await?;
                 Ok(TextExtractionResult {
-                    text,
+                    text: ocr_output.text,
                     engine: "onnx-ocr".to_string(),
                     warnings: Vec::new(),
+                    metadata: serde_json::json!({
+                        "mode": "image_ocr",
+                        "average_confidence": ocr_output.average_confidence,
+                        "region_count": ocr_output.regions.len(),
+                        "image_width": ocr_output.image_width,
+                        "image_height": ocr_output.image_height,
+                        "resized": ocr_output.resized,
+                        "regions": ocr_output.regions
+                    }),
                 })
             }
             "mp4" | "mov" | "avi" | "mkv" | "webm" | "mp3" | "wav" | "m4a" | "aac" | "ogg"
@@ -199,6 +253,10 @@ impl TextExtractor {
                     text: media_record_text(record),
                     engine: "disclosure-metadata".to_string(),
                     warnings: Vec::new(),
+                    metadata: serde_json::json!({
+                        "mode": "metadata_only",
+                        "caveat": "No local speech-to-text model is installed for media transcripts."
+                    }),
                 })
             }
             _ => Err(anyhow!("unsupported type `{}`", extension)),
@@ -239,6 +297,32 @@ fn emit_analysis_warning(app: &tauri::AppHandle, record_id: &str, warning: &str)
             "warning": warning
         }),
     );
+}
+
+fn is_reliable_pdf_text(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.chars().count() < 30 {
+        return false;
+    }
+
+    let total = trimmed.chars().count().max(1) as f32;
+    let alpha_numeric = trimmed.chars().filter(|c| c.is_alphanumeric()).count() as f32;
+    let replacement = trimmed.matches('\u{fffd}').count() as f32;
+    let control = trimmed
+        .chars()
+        .filter(|c| c.is_control() && *c != '\n' && *c != '\t' && *c != '\r')
+        .count() as f32;
+    let words = trimmed.split_whitespace().count();
+    let unique_chars = trimmed
+        .chars()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+
+    alpha_numeric / total >= 0.35
+        && replacement / total <= 0.01
+        && control / total <= 0.01
+        && words >= 5
+        && unique_chars >= 10
 }
 
 /// No local speech-to-text model is bundled, so audio/video records are indexed on their
@@ -295,5 +379,16 @@ mod tests {
         assert!(truncated);
 
         let _ = tokio::fs::remove_file(path).await;
+    }
+
+    #[test]
+    fn pdf_text_reliability_rejects_short_or_garbled_layers() {
+        assert!(!is_reliable_pdf_text("abc"));
+        assert!(!is_reliable_pdf_text(
+            "\u{fffd}\u{fffd}\u{fffd}       x x x x"
+        ));
+        assert!(is_reliable_pdf_text(
+            "This is a normal born digital PDF text layer with several searchable words."
+        ));
     }
 }

@@ -12,6 +12,7 @@ pub mod persistence;
 pub mod registry;
 pub mod thumbnails;
 pub mod verifier;
+pub mod vision_runtime;
 
 use anyhow::{anyhow, Result};
 use sqlx::{Row, SqlitePool};
@@ -27,6 +28,8 @@ use crate::analysis::extraction::{ExtractionConfig, IntelligenceExtractor};
 use crate::analysis::indexer::TextExtractor;
 use crate::analysis::model_manager::ModelManager;
 use crate::analysis::persistence::PersistenceManager;
+use crate::analysis::vision_runtime::VisionRuntime;
+use crate::common::now;
 use crate::db::analysis_repo::AnalysisRepository;
 use crate::db::records;
 use crate::library::LibraryManager;
@@ -52,6 +55,7 @@ pub struct AnalysisManager {
     persistence: PersistenceManager,
     extractor: IntelligenceExtractor,
     models: ModelManager,
+    vision: VisionRuntime,
     thumbnails: ThumbnailManager,
     is_analyzing: Arc<AtomicBool>,
     cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
@@ -72,9 +76,10 @@ impl AnalysisManager {
             repo: AnalysisRepository::new(db.clone()),
             library: library.clone(),
             indexer: TextExtractor::new(ocr, pdf),
-            persistence: PersistenceManager::new(db),
+            persistence: PersistenceManager::new(db.clone()),
             extractor: IntelligenceExtractor::new().expect("failed to init Gemma backend"),
-            models: ModelManager::new(&library),
+            models: ModelManager::new(&library).with_db(db.clone()),
+            vision: VisionRuntime::new(&library),
             thumbnails: ThumbnailManager::new(),
             is_analyzing: Arc::new(AtomicBool::new(false)),
             cancel_token: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
@@ -236,6 +241,7 @@ impl AnalysisManager {
             .await?;
         let text = extraction.text;
         let engine = extraction.engine;
+        let extraction_metadata = extraction.metadata;
         let mut analysis_warnings = extraction.warnings;
 
         info!("Foundation captured for {}: used {}", record_id, engine);
@@ -303,7 +309,10 @@ impl AnalysisManager {
                 .analyze_pdf_redactions_pagewise(_app, record_id, &full_path)
                 .await
             {
-                Ok(score) => score,
+                Ok((score, mut discoveries)) => {
+                    pdf_forensics.append(&mut discoveries);
+                    score
+                }
                 Err(error) => {
                     let warning = format!("PDF redaction scoring skipped: {error}");
                     emit_analysis_warning(_app, record_id, &warning);
@@ -347,12 +356,10 @@ impl AnalysisManager {
             let _ = self.repo.save_thumbnail_path(record_id, &path).await;
         }
 
-        if !pdf_forensics.is_empty() {
-            let _ = self
-                .persistence
-                .persist_forensics(record_id, &pdf_forensics)
-                .await;
-        }
+        let _ = self
+            .persistence
+            .persist_forensics(record_id, &pdf_forensics)
+            .await;
 
         for (asset_id, rel_path, mime) in pdf_images {
             let _ = self
@@ -371,7 +378,15 @@ impl AnalysisManager {
             .await?;
 
         // Raw OCR storage for synthesis phase
-        self.repo.save_ocr_result(record_id, &text).await?;
+        self.repo
+            .save_ocr_result(
+                record_id,
+                &text,
+                &engine,
+                &extraction_metadata,
+                &analysis_warnings,
+            )
+            .await?;
 
         self.repo
             .update_redaction_score(record_id, redaction_score)
@@ -408,6 +423,10 @@ impl AnalysisManager {
             engine,
             intelligence_json: None,
             assets: Vec::new(),
+            extraction_metadata_json: Some(extraction_metadata.to_string()),
+            extraction_warnings_json: Some(
+                serde_json::to_string(&analysis_warnings).unwrap_or_else(|_| "[]".to_string()),
+            ),
         })
     }
 
@@ -440,20 +459,29 @@ impl AnalysisManager {
             );
         }
 
-        let intelligence_json = self
-            .extractor
-            .extract_forensics(
-                app,
-                record_id,
-                ExtractionConfig {
-                    preferred_model_path: Some(model_path),
-                    fallback_model_path: None,
-                    force_cpu: false,
-                },
-                &text,
-                image_paths,
-            )
-            .await?;
+        let intelligence_json = if image_paths.is_empty() {
+            self.extractor
+                .extract_forensics(
+                    app,
+                    record_id,
+                    ExtractionConfig {
+                        preferred_model_path: Some(model_path),
+                        fallback_model_path: None,
+                        force_cpu: false,
+                    },
+                    &text,
+                    Vec::new(),
+                )
+                .await?
+        } else {
+            let value = self
+                .vision
+                .audit(app, record_id, &model_path, &text, &image_paths)
+                .await?;
+            self.persist_vision_intelligence_log(record_id, &value)
+                .await?;
+            value
+        };
 
         let intel_str = serde_json::to_string(&intelligence_json)?;
         let _permit = self.write_semaphore.acquire().await?;
@@ -468,7 +496,7 @@ impl AnalysisManager {
     }
 
     pub async fn get_analysis(&self, record_id: &str) -> Result<Option<AnalysisReport>> {
-        let row = sqlx::query("SELECT r.intelligence_json, r.analysis_status, ar.ocr_text FROM records r LEFT JOIN analysis_results ar ON ar.record_id = r.id WHERE r.id = ?")
+        let row = sqlx::query("SELECT r.intelligence_json, r.analysis_status, ar.ocr_text, ar.engine, ar.metadata_json, ar.warnings_json FROM records r LEFT JOIN analysis_results ar ON ar.record_id = r.id WHERE r.id = ?")
             .bind(record_id).fetch_optional(&self.db).await?;
         let Some(row) = row else {
             return Ok(None);
@@ -479,9 +507,13 @@ impl AnalysisManager {
             ocr_text: row.get::<Option<String>, _>("ocr_text").unwrap_or_default(),
             entities: Vec::new(),
             chunks_indexed: 0,
-            engine: "stored".to_string(),
+            engine: row
+                .get::<Option<String>, _>("engine")
+                .unwrap_or_else(|| "stored".to_string()),
             intelligence_json: row.get("intelligence_json"),
             assets: Vec::new(),
+            extraction_metadata_json: row.get::<Option<String>, _>("metadata_json"),
+            extraction_warnings_json: row.get::<Option<String>, _>("warnings_json"),
         }))
     }
 }
@@ -492,9 +524,10 @@ impl AnalysisManager {
         app: &tauri::AppHandle,
         record_id: &str,
         path: &std::path::Path,
-    ) -> Result<f32> {
+    ) -> Result<(f32, Vec<crate::analysis::pdf::ForensicDiscovery>)> {
         let total_pages = self.indexer.pdf.page_count(path)?;
         let mut max_score = 0.0f32;
+        let mut discoveries = Vec::new();
         for idx in 0..total_pages {
             let _ = app.emit(
                 "analysis-progress",
@@ -509,13 +542,57 @@ impl AnalysisManager {
                 .pdf
                 .render_page(path, idx, crate::analysis::pdf::PdfRenderOptions::default())
                 .await?;
-            if let Ok(score) = self.indexer.ocr.analyze_redactions_image(&page_img) {
-                if score > max_score {
-                    max_score = score;
+            if let Ok(analysis) = self
+                .indexer
+                .ocr
+                .analyze_redactions_image_structured(&page_img)
+            {
+                if analysis.score > max_score {
+                    max_score = analysis.score;
+                }
+                for region in analysis.regions {
+                    discoveries.push(crate::analysis::pdf::ForensicDiscovery {
+                        layer_type: "rendered_redaction_candidate".to_string(),
+                        content: format!("Rendered black block candidate @ Page {}", idx + 1),
+                        confidence: 0.6,
+                        metadata: serde_json::json!({
+                            "page": idx + 1,
+                            "bbox": [region.x, region.y, region.width, region.height],
+                            "source": "rendered_page_image",
+                            "caveat": "Black blocks can be legitimate graphics or layout. Treat as a candidate requiring analyst review."
+                        }),
+                    });
                 }
             }
         }
-        Ok(max_score)
+        Ok((max_score, discoveries))
+    }
+
+    pub async fn check_neural_runtime_status(&self) -> Result<bool> {
+        self.vision.status().await
+    }
+
+    pub async fn provision_neural_runtime(&self, app: &tauri::AppHandle) -> Result<()> {
+        self.vision.provision(app).await
+    }
+
+    async fn persist_vision_intelligence_log(
+        &self,
+        record_id: &str,
+        value: &serde_json::Value,
+    ) -> Result<()> {
+        sqlx::query("INSERT INTO intelligence_logs (id, record_id, system_prompt, user_prompt, thought_block, response_json, model_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(Uuid::new_v4().to_string())
+            .bind(record_id)
+            .bind("PURSUE local vision evidence synthesis schema")
+            .bind("Generate analyst-grade evidence synthesis JSON from text and attached images.")
+            .bind(Option::<String>::None)
+            .bind(serde_json::to_string(value)?)
+            .bind(value.get("model_id").and_then(|v| v.as_str()).unwrap_or("vision-runtime"))
+            .bind(now())
+            .execute(&self.db)
+            .await?;
+        Ok(())
     }
 
     pub async fn analyze_record(

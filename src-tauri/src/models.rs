@@ -340,6 +340,8 @@ pub struct AnalysisReport {
     pub engine: String,
     pub intelligence_json: Option<String>,
     pub assets: Vec<RecordAsset>,
+    pub extraction_metadata_json: Option<String>,
+    pub extraction_warnings_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

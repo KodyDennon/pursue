@@ -49,7 +49,7 @@
 				<Brain size={24} />
 				<div class="t-title">Elite Intel</div>
 			</div>
-			<p>Gemma 4 E4B + BGE. Advanced reasoning with native multimodal capabilities.</p>
+				<p>Gemma 4 E4B + BGE. Advanced reasoning with local vision runtime support.</p>
 			<div class="tier-meta">~5.0 GB Storage</div>
 		</button>
 	</div>

@@ -208,9 +208,11 @@ pub async fn test_pool() -> anyhow::Result<SqlitePool> {
     use std::sync::Once;
     static REGISTER_VEC_EXTENSION: Once = Once::new();
     REGISTER_VEC_EXTENSION.call_once(|| unsafe {
-        sqlite3_auto_extension(Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
-            sqlite_vec::sqlite3_vec_init as *const (),
-        )));
+        sqlite3_auto_extension(Some(
+            std::mem::transmute::<*const (), unsafe extern "C" fn()>(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            ),
+        ));
     });
 
     let pool = sqlx::sqlite::SqlitePoolOptions::new()

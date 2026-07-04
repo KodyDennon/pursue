@@ -61,7 +61,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "assets/models/**/*"
+      "assets/models/**/*",
+      "assets/vision_runtime/**/*"
     ]
   }
 }

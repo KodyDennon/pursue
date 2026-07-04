@@ -996,7 +996,13 @@ TRUE,6/12/26,\"NASA-UAP-PR002, NASA orbital anomaly footage\",VID,,,NASA release
         // "Release 03" purely from date ordering — no agency-specific logic required.
         let fbi = records
             .iter()
-            .find(|r| r.csv.title.as_deref().unwrap_or("").contains("FBI-UAP-PR001"))
+            .find(|r| {
+                r.csv
+                    .title
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("FBI-UAP-PR001")
+            })
             .expect("fbi record");
         assert_eq!(fbi.release_label.as_deref(), Some("Release 02"));
         // Only two distinct release dates appear in this fixture (5/22/26, 6/12/26), so the
@@ -1023,7 +1029,13 @@ TRUE,6/12/26,\"NASA-UAP-PR002, NASA orbital anomaly footage\",VID,,,NASA release
         let records = parse_csv_records(RELEASE_03_STYLE_CSV.as_bytes()).expect("csv parses");
         let nasa_video = records
             .iter()
-            .find(|r| r.csv.title.as_deref().unwrap_or("").contains("NASA-UAP-PR002"))
+            .find(|r| {
+                r.csv
+                    .title
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("NASA-UAP-PR002")
+            })
             .expect("nasa video record");
         assert_eq!(source_asset_class(&nasa_video.csv), "dvids_video");
     }
@@ -1126,7 +1138,10 @@ TRUE,6/12/26,\"NASA-UAP-PR002, NASA orbital anomaly footage\",VID,,,NASA release
         )
         .await
         .expect("second sync succeeds");
-        assert_eq!(second_report.added, 1, "only the new row should count as added");
+        assert_eq!(
+            second_report.added, 1,
+            "only the new row should count as added"
+        );
         assert_eq!(second_report.changed, 0);
         assert_eq!(second_report.removed, 0);
 
@@ -1187,8 +1202,14 @@ TRUE,6/12/26,\"NASA-UAP-PR002, NASA orbital anomaly footage\",VID,,,NASA release
             .await
             .expect("count snapshots");
 
-        assert_eq!(record_count, 0, "rolled-back upsert_record must leave no row");
+        assert_eq!(
+            record_count, 0,
+            "rolled-back upsert_record must leave no row"
+        );
         assert_eq!(diff_count, 0, "rolled-back insert_diff must leave no row");
-        assert_eq!(snapshot_count, 0, "rolled-back snapshot insert must leave no row");
+        assert_eq!(
+            snapshot_count, 0,
+            "rolled-back snapshot insert must leave no row"
+        );
     }
 }

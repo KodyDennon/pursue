@@ -5,8 +5,6 @@ use std::path::Path;
 const DEFAULT_PDF_RENDER_SCALE: f64 = 3.0;
 const DEFAULT_MAX_RENDERED_PAGE_PIXELS: u64 = 24_000_000;
 const MAX_EXTRACTED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
-const MAX_PDF_DIGITAL_TEXT_BYTES: usize = 16 * 1024 * 1024;
-
 #[derive(Debug, Clone, Copy)]
 pub struct PdfRenderOptions {
     pub preferred_scale: f64,
@@ -36,28 +34,17 @@ impl PdfAnalyzer {
         Self
     }
 
-    pub async fn extract_text<P: AsRef<Path>>(&self, path: P) -> Result<String> {
-        let path = path.as_ref();
-        let lopdf_text = self.extract_with_lopdf(path).unwrap_or_default();
-        Ok(lopdf_text)
-    }
-
-    fn extract_with_lopdf<P: AsRef<Path>>(&self, path: P) -> Result<String> {
+    pub fn extract_text_pages<P: AsRef<Path>>(&self, path: P) -> Result<Vec<String>> {
         let doc = Document::load(path)?;
-        let mut text = String::new();
+        let page_count = doc.get_pages().len();
+        let mut pages = Vec::with_capacity(page_count);
 
-        for (index, _) in doc.get_pages().iter().enumerate() {
+        for index in 0..page_count {
             let page_number = (index + 1) as u32;
-            if let Ok(page_text) = doc.extract_text(&[page_number]) {
-                text.push_str(&page_text);
-                text.push('\n');
-                if truncate_to_utf8_boundary(&mut text, MAX_PDF_DIGITAL_TEXT_BYTES) {
-                    break;
-                }
-            }
+            pages.push(doc.extract_text(&[page_number]).unwrap_or_default());
         }
 
-        Ok(text)
+        Ok(pages)
     }
 
     pub fn page_count<P: AsRef<Path>>(&self, path: P) -> Result<usize> {
@@ -87,7 +74,8 @@ impl PdfAnalyzer {
                 })
                 .unwrap_or((1000.0, 1414.0));
 
-            // 1. Check for Hidden Text Layers & Graphic Overlays
+            // 1. Check for text layers and graphic overlays. These are analyst signals, not
+            // proof of hidden content by themselves.
             if let Ok(content_obj_id) = page_dict.get(b"Contents") {
                 let contents = if let Ok(arr) = content_obj_id.as_array() {
                     arr.clone()
@@ -142,15 +130,14 @@ impl PdfAnalyzer {
                                             let nh = (h / media_box.1) * 1414.0;
 
                                             discoveries.push(ForensicDiscovery {
-                                                layer_type: "improper_redaction".to_string(),
-                                                content: format!(
-                                                    "Graphic Overlay @ Page {}",
-                                                    page_number
-                                                ),
-                                                confidence: 0.9,
+                                                layer_type: "redaction_overlay_candidate".to_string(),
+                                                content: format!("Large filled rectangle @ Page {}", page_number),
+                                                confidence: 0.65,
                                                 metadata: serde_json::json!({
                                                     "bbox": [nx, ny, nw, nh],
-                                                    "page": page_number
+                                                    "page": page_number,
+                                                    "source": "pdf_content_stream",
+                                                    "caveat": "Graphic rectangles may be legitimate layout elements; treat as redaction candidates only."
                                                 }),
                                             });
                                         }
@@ -162,10 +149,14 @@ impl PdfAnalyzer {
 
                             if !stream_text.trim().is_empty() && stream_text.len() > 5 {
                                 discoveries.push(ForensicDiscovery {
-                                    layer_type: "hidden_text".to_string(),
+                                    layer_type: "pdf_text_layer".to_string(),
                                     content: stream_text.trim().to_string(),
-                                    confidence: 0.7,
-                                    metadata: serde_json::json!({ "page": page_number }),
+                                    confidence: 0.5,
+                                    metadata: serde_json::json!({
+                                        "page": page_number,
+                                        "source": "pdf_content_stream",
+                                        "caveat": "Presence of a text layer is normal for born-digital or OCRed PDFs and is not hidden text without visual corroboration."
+                                    }),
                                 });
                             }
                         }
@@ -329,18 +320,6 @@ fn page_dimensions_points(path: &Path, page_index: usize) -> Result<(f64, f64)> 
     let x1 = media_box[2].as_f32().unwrap_or(612.0) as f64;
     let y1 = media_box[3].as_f32().unwrap_or(792.0) as f64;
     Ok(((x1 - x0).abs().max(1.0), (y1 - y0).abs().max(1.0)))
-}
-
-fn truncate_to_utf8_boundary(text: &mut String, max_bytes: usize) -> bool {
-    if text.len() <= max_bytes {
-        return false;
-    }
-    let mut end = max_bytes;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text.truncate(end);
-    true
 }
 
 #[cfg(target_os = "macos")]
