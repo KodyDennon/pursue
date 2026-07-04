@@ -13,6 +13,8 @@ export interface AnalysisProgress {
 	progress?: number;
 	engine?: string;
 	step?: string;
+	warning?: string;
+	device?: string;
 }
 
 export interface LogEntry {
@@ -48,6 +50,8 @@ class AnalysisStore {
 				'indexing-vector',
 				'record-completed',
 				'record-failed',
+				'analysis-warning',
+				'loading-model',
 				'loading-ocr-engine'
 			];
 
@@ -140,6 +144,10 @@ class AnalysisStore {
 					`Failed to index record ${payload.record_id?.substring(0, 8)}: ${payload.error}`,
 					'error'
 				);
+			} else if (payload.status === 'analysis-warning') {
+				this.addLog(payload.warning || 'Analysis continued with a partial result.', 'error');
+			} else if (payload.status === 'loading-model') {
+				this.addLog(payload.msg || 'Loading intelligence model...', 'info');
 			} else if (payload.status === 'loading-ocr-engine') {
 				this.ocrDownloadProgress = payload.progress ?? this.ocrDownloadProgress;
 				this.ocrDownloadMsg = payload.msg ?? this.ocrDownloadMsg;

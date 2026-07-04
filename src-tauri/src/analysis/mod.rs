@@ -53,6 +53,9 @@ pub struct AnalysisManager {
     // SERIALIZED WRITER: SQLite only allows one writer at a time.
     // We use a semaphore to ensure only one thread enters the persistence phase.
     write_semaphore: Arc<Semaphore>,
+    // Serializes heavyweight page rendering/OCR/image extraction so batch work cannot multiply
+    // per-page image buffers into process-wide memory pressure.
+    heavy_analysis_semaphore: Arc<Semaphore>,
 }
 
 impl AnalysisManager {
@@ -71,6 +74,7 @@ impl AnalysisManager {
             is_analyzing: Arc::new(AtomicBool::new(false)),
             cancel_token: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
             write_semaphore: Arc::new(Semaphore::new(1)),
+            heavy_analysis_semaphore: Arc::new(Semaphore::new(1)),
         }
     }
 
@@ -220,10 +224,14 @@ impl AnalysisManager {
                 "total": total
             }),
         );
-        let (text, engine) = self
+        let heavy_permit = self.heavy_analysis_semaphore.acquire().await?;
+        let extraction = self
             .indexer
             .extract(_app, record_id, &full_path, &record)
             .await?;
+        let text = extraction.text;
+        let engine = extraction.engine;
+        let mut analysis_warnings = extraction.warnings;
 
         info!("Foundation captured for {}: used {}", record_id, engine);
 
@@ -262,7 +270,7 @@ impl AnalysisManager {
 
         let mut pdf_forensics = Vec::new();
         let mut pdf_images = Vec::new();
-        if full_path.extension().and_then(|e| e.to_str()) == Some("pdf") {
+        if is_pdf_path(&full_path) {
             if let Ok(forensics) = self.indexer.pdf.extract_forensics(&full_path) {
                 pdf_forensics = forensics;
             }
@@ -278,29 +286,25 @@ impl AnalysisManager {
                     let rel_path = self.library.encrypt_generated_asset(&rel_path).await?;
                     pdf_images.push((asset_id, rel_path, mime));
                 }
+            } else {
+                let warning = "PDF embedded image extraction was skipped after an error.";
+                emit_analysis_warning(_app, record_id, warning);
+                analysis_warnings.push(warning.to_string());
             }
         }
 
-        let entities = extract_entities(&text);
-        let chunks = crate::search::chunk_text(&text, 1200);
-        let mut embeddings = Vec::with_capacity(chunks.len());
-        for chunk in &chunks {
-            embeddings.push(crate::search::vectorize_text(chunk).await?);
-        }
-
-        let redaction_score = if full_path.extension().and_then(|e| e.to_str()) == Some("pdf") {
-            if let Ok(pages) = self.indexer.pdf.render_pdf_to_images(&full_path).await {
-                let mut max_score = 0.0f32;
-                for page_img in &pages {
-                    if let Ok(score) = self.indexer.ocr.analyze_redactions_image(page_img) {
-                        if score > max_score {
-                            max_score = score;
-                        }
-                    }
+        let redaction_score = if is_pdf_path(&full_path) {
+            match self
+                .analyze_pdf_redactions_pagewise(_app, record_id, &full_path)
+                .await
+            {
+                Ok(score) => score,
+                Err(error) => {
+                    let warning = format!("PDF redaction scoring skipped: {error}");
+                    emit_analysis_warning(_app, record_id, &warning);
+                    analysis_warnings.push(warning);
+                    0.0
                 }
-                max_score
-            } else {
-                0.0
             }
         } else {
             self.indexer
@@ -308,6 +312,14 @@ impl AnalysisManager {
                 .analyze_redactions(&full_path)
                 .unwrap_or(0.0)
         };
+        drop(heavy_permit);
+
+        let entities = extract_entities(&text);
+        let chunks = crate::search::chunk_text(&text, 1200);
+        let mut embeddings = Vec::with_capacity(chunks.len());
+        for chunk in &chunks {
+            embeddings.push(crate::search::vectorize_text(chunk).await?);
+        }
 
         // 3. Persistence (Inside lock)
         let _permit = self.write_semaphore.acquire().await?;
@@ -349,8 +361,16 @@ impl AnalysisManager {
         self.repo
             .update_redaction_score(record_id, redaction_score)
             .await?;
+        let warning_text = if analysis_warnings.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "Partial analysis warnings: {}",
+                analysis_warnings.join(" | ")
+            ))
+        };
         self.repo
-            .update_analysis_status(record_id, "indexed", None)
+            .update_analysis_status(record_id, "indexed", warning_text.as_deref())
             .await?;
 
         info!(
@@ -452,6 +472,37 @@ impl AnalysisManager {
 }
 
 impl AnalysisManager {
+    async fn analyze_pdf_redactions_pagewise(
+        &self,
+        app: &tauri::AppHandle,
+        record_id: &str,
+        path: &std::path::Path,
+    ) -> Result<f32> {
+        let total_pages = self.indexer.pdf.page_count(path)?;
+        let mut max_score = 0.0f32;
+        for idx in 0..total_pages {
+            let _ = app.emit(
+                "analysis-progress",
+                serde_json::json!({
+                    "status": "extracting-foundation",
+                    "record_id": record_id,
+                    "step": format!("Redaction scoring page {} of {}", idx + 1, total_pages)
+                }),
+            );
+            let page_img = self
+                .indexer
+                .pdf
+                .render_page(path, idx, crate::analysis::pdf::PdfRenderOptions::default())
+                .await?;
+            if let Ok(score) = self.indexer.ocr.analyze_redactions_image(&page_img) {
+                if score > max_score {
+                    max_score = score;
+                }
+            }
+        }
+        Ok(max_score)
+    }
+
     pub async fn analyze_record(
         &self,
         app: &tauri::AppHandle,
@@ -482,4 +533,22 @@ impl AnalysisManager {
         drop(_permit);
         Ok(())
     }
+}
+
+fn is_pdf_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|extension| extension.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false)
+}
+
+fn emit_analysis_warning(app: &tauri::AppHandle, record_id: &str, warning: &str) {
+    let _ = app.emit(
+        "analysis-progress",
+        serde_json::json!({
+            "status": "analysis-warning",
+            "record_id": record_id,
+            "warning": warning
+        }),
+    );
 }

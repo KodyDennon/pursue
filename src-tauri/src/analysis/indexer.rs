@@ -1,5 +1,5 @@
 use crate::analysis::ocr::OcrEngine;
-use crate::analysis::pdf::PdfAnalyzer;
+use crate::analysis::pdf::{PdfAnalyzer, PdfRenderOptions};
 use crate::models::Record;
 use anyhow::{anyhow, Result};
 use std::fmt::Write as _;
@@ -9,6 +9,12 @@ use tauri::Emitter;
 pub struct TextExtractor {
     pub ocr: OcrEngine,
     pub pdf: PdfAnalyzer,
+}
+
+pub struct TextExtractionResult {
+    pub text: String,
+    pub engine: String,
+    pub warnings: Vec<String>,
 }
 
 impl TextExtractor {
@@ -22,7 +28,7 @@ impl TextExtractor {
         id: &str,
         path: &Path,
         record: &Record,
-    ) -> Result<(String, String)> {
+    ) -> Result<TextExtractionResult> {
         let extension = path
             .extension()
             .and_then(|v| v.to_str())
@@ -32,7 +38,11 @@ impl TextExtractor {
         match extension.as_str() {
             "txt" | "md" | "csv" | "json" => {
                 let text = tokio::fs::read_to_string(path).await?;
-                Ok((text, "text-file".to_string()))
+                Ok(TextExtractionResult {
+                    text,
+                    engine: "text-file".to_string(),
+                    warnings: Vec::new(),
+                })
             }
             "pdf" => {
                 // Step 1: Attempt digital text extraction
@@ -47,7 +57,11 @@ impl TextExtractor {
 
                 let digital_text = self.pdf.extract_text(path).await.unwrap_or_default();
                 if digital_text.trim().len() > 30 {
-                    return Ok((digital_text, "pdf-digital".to_string()));
+                    return Ok(TextExtractionResult {
+                        text: digital_text,
+                        engine: "pdf-digital".to_string(),
+                        warnings: Vec::new(),
+                    });
                 }
 
                 // Step 2: Fallback to rendering and local ONNX OCR
@@ -60,11 +74,11 @@ impl TextExtractor {
                     }),
                 );
 
-                let pages = self.pdf.render_pdf_to_images(path).await?;
                 let mut full_text = String::new();
-                let total_pages = pages.len();
+                let total_pages = self.pdf.page_count(path)?;
+                let mut warnings = Vec::new();
 
-                for (idx, page_img) in pages.into_iter().enumerate() {
+                for idx in 0..total_pages {
                     let _ = app.emit(
                         "analysis-progress",
                         serde_json::json!({
@@ -74,12 +88,45 @@ impl TextExtractor {
                         }),
                     );
 
-                    let page_text = self.ocr.extract_text(app, &page_img).await?;
-                    full_text.push_str(&page_text);
-                    full_text.push('\n');
+                    match self
+                        .pdf
+                        .render_page(path, idx, PdfRenderOptions::default())
+                        .await
+                    {
+                        Ok(page_img) => match self.ocr.extract_text(app, &page_img).await {
+                            Ok(page_text) => {
+                                full_text.push_str(&page_text);
+                                full_text.push('\n');
+                            }
+                            Err(error) => {
+                                let warning = format!(
+                                    "OCR failed for page {} of {}: {}",
+                                    idx + 1,
+                                    total_pages,
+                                    error
+                                );
+                                emit_analysis_warning(app, id, &warning);
+                                warnings.push(warning);
+                            }
+                        },
+                        Err(error) => {
+                            let warning = format!(
+                                "PDF render failed for page {} of {}: {}",
+                                idx + 1,
+                                total_pages,
+                                error
+                            );
+                            emit_analysis_warning(app, id, &warning);
+                            warnings.push(warning);
+                        }
+                    }
                 }
 
-                Ok((full_text.trim().to_string(), "onnx-ocr".to_string()))
+                Ok(TextExtractionResult {
+                    text: full_text.trim().to_string(),
+                    engine: "onnx-ocr".to_string(),
+                    warnings,
+                })
             }
             "png" | "jpg" | "jpeg" | "tif" | "tiff" | "bmp" | "webp" => {
                 let _ = app.emit(
@@ -93,7 +140,11 @@ impl TextExtractor {
 
                 let img = image::open(path)?;
                 let text = self.ocr.extract_text(app, &img).await?;
-                Ok((text, "onnx-ocr".to_string()))
+                Ok(TextExtractionResult {
+                    text,
+                    engine: "onnx-ocr".to_string(),
+                    warnings: Vec::new(),
+                })
             }
             "mp4" | "mov" | "avi" | "mkv" | "webm" | "mp3" | "wav" | "m4a" | "aac" | "ogg"
             | "flac" => {
@@ -106,11 +157,26 @@ impl TextExtractor {
                     }),
                 );
 
-                Ok((media_record_text(record), "disclosure-metadata".to_string()))
+                Ok(TextExtractionResult {
+                    text: media_record_text(record),
+                    engine: "disclosure-metadata".to_string(),
+                    warnings: Vec::new(),
+                })
             }
             _ => Err(anyhow!("unsupported type `{}`", extension)),
         }
     }
+}
+
+fn emit_analysis_warning(app: &tauri::AppHandle, record_id: &str, warning: &str) {
+    let _ = app.emit(
+        "analysis-progress",
+        serde_json::json!({
+            "status": "analysis-warning",
+            "record_id": record_id,
+            "warning": warning
+        }),
+    );
 }
 
 /// No local speech-to-text model is bundled, so audio/video records are indexed on their

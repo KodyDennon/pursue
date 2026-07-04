@@ -6,6 +6,8 @@ use tauri::{AppHandle, Emitter};
 
 pub struct BatchProcessor;
 
+const INDEXING_RECORD_CONCURRENCY: usize = 1;
+
 impl BatchProcessor {
     pub async fn index_all_records(
         analysis: Arc<AnalysisManager>,
@@ -30,10 +32,9 @@ impl BatchProcessor {
         let handle = app_handle.clone();
         let analysis_clone = analysis.clone();
 
-        // Concurrency matches analyze_all_records below, which calls this same
-        // analysis.index_record() work via buffer_unordered(2) — there was no reason for
-        // this batch to run strictly sequentially when the other one doing identical work
-        // doesn't.
+        // Keep full-record indexing sequential by default. The renderer/OCR layer is also
+        // semaphore-bound, but sequential record scheduling prevents two large records from
+        // retaining independent intermediate state around the heavy phase.
         tauri::async_runtime::spawn(async move {
             use futures::stream::StreamExt;
             use std::sync::atomic::{AtomicUsize, Ordering};
@@ -84,7 +85,7 @@ impl BatchProcessor {
                         }
                     }
                 })
-                .buffer_unordered(2)
+                .buffer_unordered(INDEXING_RECORD_CONCURRENCY)
                 .collect::<Vec<_>>()
                 .await;
 
@@ -230,7 +231,7 @@ impl BatchProcessor {
                         Ok::<(), String>(())
                     }
                 })
-                .buffer_unordered(2) // Reduced concurrency to prevent resource exhaustion during heavy OCR
+                .buffer_unordered(INDEXING_RECORD_CONCURRENCY)
                 .collect::<Vec<_>>()
                 .await;
 
@@ -356,7 +357,7 @@ impl BatchProcessor {
                         Ok::<(), String>(())
                     }
                 })
-                .buffer_unordered(2) // Reduced concurrency to prevent resource exhaustion during heavy OCR
+                .buffer_unordered(INDEXING_RECORD_CONCURRENCY)
                 .collect::<Vec<_>>()
                 .await;
 

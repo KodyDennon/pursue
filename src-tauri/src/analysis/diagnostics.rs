@@ -34,7 +34,8 @@ pub fn get_hardware_specs() -> HardwareSpecs {
         System::os_version().unwrap_or_default()
     );
 
-    let gpu_acceleration_available = cfg!(target_os = "macos") || cfg!(target_os = "windows");
+    let gpu_acceleration_available =
+        candle_core::utils::cuda_is_available() || candle_core::utils::metal_is_available();
 
     let recommended_tier = if total_memory_gb >= 16 {
         IntelligenceTier::Elite

@@ -16,6 +16,7 @@ pub struct GemmaContext {
     pub model: gemma4::Model,
     pub tokenizer: Tokenizer,
     pub repo_path: PathBuf,
+    pub device_label: String,
 }
 
 pub struct IntelligenceExtractor {
@@ -49,7 +50,7 @@ impl IntelligenceExtractor {
             .or(config.fallback_model_path)
             .ok_or_else(|| anyhow!("No model repository path provided for forensics"))?;
 
-        self.extract_metadata(app, record_id, repo_path, text, images)
+        self.extract_metadata(app, record_id, repo_path, config.force_cpu, text, images)
             .await
     }
 
@@ -58,6 +59,7 @@ impl IntelligenceExtractor {
         app: &AppHandle,
         record_id: &str,
         repo_path: PathBuf,
+        force_cpu: bool,
         text: &str,
         images: Vec<PathBuf>,
     ) -> Result<Value> {
@@ -70,28 +72,8 @@ impl IntelligenceExtractor {
         let rid = record_id.to_string();
         let db = app.state::<AppState>().db.clone();
 
-        let mut cache = self.cache.lock().await;
-
-        // 1. Ensure Model Readiness
-        if cache.is_none() || cache.as_ref().unwrap().repo_path != repo_path {
-            debug!("[Extraction] Loading model from: {:?}", repo_path);
-            let _ = handle.emit(
-                "analysis-progress",
-                json!({
-                    "status": "loading-model",
-                    "record_id": rid,
-                }),
-            );
-            *cache = Some(Self::load_context(&repo_path)?);
-            debug!("[Extraction] Model loaded and cached.");
-        }
-
-        let ctx = cache.take().unwrap();
-
-        let rid_clone = rid.clone();
-
-        // 2. RETRIEVAL-AUGMENTED INTELLIGENCE (RAG)
-        // We fetch the top 15 most relevant semantic chunks and the forensic discoveries manifest.
+        // Fetch DB-side context before acquiring the model cache lock. The cache mutex should
+        // protect the resident model, not unrelated SQL work.
         let fragments =
             crate::search::query_related_fragments_for_record(&db, &rid, &text_owned, 15)
                 .await
@@ -104,6 +86,39 @@ impl IntelligenceExtractor {
         .fetch_all(&db)
         .await?;
 
+        let mut cache = self.cache.lock().await;
+
+        // 1. Ensure Model Readiness
+        if cache.is_none() || cache.as_ref().unwrap().repo_path != repo_path {
+            debug!("[Extraction] Loading model from: {:?}", repo_path);
+            let _ = handle.emit(
+                "analysis-progress",
+                json!({
+                    "status": "loading-model",
+                    "record_id": rid,
+                    "msg": "Loading intelligence model with GPU-first fallback..."
+                }),
+            );
+            let context = Self::load_context(&repo_path, force_cpu)?;
+            let _ = handle.emit(
+                "analysis-progress",
+                json!({
+                    "status": "loading-model",
+                    "record_id": rid,
+                    "msg": format!("Intelligence model ready on {}", context.device_label),
+                    "device": context.device_label
+                }),
+            );
+            *cache = Some(context);
+            debug!("[Extraction] Model loaded and cached.");
+        }
+
+        let ctx = cache.take().unwrap();
+
+        let rid_clone = rid.clone();
+
+        // 2. RETRIEVAL-AUGMENTED INTELLIGENCE (RAG)
+        // We fetch the top relevant semantic chunks and the forensic discoveries manifest.
         let mut forensic_manifest = String::from("FORENSIC VISUAL MANIFEST:\n");
         if forensics.is_empty() {
             forensic_manifest.push_str("- No visual anomalies detected by foundation OCR.\n");
@@ -340,15 +355,7 @@ impl IntelligenceExtractor {
         Ok((val, thought, ctx))
     }
 
-    fn load_context(repo_path: &PathBuf) -> Result<GemmaContext> {
-        let device = if candle_core::utils::cuda_is_available() {
-            candle_core::Device::new_cuda(0).unwrap_or(candle_core::Device::Cpu)
-        } else if candle_core::utils::metal_is_available() {
-            candle_core::Device::new_metal(0).unwrap_or(candle_core::Device::Cpu)
-        } else {
-            candle_core::Device::Cpu
-        };
-
+    fn load_context(repo_path: &PathBuf, force_cpu: bool) -> Result<GemmaContext> {
         let config_data = std::fs::read_to_string(repo_path.join("config.json"))?;
         let config_wrapper: gemma4::ConfigWrapper = serde_json::from_str(&config_data)?;
         let config = config_wrapper.extract().map_err(|e| anyhow!("{}", e))?;
@@ -362,6 +369,52 @@ impl IntelligenceExtractor {
         }
         safetensors_paths.sort();
 
+        let mut candidates = Vec::new();
+        if !force_cpu {
+            if candle_core::utils::cuda_is_available() {
+                if let Ok(device) = candle_core::Device::new_cuda(0) {
+                    candidates.push(("CUDA".to_string(), device));
+                }
+            }
+            if candle_core::utils::metal_is_available() {
+                if let Ok(device) = candle_core::Device::new_metal(0) {
+                    candidates.push(("Metal".to_string(), device));
+                }
+            }
+        }
+        candidates.push(("CPU".to_string(), candle_core::Device::Cpu));
+
+        let mut last_error = None;
+        for (label, device) in candidates {
+            match Self::load_context_on_device(
+                repo_path,
+                &safetensors_paths,
+                &config,
+                device,
+                &label,
+            ) {
+                Ok(context) => return Ok(context),
+                Err(error) => {
+                    tauri_plugin_log::log::warn!(
+                        "[Extraction] Failed to load intelligence model on {}: {}",
+                        label,
+                        error
+                    );
+                    last_error = Some(error);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow!("No inference devices were available")))
+    }
+
+    fn load_context_on_device(
+        repo_path: &PathBuf,
+        safetensors_paths: &[PathBuf],
+        config: &gemma4::Config,
+        device: candle_core::Device,
+        device_label: &str,
+    ) -> Result<GemmaContext> {
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&safetensors_paths, DType::BF16, &device)?
         };
@@ -373,6 +426,7 @@ impl IntelligenceExtractor {
             model,
             tokenizer,
             repo_path: repo_path.clone(),
+            device_label: device_label.to_string(),
         })
     }
 }
