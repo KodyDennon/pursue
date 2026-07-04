@@ -39,6 +39,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
+const MAX_SEMANTIC_CHUNKS_PER_RECORD: usize = 512;
+
 pub struct AnalysisManager {
     db: SqlitePool,
     repo: AnalysisRepository,
@@ -315,7 +317,17 @@ impl AnalysisManager {
         drop(heavy_permit);
 
         let entities = extract_entities(&text);
-        let chunks = crate::search::chunk_text(&text, 1200);
+        let mut chunks = crate::search::chunk_text(&text, 1200);
+        if chunks.len() > MAX_SEMANTIC_CHUNKS_PER_RECORD {
+            let warning = format!(
+                "Semantic indexing capped at {} chunks out of {} extracted chunks.",
+                MAX_SEMANTIC_CHUNKS_PER_RECORD,
+                chunks.len()
+            );
+            emit_analysis_warning(_app, record_id, &warning);
+            analysis_warnings.push(warning);
+            chunks.truncate(MAX_SEMANTIC_CHUNKS_PER_RECORD);
+        }
         let mut embeddings = Vec::with_capacity(chunks.len());
         for chunk in &chunks {
             embeddings.push(crate::search::vectorize_text(chunk).await?);

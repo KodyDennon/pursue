@@ -5,6 +5,7 @@ use std::path::Path;
 const DEFAULT_PDF_RENDER_SCALE: f64 = 3.0;
 const DEFAULT_MAX_RENDERED_PAGE_PIXELS: u64 = 24_000_000;
 const MAX_EXTRACTED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PDF_DIGITAL_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PdfRenderOptions {
@@ -50,6 +51,9 @@ impl PdfAnalyzer {
             if let Ok(page_text) = doc.extract_text(&[page_number]) {
                 text.push_str(&page_text);
                 text.push('\n');
+                if truncate_to_utf8_boundary(&mut text, MAX_PDF_DIGITAL_TEXT_BYTES) {
+                    break;
+                }
             }
         }
 
@@ -216,15 +220,26 @@ impl PdfAnalyzer {
                     };
 
                     let stream = doc.get_object(*object_id)?.as_stream()?;
+                    if stream.content.len() < 1024
+                        || stream.content.len() > MAX_EXTRACTED_IMAGE_BYTES
+                    {
+                        continue;
+                    }
                     let mut data = stream.content.clone();
 
                     if let Ok(filter) = dict.get(b"Filter").and_then(|f| f.as_name()) {
                         if filter == b"FlateDecode" {
-                            if let Ok(decompressed) =
-                                miniz_oxide::inflate::decompress_to_vec_zlib(&data)
-                            {
-                                data = decompressed;
-                            }
+                            data = match miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(
+                                &data,
+                                MAX_EXTRACTED_IMAGE_BYTES + 1,
+                            ) {
+                                Ok(decompressed)
+                                    if decompressed.len() <= MAX_EXTRACTED_IMAGE_BYTES =>
+                                {
+                                    decompressed
+                                }
+                                _ => continue,
+                            };
                         }
                     }
 
@@ -314,6 +329,18 @@ fn page_dimensions_points(path: &Path, page_index: usize) -> Result<(f64, f64)> 
     let x1 = media_box[2].as_f32().unwrap_or(612.0) as f64;
     let y1 = media_box[3].as_f32().unwrap_or(792.0) as f64;
     Ok(((x1 - x0).abs().max(1.0), (y1 - y0).abs().max(1.0)))
+}
+
+fn truncate_to_utf8_boundary(text: &mut String, max_bytes: usize) -> bool {
+    if text.len() <= max_bytes {
+        return false;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.truncate(end);
+    true
 }
 
 #[cfg(target_os = "macos")]

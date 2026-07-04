@@ -5,6 +5,9 @@ use anyhow::{anyhow, Result};
 use std::fmt::Write as _;
 use std::path::Path;
 use tauri::Emitter;
+use tokio::io::AsyncReadExt;
+
+const MAX_TEXT_EXTRACTION_BYTES: usize = 2 * 1024 * 1024;
 
 pub struct TextExtractor {
     pub ocr: OcrEngine,
@@ -37,11 +40,21 @@ impl TextExtractor {
 
         match extension.as_str() {
             "txt" | "md" | "csv" | "json" => {
-                let text = tokio::fs::read_to_string(path).await?;
+                let (text, truncated) =
+                    read_text_file_limited(path, MAX_TEXT_EXTRACTION_BYTES).await?;
+                let mut warnings = Vec::new();
+                if truncated {
+                    let warning = format!(
+                        "Text extraction truncated at {} MiB to keep analysis memory bounded.",
+                        MAX_TEXT_EXTRACTION_BYTES / 1024 / 1024
+                    );
+                    emit_analysis_warning(app, id, &warning);
+                    warnings.push(warning);
+                }
                 Ok(TextExtractionResult {
                     text,
                     engine: "text-file".to_string(),
-                    warnings: Vec::new(),
+                    warnings,
                 })
             }
             "pdf" => {
@@ -55,12 +68,21 @@ impl TextExtractor {
                     }),
                 );
 
-                let digital_text = self.pdf.extract_text(path).await.unwrap_or_default();
+                let mut digital_text = self.pdf.extract_text(path).await.unwrap_or_default();
+                let mut warnings = Vec::new();
+                if truncate_to_utf8_boundary(&mut digital_text, MAX_TEXT_EXTRACTION_BYTES) {
+                    let warning = format!(
+                        "PDF digital text truncated at {} MiB to keep analysis memory bounded.",
+                        MAX_TEXT_EXTRACTION_BYTES / 1024 / 1024
+                    );
+                    emit_analysis_warning(app, id, &warning);
+                    warnings.push(warning);
+                }
                 if digital_text.trim().len() > 30 {
                     return Ok(TextExtractionResult {
                         text: digital_text,
                         engine: "pdf-digital".to_string(),
-                        warnings: Vec::new(),
+                        warnings,
                     });
                 }
 
@@ -76,7 +98,6 @@ impl TextExtractor {
 
                 let mut full_text = String::new();
                 let total_pages = self.pdf.page_count(path)?;
-                let mut warnings = Vec::new();
 
                 for idx in 0..total_pages {
                     let _ = app.emit(
@@ -97,6 +118,20 @@ impl TextExtractor {
                             Ok(page_text) => {
                                 full_text.push_str(&page_text);
                                 full_text.push('\n');
+                                if truncate_to_utf8_boundary(
+                                    &mut full_text,
+                                    MAX_TEXT_EXTRACTION_BYTES,
+                                ) {
+                                    let warning = format!(
+                                        "OCR text truncated at {} MiB after page {} of {}.",
+                                        MAX_TEXT_EXTRACTION_BYTES / 1024 / 1024,
+                                        idx + 1,
+                                        total_pages
+                                    );
+                                    emit_analysis_warning(app, id, &warning);
+                                    warnings.push(warning);
+                                    break;
+                                }
                             }
                             Err(error) => {
                                 let warning = format!(
@@ -168,6 +203,30 @@ impl TextExtractor {
     }
 }
 
+async fn read_text_file_limited(path: &Path, max_bytes: usize) -> Result<(String, bool)> {
+    let file = tokio::fs::File::open(path).await?;
+    let mut limited = file.take((max_bytes + 1) as u64);
+    let mut bytes = Vec::with_capacity(max_bytes.min(64 * 1024));
+    limited.read_to_end(&mut bytes).await?;
+    let truncated = bytes.len() > max_bytes;
+    if truncated {
+        bytes.truncate(max_bytes);
+    }
+    Ok((String::from_utf8_lossy(&bytes).to_string(), truncated))
+}
+
+fn truncate_to_utf8_boundary(text: &mut String, max_bytes: usize) -> bool {
+    if text.len() <= max_bytes {
+        return false;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.truncate(end);
+    true
+}
+
 fn emit_analysis_warning(app: &tauri::AppHandle, record_id: &str, warning: &str) {
     let _ = app.emit(
         "analysis-progress",
@@ -209,4 +268,29 @@ fn media_record_text(record: &Record) -> String {
         let _ = writeln!(text, "{alt_text}");
     }
     text.trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_to_utf8_boundary_preserves_valid_string() {
+        let mut text = "abcédef".to_string();
+        assert!(truncate_to_utf8_boundary(&mut text, 4));
+        assert_eq!(text, "abc");
+    }
+
+    #[tokio::test]
+    async fn read_text_file_limited_reports_truncation() {
+        let path =
+            std::env::temp_dir().join(format!("pursue-text-limit-{}.txt", uuid::Uuid::new_v4()));
+        tokio::fs::write(&path, "abcdefghij").await.unwrap();
+
+        let (text, truncated) = read_text_file_limited(&path, 5).await.unwrap();
+        assert_eq!(text, "abcde");
+        assert!(truncated);
+
+        let _ = tokio::fs::remove_file(path).await;
+    }
 }

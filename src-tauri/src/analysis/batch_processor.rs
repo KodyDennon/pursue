@@ -43,7 +43,7 @@ impl BatchProcessor {
             let total_count = count;
             let cancel_token = analysis_clone.get_cancel_token();
 
-            futures::stream::iter(records)
+            let mut stream = futures::stream::iter(records)
                 .map(|row| {
                     let id: String = row.get("id");
                     let handle = handle.clone();
@@ -85,9 +85,8 @@ impl BatchProcessor {
                         }
                     }
                 })
-                .buffer_unordered(INDEXING_RECORD_CONCURRENCY)
-                .collect::<Vec<_>>()
-                .await;
+                .buffer_unordered(INDEXING_RECORD_CONCURRENCY);
+            while stream.next().await.is_some() {}
 
             let status = if cancel_token.is_cancelled() {
                 "failed"
@@ -175,7 +174,7 @@ impl BatchProcessor {
             let total_count = count;
             let cancel_token = analysis_clone.get_cancel_token();
 
-            futures::stream::iter(records)
+            let mut stream = futures::stream::iter(records)
                 .map(|row| {
                     let id: String = row.get("id");
                     let handle = handle.clone();
@@ -231,9 +230,8 @@ impl BatchProcessor {
                         Ok::<(), String>(())
                     }
                 })
-                .buffer_unordered(INDEXING_RECORD_CONCURRENCY)
-                .collect::<Vec<_>>()
-                .await;
+                .buffer_unordered(INDEXING_RECORD_CONCURRENCY);
+            while stream.next().await.is_some() {}
 
             let status = if cancel_token.is_cancelled() {
                 "failed"

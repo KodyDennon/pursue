@@ -7,6 +7,7 @@ use sqlx::Row;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_log::log::info;
 use tokio::fs;
@@ -28,6 +29,49 @@ pub struct ModelManager {
     db: Option<sqlx::SqlitePool>,
     models_dir: PathBuf,
     active_locks: Arc<Mutex<HashSet<String>>>,
+}
+
+struct ModelProgressThrottle {
+    last_emit_at: Instant,
+    last_emit_bytes: u64,
+    last_emit_percent: Option<u64>,
+}
+
+impl ModelProgressThrottle {
+    fn new(downloaded: u64, total_bytes: Option<u64>) -> Self {
+        Self {
+            last_emit_at: Instant::now(),
+            last_emit_bytes: downloaded,
+            last_emit_percent: percent(downloaded, total_bytes),
+        }
+    }
+
+    fn should_emit(&mut self, downloaded: u64, total_bytes: Option<u64>) -> bool {
+        let elapsed = self.last_emit_at.elapsed();
+        let byte_delta = downloaded.saturating_sub(self.last_emit_bytes);
+        let next_percent = percent(downloaded, total_bytes);
+        let percent_changed = matches!(
+            (self.last_emit_percent, next_percent),
+            (Some(previous), Some(next)) if next > previous
+        );
+
+        if elapsed >= Duration::from_millis(500) || byte_delta >= 4 * 1024 * 1024 || percent_changed
+        {
+            self.last_emit_at = Instant::now();
+            self.last_emit_bytes = downloaded;
+            self.last_emit_percent = next_percent;
+            return true;
+        }
+        false
+    }
+}
+
+fn percent(downloaded: u64, total_bytes: Option<u64>) -> Option<u64> {
+    let total = total_bytes?;
+    if total == 0 {
+        return None;
+    }
+    Some(((downloaded.saturating_mul(100)) / total).min(100))
 }
 
 impl ModelManager {
@@ -296,6 +340,7 @@ impl ModelManager {
         let mut stream = response.bytes_stream();
         let session_start = std::time::Instant::now();
         let mut session_downloaded = 0u64;
+        let mut progress_throttle = ModelProgressThrottle::new(downloaded, total_bytes);
 
         let _ = app.emit(
             "model-progress",
@@ -331,17 +376,19 @@ impl ModelManager {
                 }
             }
 
-            let _ = app.emit(
-                "model-progress",
-                ModelProgress {
-                    model_id: model_id.to_string(),
-                    bytes_downloaded: downloaded,
-                    total_bytes,
-                    status: "downloading".to_string(),
-                    speed_mbps,
-                    eta_seconds,
-                },
-            );
+            if progress_throttle.should_emit(downloaded, total_bytes) {
+                let _ = app.emit(
+                    "model-progress",
+                    ModelProgress {
+                        model_id: model_id.to_string(),
+                        bytes_downloaded: downloaded,
+                        total_bytes,
+                        status: "downloading".to_string(),
+                        speed_mbps,
+                        eta_seconds,
+                    },
+                );
+            }
         }
 
         file.flush().await?;

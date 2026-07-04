@@ -11,9 +11,12 @@ mod search;
 mod sources;
 mod vault;
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::commands::*;
+use crate::downloads::DownloadPartWriter;
 use analysis::AnalysisManager;
 use library::LibraryManager;
 use tauri::utils::config::BackgroundThrottlingPolicy;
@@ -29,6 +32,14 @@ pub struct AppState {
     // downloads (or vice versa).
     pub webview_semaphore: Arc<tokio::sync::Semaphore>,
     pub dvids_semaphore: Arc<tokio::sync::Semaphore>,
+    pub download_writers: Arc<tokio::sync::Mutex<HashMap<String, DownloadPartWriter>>>,
+    pub download_progress_writes: Arc<tokio::sync::Mutex<HashMap<String, DownloadProgressWrite>>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DownloadProgressWrite {
+    pub offset: u64,
+    pub at: Instant,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -82,6 +93,8 @@ pub fn run() {
                     analysis,
                     webview_semaphore: Arc::new(tokio::sync::Semaphore::new(4)), // Avoid deadlock with concurrency
                     dvids_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
+                    download_writers: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                    download_progress_writes: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 });
                 anyhow::Ok(())
             })?;

@@ -10,6 +10,7 @@ use crate::models::{
     WarGovWebviewDownloadRequest,
 };
 use crate::sources::war_gov;
+use crate::DownloadProgressWrite;
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Deserialize;
@@ -18,6 +19,9 @@ use std::path::Path;
 use tauri::{Listener, Manager, State};
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+const DOWNLOAD_PROGRESS_WRITE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+const DOWNLOAD_PROGRESS_WRITE_BYTE_DELTA: u64 = 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind")]
@@ -484,6 +488,7 @@ pub async fn begin_download_item(
     .execute(&state.db)
     .await
     .map_err(to_error)?;
+    remember_download_progress_write(&state, &request.item_id, offset).await;
 
     let cancel_requested: i64 =
         sqlx::query_scalar("SELECT cancel_requested FROM download_jobs WHERE id = ?")
@@ -515,20 +520,22 @@ pub async fn append_download_chunk(
         .await
         .map_err(to_error)?;
 
-    sqlx::query(
-        r#"
-        UPDATE download_job_items
-        SET bytes_downloaded = ?, last_progress_at = ?, updated_at = ?
-        WHERE id = ?
-        "#,
-    )
-    .bind(i64::try_from(next_offset).unwrap_or(i64::MAX))
-    .bind(now())
-    .bind(now())
-    .bind(&request.item_id)
-    .execute(&state.db)
-    .await
-    .map_err(to_error)?;
+    if should_write_download_progress(&state, &request.item_id, next_offset).await {
+        sqlx::query(
+            r#"
+            UPDATE download_job_items
+            SET bytes_downloaded = ?, last_progress_at = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(i64::try_from(next_offset).unwrap_or(i64::MAX))
+        .bind(now())
+        .bind(now())
+        .bind(&request.item_id)
+        .execute(&state.db)
+        .await
+        .map_err(to_error)?;
+    }
 
     Ok(AppendDownloadChunkResponse {
         offset: next_offset,
@@ -544,6 +551,7 @@ pub async fn finalize_download_item(
         .await
         .map_err(to_error)?;
     let finalized = writer.finalize().await.map_err(to_error)?;
+    remove_download_part_writer(&state, &request.item_id).await;
     if let Some(expected) = request.expected_size {
         if expected >= 0 && finalized.byte_size != expected {
             return Err(format!(
@@ -782,6 +790,7 @@ pub async fn download_war_gov_item_with_webview(
         }
 
         let finalized = writer.finalize().await.map_err(to_error)?;
+        remove_download_part_writer(&state, &request.item_id).await;
         if let Some(expected) = expected_size {
             if expected >= 0 && finalized.byte_size != expected {
                 return Err(format!(
@@ -845,6 +854,7 @@ pub async fn fail_download_item(
     request: FailDownloadItemRequest,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    remove_download_part_writer(&state, &request.item_id).await;
     let status = if request.error_class == "cancelled" {
         "cancelled"
     } else {
@@ -885,6 +895,7 @@ pub async fn reset_download_item_part(
         .await
         .map_err(to_error)?;
     writer.reset().await.map_err(to_error)?;
+    remember_download_progress_write(&state, &item_id, 0).await;
     sqlx::query(
         r#"
         UPDATE download_job_items
@@ -917,7 +928,60 @@ async fn download_part_writer(
     state: &State<'_, AppState>,
     item_id: &str,
 ) -> Result<DownloadPartWriter> {
-    DownloadPartWriter::new(state.library.app_data_dir().join("download-parts"), item_id).await
+    let mut writers = state.download_writers.lock().await;
+    if let Some(writer) = writers.get(item_id) {
+        return Ok(writer.clone());
+    }
+
+    let writer =
+        DownloadPartWriter::new(state.library.app_data_dir().join("download-parts"), item_id)
+            .await?;
+    writers.insert(item_id.to_string(), writer.clone());
+    Ok(writer)
+}
+
+async fn remove_download_part_writer(state: &State<'_, AppState>, item_id: &str) {
+    let mut writers = state.download_writers.lock().await;
+    writers.remove(item_id);
+    drop(writers);
+
+    let mut progress = state.download_progress_writes.lock().await;
+    progress.remove(item_id);
+}
+
+async fn remember_download_progress_write(state: &State<'_, AppState>, item_id: &str, offset: u64) {
+    let mut progress = state.download_progress_writes.lock().await;
+    progress.insert(
+        item_id.to_string(),
+        DownloadProgressWrite {
+            offset,
+            at: std::time::Instant::now(),
+        },
+    );
+}
+
+async fn should_write_download_progress(
+    state: &State<'_, AppState>,
+    item_id: &str,
+    offset: u64,
+) -> bool {
+    let mut progress = state.download_progress_writes.lock().await;
+    let now = std::time::Instant::now();
+    let Some(previous) = progress.get_mut(item_id) else {
+        progress.insert(
+            item_id.to_string(),
+            DownloadProgressWrite { offset, at: now },
+        );
+        return true;
+    };
+
+    let should_write = previous.at.elapsed() >= DOWNLOAD_PROGRESS_WRITE_INTERVAL
+        || offset.saturating_sub(previous.offset) >= DOWNLOAD_PROGRESS_WRITE_BYTE_DELTA;
+    if should_write {
+        previous.offset = offset;
+        previous.at = now;
+    }
+    should_write
 }
 
 async fn refresh_download_job_counters(db: &SqlitePool, job_id: &str) -> Result<()> {

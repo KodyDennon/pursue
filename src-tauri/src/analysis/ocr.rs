@@ -1,8 +1,12 @@
 use anyhow::{anyhow, Result};
+use image::GenericImageView;
 use oar_ocr::oarocr::{OAROCRBuilder, OAROCR};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+const MAX_OCR_IMAGE_PIXELS: u64 = 12_000_000;
+const MAX_REDACTION_IMAGE_PIXELS: u64 = 4_000_000;
 
 pub struct OcrEngine {
     ocr: Arc<Mutex<Option<Arc<OAROCR>>>>,
@@ -80,6 +84,8 @@ impl OcrEngine {
         image: &image::DynamicImage,
     ) -> Result<String> {
         let ocr = self.ensure_initialized(app).await?;
+        let resized = resize_to_pixel_cap(image, MAX_OCR_IMAGE_PIXELS);
+        let image = resized.as_ref().unwrap_or(image);
         let results = ocr.predict(vec![image.to_rgb8()])?;
 
         let mut full_text = String::new();
@@ -109,8 +115,13 @@ impl OcrEngine {
     }
 
     pub fn analyze_redactions_image(&self, img: &image::DynamicImage) -> Result<f32> {
+        let resized = resize_to_pixel_cap(img, MAX_REDACTION_IMAGE_PIXELS);
+        let img = resized.as_ref().unwrap_or(img);
         let luma = img.to_luma8();
         let (width, height) = luma.dimensions();
+        if width < 3 || height < 3 {
+            return Ok(0.0);
+        }
 
         let mut redaction_pixels = 0u64;
         let mut row_black_counts = vec![0u32; height as usize];
@@ -150,6 +161,23 @@ impl OcrEngine {
     }
 }
 
+fn resize_to_pixel_cap(img: &image::DynamicImage, max_pixels: u64) -> Option<image::DynamicImage> {
+    let (width, height) = img.dimensions();
+    let pixels = (width as u64).saturating_mul(height as u64);
+    if pixels <= max_pixels || pixels == 0 {
+        return None;
+    }
+
+    let scale = ((max_pixels as f64) / (pixels as f64)).sqrt();
+    let target_width = ((width as f64) * scale).round().max(1.0) as u32;
+    let target_height = ((height as f64) * scale).round().max(1.0) as u32;
+    Some(img.resize(
+        target_width,
+        target_height,
+        image::imageops::FilterType::Triangle,
+    ))
+}
+
 fn get_model_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>, filename: &str) -> Result<PathBuf> {
     use tauri::Manager;
     let rel_path = format!("src-tauri/assets/models/{}", filename);
@@ -175,6 +203,7 @@ fn get_model_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>, filename: &str) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::GenericImageView;
 
     #[tokio::test]
     async fn test_ocr_initialization_and_prediction() {
@@ -209,5 +238,16 @@ mod tests {
         ));
         let black_redaction_ratio = engine.analyze_redactions_image(&black_img).unwrap();
         assert!(black_redaction_ratio > 0.9);
+    }
+
+    #[test]
+    fn resize_to_pixel_cap_only_downscales_oversized_images() {
+        let small = image::DynamicImage::ImageRgb8(image::RgbImage::new(10, 10));
+        assert!(resize_to_pixel_cap(&small, 100).is_none());
+
+        let large = image::DynamicImage::ImageRgb8(image::RgbImage::new(100, 100));
+        let resized = resize_to_pixel_cap(&large, 2_500).expect("large image is downscaled");
+        let (width, height) = resized.dimensions();
+        assert!((width as u64) * (height as u64) <= 2_500);
     }
 }
