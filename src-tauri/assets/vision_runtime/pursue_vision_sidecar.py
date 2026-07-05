@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,6 +11,7 @@ MODEL = None
 PROCESSOR = None
 MODEL_PATH = None
 DEVICE = "cpu"
+DEVICE_DETAIL = "CPU"
 LOCK = threading.Lock()
 
 
@@ -23,6 +25,14 @@ def _json_response(handler, status, payload):
 
 
 def _select_device(torch):
+    requested = os.environ.get("PURSUE_VISION_DEVICE") or os.environ.get("PURSUE_ACCELERATION") or "auto"
+    requested = requested.lower()
+    if requested in ("cpu", "off", "disabled"):
+        return "cpu"
+    if requested in ("cuda", "nvidia"):
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if requested in ("mps", "metal", "apple"):
+        return "mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"
     if torch.cuda.is_available():
         return "cuda"
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -30,27 +40,123 @@ def _select_device(torch):
     return "cpu"
 
 
-def _load_model(model_path):
-    global MODEL, PROCESSOR, MODEL_PATH, DEVICE
-    with LOCK:
-        if MODEL is not None and MODEL_PATH == model_path:
-            return
+def _cuda_max_memory(torch):
+    if not torch.cuda.is_available():
+        return None
+    props = torch.cuda.get_device_properties(0)
+    usable_gib = max(1, int((props.total_memory * 0.86) // (1024**3)))
+    return {0: f"{usable_gib}GiB", "cpu": "48GiB"}
 
-        from transformers import AutoModelForImageTextToText, AutoProcessor
+
+def _offload_dir(model_path):
+    base = os.environ.get("PURSUE_VISION_OFFLOAD_DIR")
+    if base:
+        path = Path(base).expanduser()
+    else:
+        path = Path.home() / ".pursue" / "vision-offload" / Path(model_path).name
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
+def _clear_accelerator_cache(torch):
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+        torch.mps.empty_cache()
+
+
+def _release_model():
+    global MODEL, PROCESSOR, MODEL_PATH, DEVICE, DEVICE_DETAIL
+    try:
         import torch
+    except Exception:
+        torch = None
+    MODEL = None
+    PROCESSOR = None
+    MODEL_PATH = None
+    DEVICE = "cpu"
+    DEVICE_DETAIL = "CPU"
+    if torch is not None:
+        _clear_accelerator_cache(torch)
 
-        DEVICE = _select_device(torch)
-        PROCESSOR = AutoProcessor.from_pretrained(model_path, local_files_only=True, trust_remote_code=True)
-        dtype = torch.float16 if DEVICE in ("cuda", "mps") else torch.float32
+
+def _load_model_on_device(model_path, device):
+    global MODEL, PROCESSOR, MODEL_PATH, DEVICE, DEVICE_DETAIL
+    from transformers import AutoModelForImageTextToText, AutoProcessor
+    import torch
+
+    PROCESSOR = AutoProcessor.from_pretrained(model_path, local_files_only=True, trust_remote_code=True)
+
+    if device == "cuda":
+        dtype = torch.float16
         MODEL = AutoModelForImageTextToText.from_pretrained(
             model_path,
             local_files_only=True,
             torch_dtype=dtype,
             trust_remote_code=True,
+            low_cpu_mem_usage=True,
+            device_map="auto",
+            max_memory=_cuda_max_memory(torch),
+            offload_folder=_offload_dir(model_path),
+            offload_state_dict=True,
         )
-        MODEL.to(DEVICE)
-        MODEL.eval()
-        MODEL_PATH = model_path
+        DEVICE = "cuda"
+        DEVICE_DETAIL = "CUDA device_map=auto with CPU/disk offload"
+    elif device == "mps":
+        dtype = torch.float16
+        MODEL = AutoModelForImageTextToText.from_pretrained(
+            model_path,
+            local_files_only=True,
+            torch_dtype=dtype,
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,
+        )
+        MODEL.to("mps")
+        DEVICE = "mps"
+        DEVICE_DETAIL = "Apple MPS full-model load with CPU operator fallback"
+    else:
+        MODEL = AutoModelForImageTextToText.from_pretrained(
+            model_path,
+            local_files_only=True,
+            torch_dtype=torch.float32,
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,
+        )
+        MODEL.to("cpu")
+        DEVICE = "cpu"
+        DEVICE_DETAIL = "CPU offload/fallback"
+
+    MODEL.eval()
+    MODEL_PATH = model_path
+
+
+def _load_model(model_path):
+    global MODEL, MODEL_PATH
+    with LOCK:
+        if MODEL is not None and MODEL_PATH == model_path:
+            return
+
+        import torch
+
+        preferred = _select_device(torch)
+        candidates = []
+        if preferred == "cuda":
+            candidates = ["cuda", "cpu"]
+        elif preferred == "mps":
+            candidates = ["mps", "cpu"]
+        else:
+            candidates = ["cpu"]
+
+        last_error = None
+        for candidate in candidates:
+            try:
+                _release_model()
+                _load_model_on_device(model_path, candidate)
+                return
+            except Exception as exc:
+                last_error = exc
+                _release_model()
+        raise RuntimeError(f"model load failed on {candidates}: {last_error}")
 
 
 def _extract_json(text):
@@ -96,9 +202,23 @@ def _run_audit(payload):
     except Exception:
         inputs = PROCESSOR(text=prompt, images=images, return_tensors="pt")
 
-    inputs = {k: v.to(DEVICE) if hasattr(v, "to") else v for k, v in inputs.items()}
-    with torch.inference_mode():
-        output_ids = MODEL.generate(**inputs, max_new_tokens=1024, do_sample=False)
+    input_device = "cuda" if DEVICE == "cuda" else DEVICE
+    inputs = {k: v.to(input_device) if hasattr(v, "to") else v for k, v in inputs.items()}
+    try:
+        with torch.inference_mode():
+            output_ids = MODEL.generate(**inputs, max_new_tokens=1024, do_sample=False)
+    except Exception as exc:
+        if DEVICE == "cpu":
+            raise
+        failed_device = DEVICE_DETAIL
+        _release_model()
+        _load_model_on_device(model_path, "cpu")
+        inputs = {k: v.to("cpu") if hasattr(v, "to") else v for k, v in inputs.items()}
+        with torch.inference_mode():
+            output_ids = MODEL.generate(**inputs, max_new_tokens=1024, do_sample=False)
+        failed_device = f"{failed_device}; generation retried on CPU after: {exc}"
+    else:
+        failed_device = None
 
     if "input_ids" in inputs:
         generated_ids = output_ids[:, inputs["input_ids"].shape[-1] :]
@@ -110,14 +230,18 @@ def _run_audit(payload):
         return {
             "ok": False,
             "model_id": Path(model_path).name,
-            "device": DEVICE,
+            "device": DEVICE_DETAIL,
             "raw_response": raw,
             "error": "model did not return valid JSON",
         }
+    if failed_device:
+        parsed.setdefault("caveats", [])
+        if isinstance(parsed["caveats"], list):
+            parsed["caveats"].append(f"Vision runtime fell back from {failed_device}.")
     return {
         "ok": True,
         "model_id": Path(model_path).name,
-        "device": DEVICE,
+        "device": DEVICE_DETAIL,
         "raw_response": raw,
         "response_json": parsed,
     }
@@ -136,7 +260,17 @@ class Handler(BaseHTTPRequestHandler):
             import torch  # noqa: F401
             from PIL import Image  # noqa: F401
 
-            _json_response(self, 200, {"ok": True, "device": DEVICE})
+            _json_response(
+                self,
+                200,
+                {
+                    "ok": True,
+                    "device": DEVICE,
+                    "device_detail": DEVICE_DETAIL,
+                    "cuda_available": torch.cuda.is_available(),
+                    "mps_available": hasattr(torch.backends, "mps") and torch.backends.mps.is_available(),
+                },
+            )
         except Exception as exc:
             _json_response(self, 503, {"ok": False, "error": str(exc)})
 

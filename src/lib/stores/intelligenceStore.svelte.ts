@@ -8,7 +8,8 @@ export interface HardwareDiagnosticsType {
 	cpu_brand: string;
 	total_memory_gb: number;
 	gpu_acceleration_available: boolean;
-	recommended_tier: 'Standard' | 'Elite';
+	acceleration_summary: string;
+	recommended_tier: 'Standard' | 'Advanced' | 'Elite';
 }
 
 export interface IntelligenceModel {

@@ -1,4 +1,5 @@
 use crate::analysis::gemma4;
+use crate::analysis::hardware::{acceleration_preference, candle_device_candidates};
 use crate::commands::AppState;
 use crate::common::now;
 use anyhow::{anyhow, Result};
@@ -17,6 +18,7 @@ pub struct GemmaContext {
     pub tokenizer: Tokenizer,
     pub repo_path: PathBuf,
     pub device_label: String,
+    pub acceleration_preference: String,
 }
 
 pub struct IntelligenceExtractor {
@@ -97,14 +99,23 @@ impl IntelligenceExtractor {
         let mut cache = self.cache.lock().await;
 
         // 1. Ensure Model Readiness
-        if cache.is_none() || cache.as_ref().unwrap().repo_path != repo_path {
+        let requested_preference = format!("{:?}", acceleration_preference(force_cpu));
+        let cache_needs_reload = cache
+            .as_ref()
+            .map(|context| {
+                context.repo_path != repo_path
+                    || context.acceleration_preference != requested_preference
+            })
+            .unwrap_or(true);
+
+        if cache_needs_reload {
             debug!("[Extraction] Loading model from: {:?}", repo_path);
             let _ = handle.emit(
                 "analysis-progress",
                 json!({
                     "status": "loading-model",
                     "record_id": rid,
-                    "msg": "Loading intelligence model with GPU-first fallback..."
+                    "msg": format!("Loading intelligence model with {:?} acceleration policy...", acceleration_preference(force_cpu))
                 }),
             );
             let context = Self::load_context(&repo_path, force_cpu)?;
@@ -374,20 +385,8 @@ impl IntelligenceExtractor {
         }
         safetensors_paths.sort();
 
-        let mut candidates = Vec::new();
-        if !force_cpu {
-            if candle_core::utils::cuda_is_available() {
-                if let Ok(device) = candle_core::Device::new_cuda(0) {
-                    candidates.push(("CUDA".to_string(), device));
-                }
-            }
-            if candle_core::utils::metal_is_available() {
-                if let Ok(device) = candle_core::Device::new_metal(0) {
-                    candidates.push(("Metal".to_string(), device));
-                }
-            }
-        }
-        candidates.push(("CPU".to_string(), candle_core::Device::Cpu));
+        let requested_preference = format!("{:?}", acceleration_preference(force_cpu));
+        let candidates = candle_device_candidates(force_cpu);
 
         let mut last_error = None;
         for (label, device) in candidates {
@@ -397,6 +396,7 @@ impl IntelligenceExtractor {
                 &config,
                 device,
                 &label,
+                &requested_preference,
             ) {
                 Ok(context) => return Ok(context),
                 Err(error) => {
@@ -419,6 +419,7 @@ impl IntelligenceExtractor {
         config: &gemma4::Config,
         device: candle_core::Device,
         device_label: &str,
+        requested_preference: &str,
     ) -> Result<GemmaContext> {
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&safetensors_paths, DType::BF16, &device)?
@@ -432,6 +433,7 @@ impl IntelligenceExtractor {
             tokenizer,
             repo_path: repo_path.clone(),
             device_label: device_label.to_string(),
+            acceleration_preference: requested_preference.to_string(),
         })
     }
 }

@@ -3,6 +3,7 @@ pub mod diagnostics;
 pub mod entities;
 pub mod extraction;
 pub mod gemma4;
+pub mod hardware;
 pub mod indexer;
 pub mod model_manager;
 pub mod nn;

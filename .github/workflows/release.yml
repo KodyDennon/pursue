@@ -67,7 +67,7 @@ jobs:
           - platform: macos-14
             args: --target aarch64-apple-darwin --features metal
           - platform: windows-latest
-            args: ''
+            args: --features directml
     runs-on: ${{ matrix.platform }}
     env:
       MACOSX_DEPLOYMENT_TARGET: '14.0'

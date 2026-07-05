@@ -1,5 +1,6 @@
 use crate::models::{SearchFilters, SearchRequest, SearchResultItem, SearchResults};
 use anyhow::Result;
+use ort::ep::ExecutionProviderDispatch;
 use ort::session::Session;
 use ort::value::Value;
 use sha2::{Digest, Sha256};
@@ -45,35 +46,114 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
         return Ok(session);
     }
 
-    // HARDWARE ACCELERATION: Attempt to use native engines, falling back to multi-threaded CPU.
-    let _ = ort::init()
-        .with_name("pursue-embeddings")
-        .with_execution_providers([
-            #[cfg(target_os = "macos")]
-            ort::execution_providers::CoreMLExecutionProvider::default().build(),
-            #[cfg(target_os = "windows")]
-            ort::execution_providers::DirectMLExecutionProvider::default().build(),
-            ort::execution_providers::CPUExecutionProvider::default().build(),
-        ])
-        .commit();
+    let _ = ort::init().with_name("pursue-embeddings").commit();
 
     let path = get_models_dir().join("bge-small-en-v1.5.onnx");
     if !path.exists() {
         anyhow::bail!("Embedding model not found at {}", path.display());
     }
 
-    // On CPU, we use multiple threads to avoid the "stuck" initialization/inference feel.
-    let threads = (num_cpus::get() / 2).max(1);
-
-    let session = Session::builder()
-        .map_err(|e| anyhow::anyhow!("failed to create ort session builder: {}", e))?
-        .with_intra_threads(threads)
-        .map_err(|e| anyhow::anyhow!("failed to set threads: {}", e))?
-        .commit_from_file(path)
-        .map_err(|e| anyhow::anyhow!("failed to load embedding model: {}", e))?;
+    let session = load_embedding_session(&path)?;
 
     let _ = EMBEDDING_SESSION.set(Mutex::new(session));
     Ok(EMBEDDING_SESSION.get().unwrap())
+}
+
+fn load_embedding_session(path: &std::path::Path) -> Result<Session> {
+    let attempts = embedding_provider_attempts();
+    let mut last_error = None;
+
+    for attempt in attempts {
+        match build_embedding_session(path, &attempt) {
+            Ok(session) => {
+                tauri_plugin_log::log::info!(
+                    "Embedding ONNX session initialized with {}",
+                    attempt.label
+                );
+                return Ok(session);
+            }
+            Err(error) => {
+                tauri_plugin_log::log::warn!(
+                    "Embedding ONNX session failed with {}: {}",
+                    attempt.label,
+                    error
+                );
+                last_error = Some(error);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("no embedding execution providers available")))
+}
+
+struct EmbeddingProviderAttempt {
+    label: &'static str,
+    providers: Vec<ExecutionProviderDispatch>,
+}
+
+fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
+    let mut attempts = Vec::new();
+
+    #[cfg(feature = "cuda")]
+    {
+        attempts.push(EmbeddingProviderAttempt {
+            label: "CUDA + CPU fallback",
+            providers: vec![
+                ort::ep::CUDA::default()
+                    .with_device_id(0)
+                    .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
+                    .with_conv_algorithm_search(ort::ep::cuda::ConvAlgorithmSearch::Heuristic)
+                    .build(),
+                ort::ep::CPU::default().build(),
+            ],
+        });
+    }
+
+    #[cfg(target_vendor = "apple")]
+    {
+        attempts.push(EmbeddingProviderAttempt {
+            label: "CoreML all compute units + CPU fallback",
+            providers: vec![
+                ort::ep::CoreML::default()
+                    .with_compute_units(ort::ep::coreml::ComputeUnits::All)
+                    .with_subgraphs(true)
+                    .with_low_precision_accumulation_on_gpu(true)
+                    .build(),
+                ort::ep::CPU::default().build(),
+            ],
+        });
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        attempts.push(EmbeddingProviderAttempt {
+            label: "DirectML + CPU fallback",
+            providers: vec![
+                ort::ep::DirectML::default().with_device_id(0).build(),
+                ort::ep::CPU::default().build(),
+            ],
+        });
+    }
+
+    attempts.push(EmbeddingProviderAttempt {
+        label: "CPU-only",
+        providers: vec![ort::ep::CPU::default().build()],
+    });
+    attempts
+}
+
+fn build_embedding_session(
+    path: &std::path::Path,
+    attempt: &EmbeddingProviderAttempt,
+) -> Result<Session> {
+    Session::builder()
+        .map_err(|e| anyhow::anyhow!("failed to create ort session builder: {}", e))?
+        .with_intra_threads(crate::analysis::hardware::cpu_inference_threads())
+        .map_err(|e| anyhow::anyhow!("failed to set intra-op threads: {}", e))?
+        .with_execution_providers(&attempt.providers)
+        .map_err(|e| anyhow::anyhow!("failed to configure providers: {}", e))?
+        .commit_from_file(path)
+        .map_err(|e| anyhow::anyhow!("failed to load embedding model: {}", e))
 }
 
 pub async fn search(pool: &SqlitePool, request: SearchRequest) -> Result<SearchResults> {

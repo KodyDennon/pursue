@@ -15,7 +15,7 @@
 	interface HardwareDiagnostics {
 		cpu_brand: string;
 		total_memory_gb: number;
-		recommended_tier: 'Standard' | 'Elite';
+		recommended_tier: 'Standard' | 'Advanced' | 'Elite';
 	}
 
 	interface ModelProgress {

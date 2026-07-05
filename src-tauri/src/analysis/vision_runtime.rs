@@ -245,6 +245,14 @@ impl VisionRuntime {
             .arg("127.0.0.1")
             .arg("--port")
             .arg(VISION_RUNTIME_PORT.to_string())
+            .env("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+            .env(
+                "PURSUE_VISION_OFFLOAD_DIR",
+                self.runtime_dir
+                    .join("offload")
+                    .to_string_lossy()
+                    .to_string(),
+            )
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

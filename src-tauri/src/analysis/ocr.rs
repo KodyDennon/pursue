@@ -301,7 +301,7 @@ fn hardware_ort_session_config() -> oar_ocr::core::config::onnx::OrtSessionConfi
     {
         providers.push(OrtExecutionProvider::CoreML {
             ane_only: Some(false),
-            subgraphs: Some(false),
+            subgraphs: Some(true),
         });
     }
 
@@ -311,13 +311,17 @@ fn hardware_ort_session_config() -> oar_ocr::core::config::onnx::OrtSessionConfi
     }
 
     providers.push(OrtExecutionProvider::CPU);
-    OrtSessionConfig::new().with_execution_providers(providers)
+    OrtSessionConfig::new()
+        .with_intra_threads(crate::analysis::hardware::cpu_inference_threads())
+        .with_execution_providers(providers)
 }
 
 fn cpu_ort_session_config() -> oar_ocr::core::config::onnx::OrtSessionConfig {
     use oar_ocr::core::config::onnx::{OrtExecutionProvider, OrtSessionConfig};
 
-    OrtSessionConfig::new().with_execution_providers(vec![OrtExecutionProvider::CPU])
+    OrtSessionConfig::new()
+        .with_intra_threads(crate::analysis::hardware::cpu_inference_threads())
+        .with_execution_providers(vec![OrtExecutionProvider::CPU])
 }
 
 fn acceleration_enabled() -> bool {
