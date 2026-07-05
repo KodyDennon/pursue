@@ -50,4 +50,4 @@ jobs:
 
       - name: Rust CUDA feature check
         working-directory: src-tauri
-        run: cargo check --features cuda
+        run: cargo check --features cuda,directml

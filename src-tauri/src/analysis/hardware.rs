@@ -15,6 +15,7 @@ pub enum AccelerationPreference {
     Cpu,
     Cuda,
     Metal,
+    DirectMl,
 }
 
 pub fn cpu_inference_threads() -> usize {
@@ -55,11 +56,13 @@ pub fn acceleration_preference(force_cpu: bool) -> AccelerationPreference {
         "cpu" | "off" | "disabled" => AccelerationPreference::Cpu,
         "cuda" | "nvidia" => AccelerationPreference::Cuda,
         "metal" | "mps" | "apple" => AccelerationPreference::Metal,
+        "directml" | "dml" | "windows" => AccelerationPreference::DirectMl,
         _ => AccelerationPreference::Auto,
     }
 }
 
 pub fn acceleration_backends() -> Vec<AccelerationBackend> {
+    let directml_compiled = cfg!(feature = "directml");
     vec![
         AccelerationBackend {
             id: "cuda".to_string(),
@@ -91,11 +94,13 @@ pub fn acceleration_backends() -> Vec<AccelerationBackend> {
         AccelerationBackend {
             id: "directml".to_string(),
             label: "Windows DirectML".to_string(),
-            compiled: cfg!(any(feature = "directml", target_os = "windows")),
-            available: cfg!(target_os = "windows"),
-            notes: if cfg!(target_os = "windows") {
-                "ONNX DirectML is used for embeddings when available; Candle LLM remains CUDA/Metal/CPU."
+            compiled: directml_compiled,
+            available: directml_compiled && cfg!(target_os = "windows"),
+            notes: if directml_compiled && cfg!(target_os = "windows") {
+                "ONNX DirectML is compiled in for broad Windows GPU fallback; Candle LLM remains CUDA/Metal/CPU."
                     .to_string()
+            } else if cfg!(target_os = "windows") {
+                "Build with --features directml to enable broad Windows GPU execution.".to_string()
             } else {
                 "DirectML is only available on Windows.".to_string()
             },
@@ -111,6 +116,31 @@ pub fn acceleration_backends() -> Vec<AccelerationBackend> {
             ),
         },
     ]
+}
+
+pub fn acceleration_recommendation() -> String {
+    let backends = acceleration_backends();
+    let cuda = backends.iter().find(|backend| backend.id == "cuda");
+    let directml = backends.iter().find(|backend| backend.id == "directml");
+
+    if cuda.is_some_and(|backend| backend.compiled && backend.available) {
+        "Using NVIDIA CUDA first, with DirectML/CPU fallback where supported.".to_string()
+    } else if cfg!(target_os = "windows")
+        && cuda.is_some_and(|backend| backend.compiled)
+        && directml.is_some_and(|backend| backend.compiled && backend.available)
+    {
+        "CUDA build installed, but no NVIDIA CUDA device/runtime was detected; using DirectML/CPU fallback."
+            .to_string()
+    } else if cfg!(target_os = "windows")
+        && directml.is_some_and(|backend| backend.compiled && backend.available)
+    {
+        "Using standard Windows DirectML acceleration; install the CUDA build on NVIDIA GPU systems."
+            .to_string()
+    } else if cfg!(target_os = "windows") {
+        "No Windows GPU provider is active; processing will use CPU fallback.".to_string()
+    } else {
+        "Using the best compiled native acceleration provider with CPU fallback.".to_string()
+    }
 }
 
 pub fn gpu_acceleration_available() -> bool {
@@ -170,6 +200,7 @@ pub fn candle_device_candidates(force_cpu: bool) -> Vec<(String, candle_core::De
         AccelerationPreference::Metal => {
             push_metal(&mut candidates);
         }
+        AccelerationPreference::DirectMl => {}
         AccelerationPreference::Auto => {
             push_cuda(&mut candidates);
             push_metal(&mut candidates);
@@ -201,5 +232,10 @@ mod tests {
         let (label, device) = candidates.last().expect("cpu fallback exists");
         assert!(label.contains("CPU"));
         assert!(matches!(device, candle_core::Device::Cpu));
+    }
+
+    #[test]
+    fn recommendation_is_populated() {
+        assert!(!acceleration_recommendation().is_empty());
     }
 }

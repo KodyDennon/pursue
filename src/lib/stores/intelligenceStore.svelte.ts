@@ -4,11 +4,21 @@ import type { DatabaseStatus } from '$lib/types';
 import { addToast } from '$lib/stores/toastStore.svelte';
 import { logger } from '$lib/logger';
 
+export interface AccelerationBackend {
+	id: string;
+	label: string;
+	compiled: boolean;
+	available: boolean;
+	notes: string;
+}
+
 export interface HardwareDiagnosticsType {
 	cpu_brand: string;
 	total_memory_gb: number;
 	gpu_acceleration_available: boolean;
 	acceleration_summary: string;
+	acceleration_recommendation: string;
+	acceleration_backends: AccelerationBackend[];
 	recommended_tier: 'Standard' | 'Advanced' | 'Elite';
 }
 

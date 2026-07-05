@@ -92,47 +92,71 @@ struct EmbeddingProviderAttempt {
 }
 
 fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
+    use crate::analysis::hardware::{acceleration_preference, AccelerationPreference};
+
     let mut attempts = Vec::new();
+    let preference = acceleration_preference(false);
 
-    #[cfg(feature = "cuda")]
-    {
-        let mut cuda = ort::ep::CUDA::default()
-            .with_device_id(crate::analysis::hardware::cuda_device_id())
-            .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
-            .with_conv_algorithm_search(ort::ep::cuda::ConvAlgorithmSearch::Heuristic);
-        if let Some(limit) = crate::analysis::hardware::cuda_memory_limit_bytes() {
-            cuda = cuda.with_memory_limit(limit);
+    let push_cuda = |_attempts: &mut Vec<EmbeddingProviderAttempt>| {
+        #[cfg(feature = "cuda")]
+        {
+            let attempts = _attempts;
+            let mut cuda = ort::ep::CUDA::default()
+                .with_device_id(crate::analysis::hardware::cuda_device_id())
+                .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
+                .with_conv_algorithm_search(ort::ep::cuda::ConvAlgorithmSearch::Heuristic);
+            if let Some(limit) = crate::analysis::hardware::cuda_memory_limit_bytes() {
+                cuda = cuda.with_memory_limit(limit);
+            }
+            attempts.push(EmbeddingProviderAttempt {
+                label: "CUDA + CPU fallback",
+                providers: vec![cuda.build(), ort::ep::CPU::default().build()],
+            });
         }
-        attempts.push(EmbeddingProviderAttempt {
-            label: "CUDA + CPU fallback",
-            providers: vec![cuda.build(), ort::ep::CPU::default().build()],
-        });
-    }
+    };
 
-    #[cfg(target_vendor = "apple")]
-    {
-        attempts.push(EmbeddingProviderAttempt {
-            label: "CoreML all compute units + CPU fallback",
-            providers: vec![
-                ort::ep::CoreML::default()
-                    .with_compute_units(ort::ep::coreml::ComputeUnits::All)
-                    .with_subgraphs(true)
-                    .with_low_precision_accumulation_on_gpu(true)
-                    .build(),
-                ort::ep::CPU::default().build(),
-            ],
-        });
-    }
+    let push_coreml = |_attempts: &mut Vec<EmbeddingProviderAttempt>| {
+        #[cfg(target_vendor = "apple")]
+        {
+            let attempts = _attempts;
+            attempts.push(EmbeddingProviderAttempt {
+                label: "CoreML all compute units + CPU fallback",
+                providers: vec![
+                    ort::ep::CoreML::default()
+                        .with_compute_units(ort::ep::coreml::ComputeUnits::All)
+                        .with_subgraphs(true)
+                        .with_low_precision_accumulation_on_gpu(true)
+                        .build(),
+                    ort::ep::CPU::default().build(),
+                ],
+            });
+        }
+    };
 
-    #[cfg(target_os = "windows")]
-    {
-        attempts.push(EmbeddingProviderAttempt {
-            label: "DirectML + CPU fallback",
-            providers: vec![
-                ort::ep::DirectML::default().with_device_id(0).build(),
-                ort::ep::CPU::default().build(),
-            ],
-        });
+    let push_directml = |_attempts: &mut Vec<EmbeddingProviderAttempt>| {
+        #[cfg(all(target_os = "windows", feature = "directml"))]
+        {
+            let attempts = _attempts;
+            attempts.push(EmbeddingProviderAttempt {
+                label: "DirectML + CPU fallback",
+                providers: vec![
+                    ort::ep::DirectML::default().with_device_id(0).build(),
+                    ort::ep::CPU::default().build(),
+                ],
+            });
+        }
+    };
+
+    match preference {
+        AccelerationPreference::Cpu => {}
+        AccelerationPreference::Cuda => push_cuda(&mut attempts),
+        AccelerationPreference::Metal => push_coreml(&mut attempts),
+        AccelerationPreference::DirectMl => push_directml(&mut attempts),
+        AccelerationPreference::Auto => {
+            push_cuda(&mut attempts);
+            push_coreml(&mut attempts);
+            push_directml(&mut attempts);
+        }
     }
 
     attempts.push(EmbeddingProviderAttempt {

@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use sysinfo::System;
 
 use crate::analysis::hardware::{
-    acceleration_backends, acceleration_summary, gpu_acceleration_available, AccelerationBackend,
+    acceleration_backends, acceleration_recommendation, acceleration_summary,
+    gpu_acceleration_available, AccelerationBackend,
 };
 pub use crate::common::IntelligenceTier;
 
@@ -15,6 +16,7 @@ pub struct HardwareSpecs {
     pub os_info: String,
     pub gpu_acceleration_available: bool,
     pub acceleration_summary: String,
+    pub acceleration_recommendation: String,
     pub acceleration_backends: Vec<AccelerationBackend>,
     pub recommended_tier: IntelligenceTier,
 }
@@ -41,6 +43,7 @@ pub fn get_hardware_specs() -> HardwareSpecs {
 
     let gpu_acceleration_available = gpu_acceleration_available();
     let acceleration_summary = acceleration_summary();
+    let acceleration_recommendation = acceleration_recommendation();
     let acceleration_backends = acceleration_backends();
 
     let recommended_tier = if total_memory_gb >= 16 {
@@ -59,6 +62,7 @@ pub fn get_hardware_specs() -> HardwareSpecs {
         os_info,
         gpu_acceleration_available,
         acceleration_summary,
+        acceleration_recommendation,
         acceleration_backends,
         recommended_tier,
     }

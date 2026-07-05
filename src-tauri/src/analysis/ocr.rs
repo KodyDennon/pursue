@@ -282,32 +282,55 @@ impl OcrEngine {
 }
 
 fn hardware_ort_session_config() -> oar_ocr::core::config::onnx::OrtSessionConfig {
+    use crate::analysis::hardware::{acceleration_preference, AccelerationPreference};
     use oar_ocr::core::config::onnx::{OrtExecutionProvider, OrtSessionConfig};
 
     let mut providers = Vec::new();
+    let preference = acceleration_preference(false);
 
-    #[cfg(feature = "cuda")]
-    {
-        providers.push(OrtExecutionProvider::CUDA {
-            device_id: Some(crate::analysis::hardware::cuda_device_id()),
-            gpu_mem_limit: crate::analysis::hardware::cuda_memory_limit_bytes(),
-            arena_extend_strategy: None,
-            cudnn_conv_algo_search: Some("heuristic".to_string()),
-            cudnn_conv_use_max_workspace: None,
-        });
-    }
+    let push_cuda = |_providers: &mut Vec<OrtExecutionProvider>| {
+        #[cfg(feature = "cuda")]
+        {
+            let providers = _providers;
+            providers.push(OrtExecutionProvider::CUDA {
+                device_id: Some(crate::analysis::hardware::cuda_device_id()),
+                gpu_mem_limit: crate::analysis::hardware::cuda_memory_limit_bytes(),
+                arena_extend_strategy: None,
+                cudnn_conv_algo_search: Some("heuristic".to_string()),
+                cudnn_conv_use_max_workspace: None,
+            });
+        }
+    };
 
-    #[cfg(feature = "metal")]
-    {
-        providers.push(OrtExecutionProvider::CoreML {
-            ane_only: Some(false),
-            subgraphs: Some(true),
-        });
-    }
+    let push_coreml = |_providers: &mut Vec<OrtExecutionProvider>| {
+        #[cfg(feature = "metal")]
+        {
+            let providers = _providers;
+            providers.push(OrtExecutionProvider::CoreML {
+                ane_only: Some(false),
+                subgraphs: Some(true),
+            });
+        }
+    };
 
-    #[cfg(feature = "directml")]
-    {
-        providers.push(OrtExecutionProvider::DirectML { device_id: Some(0) });
+    let push_directml = |_providers: &mut Vec<OrtExecutionProvider>| {
+        #[cfg(all(target_os = "windows", feature = "directml"))]
+        {
+            let providers = _providers;
+            providers.push(OrtExecutionProvider::DirectML { device_id: Some(0) });
+        }
+    };
+
+    match preference {
+        AccelerationPreference::Cpu => {}
+        AccelerationPreference::Cuda => push_cuda(&mut providers),
+        AccelerationPreference::Metal => push_coreml(&mut providers),
+        AccelerationPreference::DirectMl => push_directml(&mut providers),
+        AccelerationPreference::Auto => {
+            push_cuda(&mut providers);
+            push_coreml(&mut providers);
+            push_directml(&mut providers);
+        }
     }
 
     providers.push(OrtExecutionProvider::CPU);

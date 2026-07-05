@@ -6,6 +6,14 @@
 		total_memory_gb: number;
 		gpu_acceleration_available: boolean;
 		acceleration_summary: string;
+		acceleration_recommendation: string;
+		acceleration_backends: {
+			id: string;
+			label: string;
+			compiled: boolean;
+			available: boolean;
+			notes: string;
+		}[];
 		recommended_tier: 'Standard' | 'Advanced' | 'Elite';
 	}
 
@@ -43,6 +51,18 @@
 					{diagnostics.recommended_tier}
 				</strong>
 			</div>
+		</div>
+		<div class="accel-recommendation">{diagnostics.acceleration_recommendation}</div>
+		<div class="backend-grid">
+			{#each diagnostics.acceleration_backends ?? [] as backend}
+				<div class="backend" class:active={backend.available && backend.compiled}>
+					<div>
+						<strong>{backend.label}</strong>
+						<span>{backend.compiled ? 'compiled' : 'not compiled'}</span>
+					</div>
+					<small>{backend.available ? 'available' : 'fallback only'}</small>
+				</div>
+			{/each}
 		</div>
 	{:else}
 		<div class="loading-state">Probing hardware...</div>
@@ -104,6 +124,54 @@
 	}
 	.text-warning {
 		color: var(--color-accent-primary) !important;
+	}
+
+	.accel-recommendation {
+		border-top: 1px solid var(--color-border-subtle);
+		padding-top: var(--space-xl);
+		color: var(--color-text-secondary);
+		font-size: var(--text-sm);
+		line-height: 1.45;
+	}
+
+	.backend-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0;
+	}
+
+	.backend {
+		border-top: 1px solid var(--color-border-subtle);
+		padding: var(--space-sm) 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-md);
+		min-width: 0;
+	}
+
+	.backend.active {
+		color: var(--color-accent-success);
+	}
+
+	.backend div {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.backend strong,
+	.backend span,
+	.backend small {
+		overflow-wrap: anywhere;
+	}
+
+	.backend span,
+	.backend small {
+		color: var(--color-text-tertiary);
+		font-size: var(--text-xs);
+		text-transform: uppercase;
 	}
 
 	.tier-badge {
