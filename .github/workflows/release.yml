@@ -100,6 +100,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Configure MSVC host compiler
+        if: ${{ matrix.cuda }}
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Install CUDA toolkit
         if: ${{ matrix.cuda }}
         id: cuda-toolkit
