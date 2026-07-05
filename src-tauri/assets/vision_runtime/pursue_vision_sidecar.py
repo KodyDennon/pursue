@@ -7,6 +7,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+os.environ.setdefault("PYTORCH_NVML_BASED_CUDA_CHECK", "1")
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
 MODEL = None
 PROCESSOR = None
 MODEL_PATH = None
@@ -43,9 +46,13 @@ def _select_device(torch):
 def _cuda_max_memory(torch):
     if not torch.cuda.is_available():
         return None
-    props = torch.cuda.get_device_properties(0)
-    usable_gib = max(1, int((props.total_memory * 0.86) // (1024**3)))
-    return {0: f"{usable_gib}GiB", "cpu": "48GiB"}
+    max_memory = {}
+    for device_index in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(device_index)
+        usable_gib = max(1, int((props.total_memory * 0.86) // (1024**3)))
+        max_memory[device_index] = f"{usable_gib}GiB"
+    max_memory["cpu"] = os.environ.get("PURSUE_VISION_CPU_OFFLOAD_LIMIT", "48GiB")
+    return max_memory
 
 
 def _offload_dir(model_path):
@@ -101,7 +108,7 @@ def _load_model_on_device(model_path, device):
             offload_state_dict=True,
         )
         DEVICE = "cuda"
-        DEVICE_DETAIL = "CUDA device_map=auto with CPU/disk offload"
+        DEVICE_DETAIL = f"CUDA device_map=auto with CPU/disk offload across {torch.cuda.device_count()} visible GPU(s)"
     elif device == "mps":
         dtype = torch.float16
         MODEL = AutoModelForImageTextToText.from_pretrained(
@@ -128,6 +135,13 @@ def _load_model_on_device(model_path, device):
 
     MODEL.eval()
     MODEL_PATH = model_path
+
+
+def _model_input_device():
+    try:
+        return next(iter(MODEL.parameters())).device
+    except Exception:
+        return DEVICE
 
 
 def _load_model(model_path):
@@ -202,7 +216,7 @@ def _run_audit(payload):
     except Exception:
         inputs = PROCESSOR(text=prompt, images=images, return_tensors="pt")
 
-    input_device = "cuda" if DEVICE == "cuda" else DEVICE
+    input_device = _model_input_device()
     inputs = {k: v.to(input_device) if hasattr(v, "to") else v for k, v in inputs.items()}
     try:
         with torch.inference_mode():

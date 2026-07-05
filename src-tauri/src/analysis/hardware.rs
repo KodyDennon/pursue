@@ -21,6 +21,26 @@ pub fn cpu_inference_threads() -> usize {
     (num_cpus::get() / 2).max(1)
 }
 
+pub fn cuda_device_id() -> i32 {
+    std::env::var("PURSUE_CUDA_DEVICE")
+        .ok()
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0)
+}
+
+pub fn cuda_memory_limit_bytes() -> Option<usize> {
+    std::env::var("PURSUE_CUDA_MEMORY_LIMIT_MB")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(|mb| mb.saturating_mul(1024 * 1024))
+}
+
+pub fn cuda_memory_limit_label() -> String {
+    cuda_memory_limit_bytes()
+        .map(|bytes| format!("{} MiB arena", bytes / 1024 / 1024))
+        .unwrap_or_else(|| "default arena".to_string())
+}
+
 pub fn acceleration_preference(force_cpu: bool) -> AccelerationPreference {
     if force_cpu {
         return AccelerationPreference::Cpu;
@@ -47,7 +67,11 @@ pub fn acceleration_backends() -> Vec<AccelerationBackend> {
             compiled: cfg!(feature = "cuda"),
             available: candle_core::utils::cuda_is_available(),
             notes: if cfg!(feature = "cuda") {
-                "Candle and ONNX CUDA execution providers are compiled in.".to_string()
+                format!(
+                    "Candle and ONNX CUDA execution providers are compiled in for device {} ({}).",
+                    cuda_device_id(),
+                    cuda_memory_limit_label()
+                )
             } else {
                 "Build with --features cuda to enable native NVIDIA GPU execution.".to_string()
             },
@@ -115,9 +139,10 @@ pub fn candle_device_candidates(force_cpu: bool) -> Vec<(String, candle_core::De
 
     let push_cuda = |candidates: &mut Vec<(String, candle_core::Device)>| {
         if candle_core::utils::cuda_is_available() {
-            match candle_core::Device::new_cuda(0) {
+            let device_id = cuda_device_id().max(0) as usize;
+            match candle_core::Device::new_cuda(device_id) {
                 Ok(device) => candidates.push((
-                    "CUDA:0 full GPU tensors; CPU fallback enabled".to_string(),
+                    format!("CUDA:{} full GPU tensors; CPU fallback enabled", device_id),
                     device,
                 )),
                 Err(error) => log::warn!("CUDA reported available but device 0 failed: {error}"),

@@ -1,0 +1,46 @@
+name: cuda-check
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CUDA_COMPUTE_CAP: '8.6'
+
+jobs:
+  rust-cuda-check:
+    name: rust-cuda-check
+    runs-on: ubuntu-latest
+    container:
+      image: nvidia/cuda:12.4.1-devel-ubuntu22.04
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            ca-certificates \
+            curl \
+            git \
+            libssl-dev \
+            pkg-config
+
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Check CUDA toolchain
+        run: |
+          nvcc --version
+          echo "CUDA_COMPUTE_CAP=${CUDA_COMPUTE_CAP}"
+
+      - name: Rust CUDA feature check
+        working-directory: src-tauri
+        run: cargo check --features cuda

@@ -289,10 +289,10 @@ fn hardware_ort_session_config() -> oar_ocr::core::config::onnx::OrtSessionConfi
     #[cfg(feature = "cuda")]
     {
         providers.push(OrtExecutionProvider::CUDA {
-            device_id: Some(0),
-            gpu_mem_limit: None,
+            device_id: Some(crate::analysis::hardware::cuda_device_id()),
+            gpu_mem_limit: crate::analysis::hardware::cuda_memory_limit_bytes(),
             arena_extend_strategy: None,
-            cudnn_conv_algo_search: None,
+            cudnn_conv_algo_search: Some("heuristic".to_string()),
             cudnn_conv_use_max_workspace: None,
         });
     }

@@ -96,16 +96,16 @@ fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
 
     #[cfg(feature = "cuda")]
     {
+        let mut cuda = ort::ep::CUDA::default()
+            .with_device_id(crate::analysis::hardware::cuda_device_id())
+            .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
+            .with_conv_algorithm_search(ort::ep::cuda::ConvAlgorithmSearch::Heuristic);
+        if let Some(limit) = crate::analysis::hardware::cuda_memory_limit_bytes() {
+            cuda = cuda.with_memory_limit(limit);
+        }
         attempts.push(EmbeddingProviderAttempt {
             label: "CUDA + CPU fallback",
-            providers: vec![
-                ort::ep::CUDA::default()
-                    .with_device_id(0)
-                    .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
-                    .with_conv_algorithm_search(ort::ep::cuda::ConvAlgorithmSearch::Heuristic)
-                    .build(),
-                ort::ep::CPU::default().build(),
-            ],
+            providers: vec![cuda.build(), ort::ep::CPU::default().build()],
         });
     }
 
