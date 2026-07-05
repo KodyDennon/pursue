@@ -75,7 +75,7 @@ jobs:
             args: --features directml
             cuda: false
           - name: windows-cuda
-            platform: windows-latest
+            platform: windows-2022
             args: --features cuda,directml
             cuda: true
     runs-on: ${{ matrix.platform }}
@@ -103,6 +103,8 @@ jobs:
       - name: Configure MSVC host compiler
         if: ${{ matrix.cuda }}
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          vsversion: 2022
 
       - name: Install CUDA toolkit
         if: ${{ matrix.cuda }}
