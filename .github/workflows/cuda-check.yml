@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  CUDA_COMPUTE_CAP: '8.6'
+  CUDA_COMPUTE_CAP: '86'
 
 jobs:
   rust-cuda-check:
