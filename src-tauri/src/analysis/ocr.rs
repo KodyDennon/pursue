@@ -61,50 +61,31 @@ impl OcrEngine {
             return Ok(ocr.clone());
         }
 
-        // Get hardware acceleration config
-        let mut providers = Vec::new();
-
-        #[cfg(feature = "cuda")]
-        {
-            use oar_ocr::core::config::onnx::OrtExecutionProvider;
-            providers.push(OrtExecutionProvider::CUDA {
-                device_id: Some(0),
-                gpu_mem_limit: None,
-                arena_extend_strategy: None,
-                cudnn_conv_algo_search: None,
-                do_copy_in_default_stream: None,
-                cudnn_conv_use_max_workspace: None,
-            });
-        }
-
-        #[cfg(feature = "metal")]
-        {
-            use oar_ocr::core::config::onnx::OrtExecutionProvider;
-            providers.push(OrtExecutionProvider::CoreML {
-                ane_only: Some(false),
-                subgraphs: Some(false),
-            });
-        }
-
-        // CPU is always added as a final fallback
-        use oar_ocr::core::config::onnx::OrtExecutionProvider;
-        providers.push(OrtExecutionProvider::CPU);
-
-        use oar_ocr::core::config::onnx::OrtSessionConfig;
-        let session_config = OrtSessionConfig::new().with_execution_providers(providers);
-
         // Resolve local model paths
         let det_path = get_model_path(app, "pp-ocrv5_mobile_det.onnx")?;
         let rec_path = get_model_path(app, "pp-ocrv5_mobile_rec.onnx")?;
         let dict_path = get_model_path(app, "ppocrv5_dict.txt")?;
 
-        let ocr_instance = OAROCRBuilder::new(
-            det_path.to_string_lossy().to_string(),
-            rec_path.to_string_lossy().to_string(),
-            dict_path.to_string_lossy().to_string(),
-        )
-        .ort_session(session_config)
-        .build()?;
+        let session_config = hardware_ort_session_config();
+        let ocr_instance = match build_ocr(&det_path, &rec_path, &dict_path, session_config) {
+            Ok(ocr) => ocr,
+            Err(accelerated_error) if acceleration_enabled() => {
+                log::warn!(
+                    "Accelerated OCR initialization failed; retrying with CPU-only ONNX Runtime: {:#}",
+                    accelerated_error
+                );
+                build_ocr(&det_path, &rec_path, &dict_path, cpu_ort_session_config()).map_err(
+                    |cpu_error| {
+                        anyhow!(
+                            "OCR initialization failed with hardware acceleration ({:#}); CPU-only fallback also failed ({:#})",
+                            accelerated_error,
+                            cpu_error
+                        )
+                    },
+                )?
+            }
+            Err(error) => return Err(error),
+        };
 
         let ocr_arc = Arc::new(ocr_instance);
         *guard = Some(ocr_arc.clone());
@@ -298,6 +279,68 @@ impl OcrEngine {
             regions,
         })
     }
+}
+
+fn hardware_ort_session_config() -> oar_ocr::core::config::onnx::OrtSessionConfig {
+    use oar_ocr::core::config::onnx::{OrtExecutionProvider, OrtSessionConfig};
+
+    let mut providers = Vec::new();
+
+    #[cfg(feature = "cuda")]
+    {
+        providers.push(OrtExecutionProvider::CUDA {
+            device_id: Some(0),
+            gpu_mem_limit: None,
+            arena_extend_strategy: None,
+            cudnn_conv_algo_search: None,
+            cudnn_conv_use_max_workspace: None,
+        });
+    }
+
+    #[cfg(feature = "metal")]
+    {
+        providers.push(OrtExecutionProvider::CoreML {
+            ane_only: Some(false),
+            subgraphs: Some(false),
+        });
+    }
+
+    #[cfg(feature = "directml")]
+    {
+        providers.push(OrtExecutionProvider::DirectML { device_id: Some(0) });
+    }
+
+    providers.push(OrtExecutionProvider::CPU);
+    OrtSessionConfig::new().with_execution_providers(providers)
+}
+
+fn cpu_ort_session_config() -> oar_ocr::core::config::onnx::OrtSessionConfig {
+    use oar_ocr::core::config::onnx::{OrtExecutionProvider, OrtSessionConfig};
+
+    OrtSessionConfig::new().with_execution_providers(vec![OrtExecutionProvider::CPU])
+}
+
+fn acceleration_enabled() -> bool {
+    cfg!(any(
+        feature = "cuda",
+        feature = "metal",
+        feature = "directml"
+    ))
+}
+
+fn build_ocr(
+    det_path: &Path,
+    rec_path: &Path,
+    dict_path: &Path,
+    session_config: oar_ocr::core::config::onnx::OrtSessionConfig,
+) -> Result<OAROCR> {
+    Ok(OAROCRBuilder::new(
+        det_path.to_string_lossy().to_string(),
+        rec_path.to_string_lossy().to_string(),
+        dict_path.to_string_lossy().to_string(),
+    )
+    .ort_session(session_config)
+    .build()?)
 }
 
 fn merge_row_extent(extent: &mut Option<(u32, u32)>, start: u32, end: u32) {
