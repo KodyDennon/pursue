@@ -165,6 +165,8 @@ impl VaultCrypto {
 
         #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             // Strip inheritance and grant exclusive Full Control to the current authenticated user
             let username =
                 std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string());
@@ -173,6 +175,7 @@ impl VaultCrypto {
                 .arg("/inheritance:r")
                 .arg("/grant:r")
                 .arg(format!("{}:F", username))
+                .creation_flags(CREATE_NO_WINDOW)
                 .output();
         }
 

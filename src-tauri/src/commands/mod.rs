@@ -6,11 +6,13 @@ use sqlx::{Row, SqlitePool};
 pub mod analysis;
 pub mod cases;
 pub mod records;
+pub mod storage;
 pub mod system;
 
 pub use analysis::*;
 pub use cases::*;
 pub use records::*;
+pub use storage::*;
 pub use system::*;
 
 pub use crate::AppState;

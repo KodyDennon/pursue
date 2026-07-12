@@ -139,7 +139,8 @@ impl ThumbnailManager {
 
     async fn generate_video_thumbnail(&self, input: &Path, output: &Path) -> Result<()> {
         // Use ffmpeg if available
-        let status = Command::new("ffmpeg")
+        let mut command = Command::new("ffmpeg");
+        command
             .arg("-i")
             .arg(input)
             .arg("-ss")
@@ -150,9 +151,8 @@ impl ThumbnailManager {
             .arg("512x288") // 16:9 thumb
             .arg("-f")
             .arg("image2")
-            .arg(output)
-            .output()
-            .await;
+            .arg(output);
+        let status = crate::common::hide_console(&mut command).output().await;
 
         match status {
             Ok(out) if out.status.success() => Ok(()),

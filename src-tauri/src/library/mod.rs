@@ -2,7 +2,6 @@ use anyhow::{anyhow, Result};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
-use tauri::Manager;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
@@ -45,7 +44,7 @@ impl LibraryManager {
     // Generic over the Tauri runtime (not just the production Wry runtime) so tests can build a
     // LibraryManager from `tauri::test::mock_app()`, which returns an `AppHandle<MockRuntime>`.
     pub fn new<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> Result<Self> {
-        let app_data_dir = app_handle.path().app_data_dir()?;
+        let app_data_dir = crate::storage::resolve_storage_root(app_handle)?;
         let library_path = app_data_dir.join("library");
         let snapshot_path = app_data_dir.join("snapshots");
         let export_path = app_data_dir.join("exports");

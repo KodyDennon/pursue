@@ -54,7 +54,7 @@
 		</div>
 		<div class="accel-recommendation">{diagnostics.acceleration_recommendation}</div>
 		<div class="backend-grid">
-			{#each diagnostics.acceleration_backends ?? [] as backend}
+			{#each diagnostics.acceleration_backends ?? [] as backend (backend.label)}
 				<div class="backend" class:active={backend.available && backend.compiled}>
 					<div>
 						<strong>{backend.label}</strong>

@@ -295,6 +295,9 @@ pub fn bounded_render_scale(
     (max_pixels / base_pixels).sqrt().clamp(0.1, preferred)
 }
 
+// Only the poppler-based Linux render path needs to read page dimensions up front;
+// macOS and Windows use native renderers that handle sizing themselves.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn page_dimensions_points(path: &Path, page_index: usize) -> Result<(f64, f64)> {
     let doc = Document::load(path)?;
     let pages = doc.get_pages();

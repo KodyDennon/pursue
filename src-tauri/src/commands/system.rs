@@ -428,7 +428,7 @@ pub async fn factory_reset(state: State<'_, AppState>, handle: AppHandle) -> Res
     // 2. Allow a moment for file handles to close
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    let app_dir = handle.path().app_data_dir().map_err(to_error)?;
+    let app_dir = state.library.app_data_dir().to_path_buf();
     if app_dir.exists() {
         // Windows Hardening: Standard std::fs::remove_dir_all fails if files are locked (e.g. log file).
         // We attempt a recursive delete and log errors for locked files without failing the whole reset.
@@ -438,6 +438,20 @@ pub async fn factory_reset(state: State<'_, AppState>, handle: AppHandle) -> Res
                 e
             );
         }
+    }
+
+    // A custom storage root may have been active; also purge the default
+    // location (where migrated-from data may remain) and drop the pointer so
+    // the fresh start happens at the platform default.
+    if let Ok(default_root) = crate::storage::default_storage_root(&handle) {
+        if default_root != app_dir && default_root.exists() {
+            if let Err(e) = remove_dir_all_robust(&default_root) {
+                log::warn!("Partial failure purging default storage root: {}", e);
+            }
+        }
+    }
+    if let Err(e) = crate::storage::clear_pointer(&handle) {
+        log::warn!("Failed to clear storage pointer during factory reset: {}", e);
     }
 
     info!("System purge complete. Triggering restart...");

@@ -1,11 +1,23 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { HardDrive, Trash2, FolderOpen } from 'lucide-svelte';
+	import { HardDrive, Trash2, FolderOpen, FolderInput, Undo2 } from 'lucide-svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
 	import { formatBytes } from '$lib/utils';
 
 	let logPath = $state('');
+
+	const migrationPercent = $derived(
+		settingsStore.migration?.bytes_total
+			? Math.min(
+					100,
+					Math.round(
+						((settingsStore.migration.bytes_copied ?? 0) / settingsStore.migration.bytes_total) *
+							100
+					)
+				)
+			: 0
+	);
 
 	onMount(async () => {
 		try {
@@ -31,9 +43,61 @@
 	</div>
 	<div class="s-body">
 		<div class="data-item">
+			<span class="d-label">Storage Location</span>
+			<code class="d-val">{settingsStore.storageLocation?.effective_root || 'Loading...'}</code>
+			<span class="d-val">
+				{#if settingsStore.storageLocation?.is_fallback}
+					Configured location is unreachable — running from the default location this session
+				{:else if settingsStore.storageLocation?.is_custom}
+					Custom location — database, evidence library, and models are stored here
+				{:else}
+					Default location — pick another folder to route all storage to a different drive
+				{/if}
+			</span>
+			{#if settingsStore.migration}
+				<div class="usage-bar">
+					<div class="usage-fill" style="width: {migrationPercent}%"></div>
+				</div>
+				<span class="d-val">
+					{#if settingsStore.migration.status === 'copying'}
+						Copying data... {formatBytes(settingsStore.migration.bytes_copied ?? 0)} of {formatBytes(
+							settingsStore.migration.bytes_total ?? 0
+						)}
+					{:else if settingsStore.migration.status === 'error'}
+						Migration failed — restarting on the previous location
+					{:else}
+						Finishing up — the application will restart
+					{/if}
+				</span>
+			{:else}
+				<div class="location-buttons">
+					<button
+						class="s-btn"
+						onclick={() => settingsStore.changeStorageLocation()}
+						disabled={settingsStore.busy === 'storage'}
+					>
+						<FolderInput size={14} />
+						Change Location...
+					</button>
+					{#if settingsStore.storageLocation?.is_custom}
+						<button
+							class="s-btn"
+							onclick={() =>
+								settingsStore.changeStorageLocation(settingsStore.storageLocation?.default_root)}
+							disabled={settingsStore.busy === 'storage'}
+						>
+							<Undo2 size={14} />
+							Restore Default Location
+						</button>
+					{/if}
+				</div>
+			{/if}
+		</div>
+		<div class="data-item">
 			<span class="d-label">Intelligence Database (SQLite)</span>
 			<code class="d-val">{settingsStore.status?.database_path || 'Loading...'}</code>
-			<span class="d-val">{formatBytes(settingsStore.status?.database_bytes || 0)} total usage</span>
+			<span class="d-val">{formatBytes(settingsStore.status?.database_bytes || 0)} total usage</span
+			>
 		</div>
 		<div class="data-item">
 			<span class="d-label">System Log File</span>
@@ -64,10 +128,7 @@
 	</div>
 	<footer class="s-footer">
 		<div class="footer-buttons">
-			<button
-				class="s-btn"
-				onclick={openLogsDir}
-			>
+			<button class="s-btn" onclick={openLogsDir}>
 				<FolderOpen size={14} />
 				Open Logs Directory
 			</button>
@@ -163,6 +224,13 @@
 		display: flex;
 		gap: var(--space-xl);
 		align-items: center;
+	}
+
+	.location-buttons {
+		display: flex;
+		gap: var(--space-xl);
+		align-items: center;
+		margin-top: var(--space-md);
 	}
 
 	.s-btn {

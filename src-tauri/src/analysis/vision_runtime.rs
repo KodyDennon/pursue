@@ -173,12 +173,14 @@ impl VisionRuntime {
                     "msg": "Creating local vision runtime environment..."
                 }),
             );
-            let status = Command::new(&python)
+            let mut command = Command::new(&python);
+            command
                 .arg("-m")
                 .arg("venv")
                 .arg(self.venv_dir())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(Stdio::null());
+            let status = crate::common::hide_console(&mut command)
                 .status()
                 .await
                 .context("failed to create Python vision runtime environment")?;
@@ -196,7 +198,8 @@ impl VisionRuntime {
                     "msg": "Installing local vision runtime dependencies..."
                 }),
             );
-            let status = Command::new(venv_python)
+            let mut command = Command::new(venv_python);
+            command
                 .arg("-m")
                 .arg("pip")
                 .arg("install")
@@ -205,7 +208,8 @@ impl VisionRuntime {
                 .arg("-r")
                 .arg(self.requirements_path())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(Stdio::null());
+            let status = crate::common::hide_console(&mut command)
                 .status()
                 .await
                 .context("failed to install vision runtime dependencies")?;
@@ -239,7 +243,8 @@ impl VisionRuntime {
             }),
         );
 
-        let child = Command::new(self.venv_python())
+        let mut command = Command::new(self.venv_python());
+        command
             .arg(self.script_path())
             .arg("--host")
             .arg("127.0.0.1")
@@ -255,7 +260,8 @@ impl VisionRuntime {
                     .to_string(),
             )
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        let child = crate::common::hide_console(&mut command)
             .spawn()
             .context("failed to start vision runtime sidecar")?;
         *guard = Some(child);

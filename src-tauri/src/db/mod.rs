@@ -3,7 +3,7 @@ pub mod records;
 
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::fs;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 // Direct FFI to avoid libsqlite3-sys version conflicts with sqlx
 extern "C" {
@@ -20,7 +20,7 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
         ));
     }
 
-    let app_dir = app_handle.path().app_data_dir()?;
+    let app_dir = crate::storage::resolve_storage_root(app_handle)?;
     if !app_dir.exists() {
         fs::create_dir_all(&app_dir)?;
     }

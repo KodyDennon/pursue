@@ -9,6 +9,7 @@ mod library;
 mod models;
 mod search;
 mod sources;
+mod storage;
 mod vault;
 
 use std::collections::HashMap;
@@ -161,7 +162,9 @@ pub fn run() {
             check_neural_runtime_status,
             provision_neural_runtime,
             get_log_path,
-            open_logs_directory
+            open_logs_directory,
+            get_storage_location,
+            set_storage_location
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,7 +5,7 @@ use crate::common::now;
 use anyhow::{anyhow, Result};
 use log::debug;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 
 use candle_core::{DType, Tensor};
@@ -414,7 +414,7 @@ impl IntelligenceExtractor {
     }
 
     fn load_context_on_device(
-        repo_path: &PathBuf,
+        repo_path: &Path,
         safetensors_paths: &[PathBuf],
         config: &gemma4::Config,
         device: candle_core::Device,
@@ -422,16 +422,16 @@ impl IntelligenceExtractor {
         requested_preference: &str,
     ) -> Result<GemmaContext> {
         let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&safetensors_paths, DType::BF16, &device)?
+            VarBuilder::from_mmaped_safetensors(safetensors_paths, DType::BF16, &device)?
         };
-        let model = gemma4::Model::new(&config, vb)?;
+        let model = gemma4::Model::new(config, vb)?;
         let tokenizer =
             Tokenizer::from_file(repo_path.join("tokenizer.json")).map_err(|e| anyhow!(e))?;
 
         Ok(GemmaContext {
             model,
             tokenizer,
-            repo_path: repo_path.clone(),
+            repo_path: repo_path.to_path_buf(),
             device_label: device_label.to_string(),
             acceleration_preference: requested_preference.to_string(),
         })

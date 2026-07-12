@@ -156,6 +156,22 @@ export interface DatabaseStatus {
 	pending_count: number;
 }
 
+export interface StorageLocationInfo {
+	default_root: string;
+	configured_root: string | null;
+	effective_root: string;
+	is_custom: boolean;
+	is_fallback: boolean;
+	last_migration_error: string | null;
+}
+
+export interface StorageMigrationProgress {
+	status: 'copying' | 'finalizing' | 'restarting' | 'error';
+	bytes_copied?: number;
+	bytes_total?: number;
+	message?: string;
+}
+
 export interface ManualImportRequest {
 	path: string;
 	title?: string | null;

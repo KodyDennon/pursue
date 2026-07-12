@@ -1,8 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
+import { listen } from '@tauri-apps/api/event';
+import { open } from '@tauri-apps/plugin-dialog';
 import { addToast } from '$lib/stores/toastStore.svelte';
 import { logger } from '$lib/logger';
-import type { DatabaseStatus } from '$lib/types';
+import type { DatabaseStatus, StorageLocationInfo, StorageMigrationProgress } from '$lib/types';
 
 type AgentSettings = {
 	auto_sync: boolean;
@@ -24,9 +26,86 @@ class SettingsStore {
 		encrypted_exports: boolean;
 		integrity_layer: string;
 	} | null>(null);
+	storageLocation = $state<StorageLocationInfo | null>(null);
+	migration = $state<StorageMigrationProgress | null>(null);
+	private storageFallbackNotified = false;
 
 	async init() {
-		await Promise.all([this.loadStatus(), this.loadAppSettings(), this.loadVersion()]);
+		await Promise.all([
+			this.loadStatus(),
+			this.loadAppSettings(),
+			this.loadVersion(),
+			this.loadStorageLocation()
+		]);
+	}
+
+	async loadStorageLocation() {
+		try {
+			this.storageLocation = await invoke<StorageLocationInfo>('get_storage_location');
+			if (this.storageLocation.last_migration_error) {
+				addToast({
+					type: 'error',
+					message: `Storage migration failed: ${this.storageLocation.last_migration_error}. Your data is still at the previous location.`,
+					duration: 0
+				});
+			}
+			if (this.storageLocation.is_fallback && !this.storageFallbackNotified) {
+				this.storageFallbackNotified = true;
+				addToast({
+					type: 'error',
+					message: `Configured storage location ${this.storageLocation.configured_root} is unreachable. Using the default location for this session.`,
+					duration: 0
+				});
+			}
+		} catch (e) {
+			logger.error('Failed to load storage location:', e);
+		}
+	}
+
+	async changeStorageLocation(newRoot?: string) {
+		const target =
+			newRoot ??
+			(await open({
+				directory: true,
+				title: 'Choose a folder for PURSUE storage'
+			}));
+		if (!target || Array.isArray(target)) return;
+
+		const size = this.status
+			? ` (~${Math.max(1, Math.round((this.status.artifact_bytes + this.status.database_bytes) / 1024 / 1024))} MB plus models)`
+			: '';
+		if (
+			!confirm(
+				`Route all PURSUE storage to:\n${target}\n\nExisting data${size} will be copied there and the application will restart. Files at the old location are left in place; you can delete them after verifying the move.\n\nPROCEED?`
+			)
+		)
+			return;
+
+		this.busy = 'storage';
+		this.migration = { status: 'copying', bytes_copied: 0, bytes_total: 0 };
+		const unlisten = await listen<StorageMigrationProgress>(
+			'storage-migration-progress',
+			(event) => {
+				this.migration = event.payload;
+				if (event.payload.status === 'error') {
+					addToast({
+						type: 'error',
+						message: `Storage migration failed: ${event.payload.message ?? 'unknown error'}. Restarting on the previous location.`,
+						duration: 0
+					});
+				}
+			}
+		);
+		try {
+			// Does not resolve on success: the backend restarts the app.
+			await invoke('set_storage_location', { newRoot: target, migrate: true });
+		} catch (e) {
+			this.migration = null;
+			addToast({ type: 'error', message: `Storage location change failed: ${e}` });
+		} finally {
+			unlisten();
+			this.busy = null;
+		}
 	}
 
 	async loadVersion() {
