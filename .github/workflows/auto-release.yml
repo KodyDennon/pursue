@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 env:
   BUN_VERSION: '1.3.9'
@@ -124,3 +125,10 @@ jobs:
           fi
           git tag "v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Trigger installer build for tag
+        # Tags pushed with GITHUB_TOKEN do not fire push-triggered workflows
+        # (GitHub recursion protection), so dispatch build-installers explicitly.
+        run: gh workflow run release.yml --ref "v${{ steps.version.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
