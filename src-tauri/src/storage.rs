@@ -84,19 +84,29 @@ pub fn validate_new_root(new_root: &Path, current_root: &Path) -> Result<()> {
             "pick a folder rather than a drive root (for example E:\\PursueData instead of E:\\)"
         ));
     }
-    std::fs::create_dir_all(new_root)
-        .map_err(|e| anyhow!("cannot create storage directory {}: {e}", new_root.display()))?;
+    std::fs::create_dir_all(new_root).map_err(|e| {
+        anyhow!(
+            "cannot create storage directory {}: {e}",
+            new_root.display()
+        )
+    })?;
 
     let probe = new_root.join(".pursue-write-probe");
-    std::fs::write(&probe, b"probe")
-        .map_err(|e| anyhow!("storage directory {} is not writable: {e}", new_root.display()))?;
+    std::fs::write(&probe, b"probe").map_err(|e| {
+        anyhow!(
+            "storage directory {} is not writable: {e}",
+            new_root.display()
+        )
+    })?;
     let _ = std::fs::remove_file(&probe);
 
     let canonical_new = std::fs::canonicalize(new_root)?;
-    let canonical_current = std::fs::canonicalize(current_root)
-        .unwrap_or_else(|_| current_root.to_path_buf());
+    let canonical_current =
+        std::fs::canonicalize(current_root).unwrap_or_else(|_| current_root.to_path_buf());
     if canonical_new == canonical_current {
-        return Err(anyhow!("the selected folder is already the active storage location"));
+        return Err(anyhow!(
+            "the selected folder is already the active storage location"
+        ));
     }
     if canonical_new.starts_with(&canonical_current) {
         return Err(anyhow!(
@@ -184,7 +194,11 @@ fn copy_tree(
             copy_tree(&source, &target, should_skip, stats, progress)?;
         } else {
             let copied = std::fs::copy(&source, &target).map_err(|e| {
-                anyhow!("failed to copy {} to {}: {e}", source.display(), target.display())
+                anyhow!(
+                    "failed to copy {} to {}: {e}",
+                    source.display(),
+                    target.display()
+                )
             })?;
             stats.files_copied += 1;
             stats.bytes_copied += copied;
@@ -199,7 +213,10 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pursue-storage-test-{name}-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!(
+            "pursue-storage-test-{name}-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

@@ -84,6 +84,8 @@ impl ThumbnailManager {
                 use windows::Storage::StorageFile;
                 use windows::Storage::Streams::{DataReader, InMemoryRandomAccessStream};
 
+                crate::analysis::pdf::init_winrt_apartment();
+
                 let input_hstring = HSTRING::from(input_path.to_str().unwrap());
 
                 // Load PDF via WinRT

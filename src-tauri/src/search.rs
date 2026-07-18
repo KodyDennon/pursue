@@ -13,7 +13,13 @@ const VECTOR_DIMS: usize = 384;
 
 static MODELS_DIR: OnceLock<PathBuf> = OnceLock::new();
 static TOKENIZER: OnceLock<Tokenizer> = OnceLock::new();
-static EMBEDDING_SESSION: OnceLock<Mutex<Session>> = OnceLock::new();
+static EMBEDDING_SESSION: OnceLock<Mutex<EmbeddingSession>> = OnceLock::new();
+
+struct EmbeddingSession {
+    session: Session,
+    attempt_index: usize,
+    label: &'static str,
+}
 
 pub fn init_search_engine(models_path: PathBuf) {
     let _ = MODELS_DIR.set(models_path);
@@ -41,7 +47,7 @@ fn get_tokenizer() -> Result<&'static Tokenizer> {
     Ok(TOKENIZER.get().unwrap())
 }
 
-fn get_embedding_session() -> Result<&'static Mutex<Session>> {
+fn get_embedding_session() -> Result<&'static Mutex<EmbeddingSession>> {
     if let Some(session) = EMBEDDING_SESSION.get() {
         return Ok(session);
     }
@@ -53,24 +59,35 @@ fn get_embedding_session() -> Result<&'static Mutex<Session>> {
         anyhow::bail!("Embedding model not found at {}", path.display());
     }
 
-    let session = load_embedding_session(&path)?;
+    let session = load_embedding_session_from(&path, 0)?;
 
     let _ = EMBEDDING_SESSION.set(Mutex::new(session));
     Ok(EMBEDDING_SESSION.get().unwrap())
 }
 
-fn load_embedding_session(path: &std::path::Path) -> Result<Session> {
+fn load_embedding_session_from(
+    path: &std::path::Path,
+    start_index: usize,
+) -> Result<EmbeddingSession> {
     let attempts = embedding_provider_attempts();
     let mut last_error = None;
 
-    for attempt in attempts {
+    for (attempt_index, attempt) in attempts.into_iter().enumerate().skip(start_index) {
         match build_embedding_session(path, &attempt) {
             Ok(session) => {
                 tauri_plugin_log::log::info!(
                     "Embedding ONNX session initialized with {}",
                     attempt.label
                 );
-                return Ok(session);
+                crate::analysis::hardware::record_active_inference_backend(
+                    "Embeddings",
+                    attempt.label,
+                );
+                return Ok(EmbeddingSession {
+                    session,
+                    attempt_index,
+                    label: attempt.label,
+                });
             }
             Err(error) => {
                 tauri_plugin_log::log::warn!(
@@ -89,6 +106,7 @@ fn load_embedding_session(path: &std::path::Path) -> Result<Session> {
 struct EmbeddingProviderAttempt {
     label: &'static str,
     providers: Vec<ExecutionProviderDispatch>,
+    strict_gpu: bool,
 }
 
 fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
@@ -109,8 +127,9 @@ fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
                 cuda = cuda.with_memory_limit(limit);
             }
             attempts.push(EmbeddingProviderAttempt {
-                label: "CUDA + CPU fallback",
-                providers: vec![cuda.build(), ort::ep::CPU::default().build()],
+                label: "NVIDIA CUDA",
+                providers: vec![cuda.build().error_on_failure()],
+                strict_gpu: true,
             });
         }
     };
@@ -120,15 +139,14 @@ fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
         {
             let attempts = _attempts;
             attempts.push(EmbeddingProviderAttempt {
-                label: "CoreML all compute units + CPU fallback",
-                providers: vec![
-                    ort::ep::CoreML::default()
-                        .with_compute_units(ort::ep::coreml::ComputeUnits::All)
-                        .with_subgraphs(true)
-                        .with_low_precision_accumulation_on_gpu(true)
-                        .build(),
-                    ort::ep::CPU::default().build(),
-                ],
+                label: "Apple CoreML",
+                providers: vec![ort::ep::CoreML::default()
+                    .with_compute_units(ort::ep::coreml::ComputeUnits::All)
+                    .with_subgraphs(true)
+                    .with_low_precision_accumulation_on_gpu(true)
+                    .build()
+                    .error_on_failure()],
+                strict_gpu: true,
             });
         }
     };
@@ -138,20 +156,27 @@ fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
         {
             let attempts = _attempts;
             attempts.push(EmbeddingProviderAttempt {
-                label: "DirectML + CPU fallback",
-                providers: vec![
-                    ort::ep::DirectML::default().with_device_id(0).build(),
-                    ort::ep::CPU::default().build(),
-                ],
+                label: "Windows DirectML",
+                providers: vec![ort::ep::DirectML::default()
+                    .with_device_id(0)
+                    .build()
+                    .error_on_failure()],
+                strict_gpu: true,
             });
         }
     };
 
     match preference {
         AccelerationPreference::Cpu => {}
-        AccelerationPreference::Cuda => push_cuda(&mut attempts),
+        AccelerationPreference::Cuda => {
+            push_cuda(&mut attempts);
+            push_directml(&mut attempts);
+        }
         AccelerationPreference::Metal => push_coreml(&mut attempts),
-        AccelerationPreference::DirectMl => push_directml(&mut attempts),
+        AccelerationPreference::DirectMl => {
+            push_directml(&mut attempts);
+            push_cuda(&mut attempts);
+        }
         AccelerationPreference::Auto => {
             push_cuda(&mut attempts);
             push_coreml(&mut attempts);
@@ -160,8 +185,9 @@ fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
     }
 
     attempts.push(EmbeddingProviderAttempt {
-        label: "CPU-only",
+        label: "CPU fallback",
         providers: vec![ort::ep::CPU::default().build()],
+        strict_gpu: false,
     });
     attempts
 }
@@ -170,10 +196,22 @@ fn build_embedding_session(
     path: &std::path::Path,
     attempt: &EmbeddingProviderAttempt,
 ) -> Result<Session> {
-    Session::builder()
+    let mut builder = Session::builder()
         .map_err(|e| anyhow::anyhow!("failed to create ort session builder: {}", e))?
         .with_intra_threads(crate::analysis::hardware::cpu_inference_threads())
-        .map_err(|e| anyhow::anyhow!("failed to set intra-op threads: {}", e))?
+        .map_err(|e| anyhow::anyhow!("failed to set intra-op threads: {}", e))?;
+    if attempt.strict_gpu {
+        builder = builder
+            .with_config_entry("session.disable_cpu_ep_fallback", "1")
+            .map_err(|e| anyhow::anyhow!("failed to disable implicit CPU fallback: {}", e))?;
+    }
+    if attempt.label == "Windows DirectML" {
+        builder = builder
+            .with_parallel_execution(false)
+            .and_then(|builder| builder.with_memory_pattern(false))
+            .map_err(|e| anyhow::anyhow!("failed to configure DirectML session safety: {}", e))?;
+    }
+    builder
         .with_execution_providers(&attempt.providers)
         .map_err(|e| anyhow::anyhow!("failed to configure providers: {}", e))?
         .commit_from_file(path)
@@ -255,6 +293,10 @@ pub async fn vectorize_text(text: &str) -> Result<Vec<f32>> {
             // Silently fall back to deterministic hash to keep the pipeline moving,
             // but log to internal system logs for debugging.
             tauri_plugin_log::log::warn!("Neural embedding failed, using fallback: {}", e);
+            crate::analysis::hardware::record_active_inference_backend(
+                "Embeddings",
+                "Deterministic CPU fallback",
+            );
             Ok(deterministic_embedding(text))
         }
     }
@@ -288,13 +330,47 @@ fn vectorize_text_with_model_blocking(text: &str) -> Result<Vec<f32>> {
         attention_mask = &attention_mask[..512];
     }
 
-    let seq_len = input_ids.len();
+    let session_mutex = get_embedding_session()?;
+    let mut active = session_mutex
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Mutex lock failed: {}", e))?;
 
+    loop {
+        match run_embedding_once(&mut active.session, input_ids, attention_mask) {
+            Ok(vector) => return Ok(vector),
+            Err(inference_error) => {
+                let failed_label = active.label;
+                let next_attempt = active.attempt_index + 1;
+                tauri_plugin_log::log::error!(
+                    "Embedding inference failed on {}; failing over to the next provider: {}",
+                    failed_label,
+                    inference_error
+                );
+                crate::analysis::hardware::clear_active_inference_backend("Embeddings");
+                let path = get_models_dir().join("bge-small-en-v1.5.onnx");
+                *active = load_embedding_session_from(&path, next_attempt).map_err(|fallback_error| {
+                    anyhow::anyhow!(
+                        "embedding inference failed on {} ({}); no fallback provider initialized ({})",
+                        failed_label,
+                        inference_error,
+                        fallback_error
+                    )
+                })?;
+            }
+        }
+    }
+}
+
+fn run_embedding_once(
+    session: &mut Session,
+    input_ids: &[u32],
+    attention_mask: &[u32],
+) -> Result<Vec<f32>> {
+    let seq_len = input_ids.len();
     let input_ids_tensor = Value::from_array((
         vec![1, seq_len],
         input_ids.iter().map(|&x| x as i64).collect::<Vec<i64>>(),
     ))?;
-
     let attention_mask_tensor = Value::from_array((
         vec![1, seq_len],
         attention_mask
@@ -302,18 +378,12 @@ fn vectorize_text_with_model_blocking(text: &str) -> Result<Vec<f32>> {
             .map(|&x| x as i64)
             .collect::<Vec<i64>>(),
     ))?;
-
     let token_type_ids_tensor = Value::from_array((vec![1, seq_len], vec![0i64; seq_len]))?;
 
-    let session_mutex = get_embedding_session()?;
-    let mut session = session_mutex
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Mutex lock failed: {}", e))?;
-
-    // Capture first output name to allow fallback without borrow conflicts
-    let first_output_name = session.outputs().first().map(|o| o.name().to_string());
-
-    // Use explicit input providing while including token_type_ids
+    let first_output_name = session
+        .outputs()
+        .first()
+        .map(|output| output.name().to_string());
     let outputs = session.run(ort::inputs![
         "input_ids" => input_ids_tensor,
         "attention_mask" => attention_mask_tensor,

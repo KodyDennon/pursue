@@ -19,6 +19,7 @@ export interface HardwareDiagnosticsType {
 	acceleration_summary: string;
 	acceleration_recommendation: string;
 	acceleration_backends: AccelerationBackend[];
+	active_inference_backends: Record<string, string>;
 	recommended_tier: 'Standard' | 'Advanced' | 'Elite';
 }
 

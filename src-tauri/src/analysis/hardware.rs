@@ -1,4 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::sync::{Mutex, OnceLock};
+
+static ACTIVE_INFERENCE_BACKENDS: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccelerationBackend {
@@ -16,6 +20,31 @@ pub enum AccelerationPreference {
     Cuda,
     Metal,
     DirectMl,
+}
+
+fn active_backend_registry() -> &'static Mutex<BTreeMap<String, String>> {
+    ACTIVE_INFERENCE_BACKENDS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// Records the provider that successfully initialized for a concrete workload. Diagnostics use
+/// this instead of inferring activity from compile-time features or device presence.
+pub fn record_active_inference_backend(workload: &str, backend: &str) {
+    if let Ok(mut backends) = active_backend_registry().lock() {
+        backends.insert(workload.to_string(), backend.to_string());
+    }
+}
+
+pub fn clear_active_inference_backend(workload: &str) {
+    if let Ok(mut backends) = active_backend_registry().lock() {
+        backends.remove(workload);
+    }
+}
+
+pub fn active_inference_backends() -> BTreeMap<String, String> {
+    active_backend_registry()
+        .lock()
+        .map(|backends| backends.clone())
+        .unwrap_or_default()
 }
 
 pub fn cpu_inference_threads() -> usize {
@@ -171,10 +200,16 @@ pub fn candle_device_candidates(force_cpu: bool) -> Vec<(String, candle_core::De
         if candle_core::utils::cuda_is_available() {
             let device_id = cuda_device_id().max(0) as usize;
             match candle_core::Device::new_cuda(device_id) {
-                Ok(device) => candidates.push((
-                    format!("CUDA:{} full GPU tensors; CPU fallback enabled", device_id),
-                    device,
-                )),
+                Ok(device) => match cuda_kernel_smoke_test(&device) {
+                    Ok(()) => candidates.push((
+                        format!("CUDA:{} full GPU tensors; CPU fallback enabled", device_id),
+                        device,
+                    )),
+                    Err(error) => log::warn!(
+                        "CUDA device {device_id} initialized but failed the kernel smoke test \
+                         (binary kernels likely built for a different GPU generation): {error}"
+                    ),
+                },
                 Err(error) => log::warn!("CUDA reported available but device 0 failed: {error}"),
             }
         }
@@ -183,10 +218,15 @@ pub fn candle_device_candidates(force_cpu: bool) -> Vec<(String, candle_core::De
     let push_metal = |candidates: &mut Vec<(String, candle_core::Device)>| {
         if candle_core::utils::metal_is_available() {
             match candle_core::Device::new_metal(0) {
-                Ok(device) => candidates.push((
-                    "Metal:0 full GPU tensors; CPU fallback enabled".to_string(),
-                    device,
-                )),
+                Ok(device) => match accelerator_kernel_smoke_test(&device) {
+                    Ok(()) => candidates.push((
+                        "Metal:0 full GPU tensors; CPU fallback enabled".to_string(),
+                        device,
+                    )),
+                    Err(error) => log::warn!(
+                        "Metal device 0 initialized but failed the kernel smoke test: {error}"
+                    ),
+                },
                 Err(error) => log::warn!("Metal reported available but device 0 failed: {error}"),
             }
         }
@@ -212,6 +252,22 @@ pub fn candle_device_candidates(force_cpu: bool) -> Vec<(String, candle_core::De
         candle_core::Device::Cpu,
     ));
     candidates
+}
+
+/// Launches a real kernel on the device before we commit to it. Device creation and
+/// memcpy succeed even when the binary's CUDA kernels were compiled for a different GPU
+/// generation ("no kernel image is available") — only an actual launch surfaces that, and
+/// without this probe it used to surface mid-inference with no CPU fallback.
+fn cuda_kernel_smoke_test(device: &candle_core::Device) -> candle_core::Result<()> {
+    accelerator_kernel_smoke_test(device)
+}
+
+fn accelerator_kernel_smoke_test(device: &candle_core::Device) -> candle_core::Result<()> {
+    let ones = candle_core::Tensor::ones((4, 4), candle_core::DType::F32, device)?;
+    // sum_all runs a custom candle reduce kernel; to_scalar forces synchronization so any
+    // deferred launch error is reported here.
+    ones.sum_all()?.to_scalar::<f32>()?;
+    Ok(())
 }
 
 #[cfg(test)]

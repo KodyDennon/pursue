@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use image::GenericImageView;
 use oar_ocr::oarocr::{OAROCRBuilder, OAROCR};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -10,7 +11,24 @@ const MAX_OCR_IMAGE_PIXELS: u64 = 12_000_000;
 const MAX_REDACTION_IMAGE_PIXELS: u64 = 8_000_000;
 
 pub struct OcrEngine {
-    ocr: Arc<Mutex<Option<Arc<OAROCR>>>>,
+    state: Arc<Mutex<OcrState>>,
+}
+
+#[derive(Default)]
+struct OcrState {
+    initialized: Option<InitializedOcr>,
+    failed_backends: HashSet<&'static str>,
+}
+
+#[derive(Clone)]
+struct InitializedOcr {
+    engine: Arc<OAROCR>,
+    backend: &'static str,
+}
+
+struct OcrProviderAttempt {
+    backend: &'static str,
+    config: oar_ocr::core::config::onnx::OrtSessionConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,17 +66,25 @@ pub struct RedactionAnalysis {
 impl OcrEngine {
     pub fn new() -> Self {
         Self {
-            ocr: Arc::new(Mutex::new(None)),
+            state: Arc::new(Mutex::new(OcrState::default())),
         }
     }
 
+    #[cfg(test)]
     pub async fn ensure_initialized<R: tauri::Runtime>(
         &self,
         app: &tauri::AppHandle<R>,
     ) -> Result<Arc<OAROCR>> {
-        let mut guard = self.ocr.lock().await;
-        if let Some(ocr) = &*guard {
-            return Ok(ocr.clone());
+        Ok(self.ensure_active(app).await?.engine)
+    }
+
+    async fn ensure_active<R: tauri::Runtime>(
+        &self,
+        app: &tauri::AppHandle<R>,
+    ) -> Result<InitializedOcr> {
+        let mut state = self.state.lock().await;
+        if let Some(initialized) = &state.initialized {
+            return Ok(initialized.clone());
         }
 
         // Resolve local model paths
@@ -66,30 +92,59 @@ impl OcrEngine {
         let rec_path = get_model_path(app, "pp-ocrv5_mobile_rec.onnx")?;
         let dict_path = get_model_path(app, "ppocrv5_dict.txt")?;
 
-        let session_config = hardware_ort_session_config();
-        let ocr_instance = match build_ocr(&det_path, &rec_path, &dict_path, session_config) {
-            Ok(ocr) => ocr,
-            Err(accelerated_error) if acceleration_enabled() => {
-                log::warn!(
-                    "Accelerated OCR initialization failed; retrying with CPU-only ONNX Runtime: {:#}",
-                    accelerated_error
-                );
-                build_ocr(&det_path, &rec_path, &dict_path, cpu_ort_session_config()).map_err(
-                    |cpu_error| {
-                        anyhow!(
-                            "OCR initialization failed with hardware acceleration ({:#}); CPU-only fallback also failed ({:#})",
-                            accelerated_error,
-                            cpu_error
-                        )
-                    },
-                )?
+        let mut failures = Vec::new();
+        for attempt in ocr_provider_attempts() {
+            if state.failed_backends.contains(attempt.backend) {
+                continue;
             }
-            Err(error) => return Err(error),
-        };
 
-        let ocr_arc = Arc::new(ocr_instance);
-        *guard = Some(ocr_arc.clone());
-        Ok(ocr_arc)
+            match build_ocr(&det_path, &rec_path, &dict_path, attempt.config) {
+                Ok(engine) => {
+                    let initialized = InitializedOcr {
+                        engine: Arc::new(engine),
+                        backend: attempt.backend,
+                    };
+                    log::info!("OCR ONNX sessions initialized with {}", attempt.backend);
+                    crate::analysis::hardware::record_active_inference_backend(
+                        "OCR",
+                        attempt.backend,
+                    );
+                    state.initialized = Some(initialized.clone());
+                    return Ok(initialized);
+                }
+                Err(error) => {
+                    log::warn!(
+                        "OCR initialization failed with {}; trying the next provider: {:#}",
+                        attempt.backend,
+                        error
+                    );
+                    failures.push(format!("{}: {:#}", attempt.backend, error));
+                }
+            }
+        }
+
+        Err(anyhow!(
+            "OCR could not initialize any execution provider: {}",
+            failures.join("; ")
+        ))
+    }
+
+    async fn mark_backend_failed(&self, backend: &'static str, error: &anyhow::Error) {
+        log::error!(
+            "OCR inference failed on {}; disabling it for this run and failing over: {:#}",
+            backend,
+            error
+        );
+        let mut state = self.state.lock().await;
+        if state
+            .initialized
+            .as_ref()
+            .is_some_and(|active| active.backend == backend)
+        {
+            state.initialized = None;
+        }
+        state.failed_backends.insert(backend);
+        crate::analysis::hardware::clear_active_inference_backend("OCR");
     }
 
     pub async fn extract_structured<R: tauri::Runtime>(
@@ -97,12 +152,29 @@ impl OcrEngine {
         app: &tauri::AppHandle<R>,
         image: &image::DynamicImage,
     ) -> Result<OcrOutput> {
-        let ocr = self.ensure_initialized(app).await?;
         let (original_width, original_height) = image.dimensions();
         let resized = resize_to_pixel_cap(image, MAX_OCR_IMAGE_PIXELS);
         let image = resized.as_ref().unwrap_or(image);
         let (image_width, image_height) = image.dimensions();
-        let results = ocr.predict(vec![image.to_rgb8()])?;
+        let rgb = image.to_rgb8();
+        let mut inference_failures = Vec::new();
+        let results = loop {
+            let active = self.ensure_active(app).await?;
+            match active.engine.predict(vec![rgb.clone()]) {
+                Ok(results) => break results,
+                Err(error) => {
+                    let error = anyhow!(error);
+                    inference_failures.push(format!("{}: {:#}", active.backend, error));
+                    self.mark_backend_failed(active.backend, &error).await;
+                    if inference_failures.len() >= ocr_provider_attempts().len() {
+                        return Err(anyhow!(
+                            "OCR inference failed on every provider: {}",
+                            inference_failures.join("; ")
+                        ));
+                    }
+                }
+            }
+        };
 
         let mut full_text = String::new();
         let mut regions = Vec::new();
@@ -281,78 +353,92 @@ impl OcrEngine {
     }
 }
 
-fn hardware_ort_session_config() -> oar_ocr::core::config::onnx::OrtSessionConfig {
+fn ocr_provider_attempts() -> Vec<OcrProviderAttempt> {
     use crate::analysis::hardware::{acceleration_preference, AccelerationPreference};
     use oar_ocr::core::config::onnx::{OrtExecutionProvider, OrtSessionConfig};
 
-    let mut providers = Vec::new();
+    let mut attempts = Vec::new();
     let preference = acceleration_preference(false);
 
-    let push_cuda = |_providers: &mut Vec<OrtExecutionProvider>| {
+    #[allow(unused_variables)]
+    let strict_gpu_config = |provider: OrtExecutionProvider| {
+        OrtSessionConfig::new()
+            .with_intra_threads(1)
+            .with_parallel_execution(false)
+            .with_execution_providers(vec![provider])
+            .add_config_entry("session.disable_cpu_ep_fallback", "1")
+    };
+
+    let push_cuda = |_attempts: &mut Vec<OcrProviderAttempt>| {
         #[cfg(feature = "cuda")]
         {
-            let providers = _providers;
-            providers.push(OrtExecutionProvider::CUDA {
-                device_id: Some(crate::analysis::hardware::cuda_device_id()),
-                gpu_mem_limit: crate::analysis::hardware::cuda_memory_limit_bytes(),
-                arena_extend_strategy: None,
-                cudnn_conv_algo_search: Some("heuristic".to_string()),
-                cudnn_conv_use_max_workspace: None,
+            let attempts = _attempts;
+            attempts.push(OcrProviderAttempt {
+                backend: "NVIDIA CUDA",
+                config: strict_gpu_config(OrtExecutionProvider::CUDA {
+                    device_id: Some(crate::analysis::hardware::cuda_device_id()),
+                    gpu_mem_limit: crate::analysis::hardware::cuda_memory_limit_bytes(),
+                    arena_extend_strategy: Some("SameAsRequested".to_string()),
+                    cudnn_conv_algo_search: Some("Heuristic".to_string()),
+                    cudnn_conv_use_max_workspace: Some(false),
+                }),
             });
         }
     };
 
-    let push_coreml = |_providers: &mut Vec<OrtExecutionProvider>| {
+    let push_coreml = |_attempts: &mut Vec<OcrProviderAttempt>| {
         #[cfg(feature = "metal")]
         {
-            let providers = _providers;
-            providers.push(OrtExecutionProvider::CoreML {
-                ane_only: Some(false),
-                subgraphs: Some(true),
+            let attempts = _attempts;
+            attempts.push(OcrProviderAttempt {
+                backend: "Apple CoreML",
+                config: strict_gpu_config(OrtExecutionProvider::CoreML {
+                    ane_only: Some(false),
+                    subgraphs: Some(true),
+                }),
             });
         }
     };
 
-    let push_directml = |_providers: &mut Vec<OrtExecutionProvider>| {
+    let push_directml = |_attempts: &mut Vec<OcrProviderAttempt>| {
         #[cfg(all(target_os = "windows", feature = "directml"))]
         {
-            let providers = _providers;
-            providers.push(OrtExecutionProvider::DirectML { device_id: Some(0) });
+            let attempts = _attempts;
+            attempts.push(OcrProviderAttempt {
+                backend: "Windows DirectML",
+                config: strict_gpu_config(OrtExecutionProvider::DirectML { device_id: Some(0) })
+                    .with_memory_pattern(false),
+            });
         }
     };
 
     match preference {
         AccelerationPreference::Cpu => {}
-        AccelerationPreference::Cuda => push_cuda(&mut providers),
-        AccelerationPreference::Metal => push_coreml(&mut providers),
-        AccelerationPreference::DirectMl => push_directml(&mut providers),
+        AccelerationPreference::Cuda => {
+            push_cuda(&mut attempts);
+            // A requested provider is the first choice, not permission to skip another
+            // available GPU and jump straight to CPU.
+            push_directml(&mut attempts);
+        }
+        AccelerationPreference::Metal => push_coreml(&mut attempts),
+        AccelerationPreference::DirectMl => {
+            push_directml(&mut attempts);
+            push_cuda(&mut attempts);
+        }
         AccelerationPreference::Auto => {
-            push_cuda(&mut providers);
-            push_coreml(&mut providers);
-            push_directml(&mut providers);
+            push_cuda(&mut attempts);
+            push_coreml(&mut attempts);
+            push_directml(&mut attempts);
         }
     }
 
-    providers.push(OrtExecutionProvider::CPU);
-    OrtSessionConfig::new()
-        .with_intra_threads(crate::analysis::hardware::cpu_inference_threads())
-        .with_execution_providers(providers)
-}
-
-fn cpu_ort_session_config() -> oar_ocr::core::config::onnx::OrtSessionConfig {
-    use oar_ocr::core::config::onnx::{OrtExecutionProvider, OrtSessionConfig};
-
-    OrtSessionConfig::new()
-        .with_intra_threads(crate::analysis::hardware::cpu_inference_threads())
-        .with_execution_providers(vec![OrtExecutionProvider::CPU])
-}
-
-fn acceleration_enabled() -> bool {
-    cfg!(any(
-        feature = "cuda",
-        feature = "metal",
-        feature = "directml"
-    ))
+    attempts.push(OcrProviderAttempt {
+        backend: "CPU fallback",
+        config: OrtSessionConfig::new()
+            .with_intra_threads(crate::analysis::hardware::cpu_inference_threads())
+            .with_execution_providers(vec![OrtExecutionProvider::CPU]),
+    });
+    attempts
 }
 
 fn build_ocr(

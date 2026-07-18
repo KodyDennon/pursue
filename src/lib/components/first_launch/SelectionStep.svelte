@@ -33,10 +33,8 @@
 				<Cpu size={24} />
 				<div class="t-title">Standard Intel</div>
 			</div>
-			<p>
-				Gemma 4 E2B + BGE. Optimized effective parameter architecture for workstation performance.
-			</p>
-			<div class="tier-meta">~3.2 GB Storage</div>
+			<p>Gemma 3 1B + BGE. Maintained local text inference with GPU-first execution.</p>
+			<div class="tier-meta">~2.3 GB Storage</div>
 		</button>
 
 		<button
@@ -49,8 +47,8 @@
 				<Brain size={24} />
 				<div class="t-title">Elite Intel</div>
 			</div>
-				<p>Gemma 4 E4B + BGE. Advanced reasoning with local vision runtime support.</p>
-			<div class="tier-meta">~5.0 GB Storage</div>
+			<p>Gemma 3 1B + BGE with the local vision-analysis runtime enabled.</p>
+			<div class="tier-meta">~2.3 GB plus vision models</div>
 		</button>
 	</div>
 

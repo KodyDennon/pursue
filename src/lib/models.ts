@@ -13,10 +13,10 @@ export const MODELS = {
 			url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json'
 		},
 		{
-			id: 'gemma-4-e2b',
-			name: 'Gemma 4 E2B IT',
-			filename: 'google/gemma-4-E2B-it',
-			url: 'google/gemma-4-E2B-it'
+			id: 'gemma-3-1b-it',
+			name: 'Gemma 3 1B IT',
+			filename: 'google/gemma-3-1b-it',
+			url: 'google/gemma-3-1b-it'
 		}
 	],
 	Elite: [
@@ -33,10 +33,10 @@ export const MODELS = {
 			url: 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json'
 		},
 		{
-			id: 'gemma-4-e4b',
-			name: 'Gemma 4 E4B IT',
-			filename: 'google/gemma-4-E4B-it',
-			url: 'google/gemma-4-E4B-it'
+			id: 'gemma-3-1b-it',
+			name: 'Gemma 3 1B IT',
+			filename: 'google/gemma-3-1b-it',
+			url: 'google/gemma-3-1b-it'
 		}
 	]
 };

@@ -23,6 +23,50 @@ use library::LibraryManager;
 use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::Manager;
 
+#[cfg(target_os = "windows")]
+fn configure_bundled_native_runtime<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> anyhow::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
+
+    let runtime_dir = app.path().resource_dir()?.join("assets/native_runtime");
+    if runtime_dir.is_dir() {
+        // ONNX Runtime loads provider DLLs (and CUDA's secondary DLLs) on demand. Restrict
+        // that search to the signed installer payload before any model is initialized.
+        let mut wide = runtime_dir.as_os_str().encode_wide().collect::<Vec<_>>();
+        wide.push(0);
+        unsafe { SetDllDirectoryW(PCWSTR(wide.as_ptr()))? };
+
+        let existing = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![runtime_dir.clone()];
+        paths.extend(std::env::split_paths(&existing));
+        std::env::set_var("PATH", std::env::join_paths(paths)?);
+    }
+
+    if std::env::var_os("PURSUE_PDFIUM_PATH").is_none() {
+        let pdfium_dir = app.path().resource_dir()?.join("assets/pdfium");
+        if pdfium_dir.is_dir() {
+            std::env::set_var("PURSUE_PDFIUM_PATH", pdfium_dir);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_bundled_native_runtime<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> anyhow::Result<()> {
+    if std::env::var_os("PURSUE_PDFIUM_PATH").is_none() {
+        let pdfium_dir = app.path().resource_dir()?.join("assets/pdfium");
+        if pdfium_dir.is_dir() {
+            std::env::set_var("PURSUE_PDFIUM_PATH", pdfium_dir);
+        }
+    }
+    Ok(())
+}
+
 pub struct AppState {
     pub db: sqlx::SqlitePool,
     pub library: Arc<LibraryManager>,
@@ -35,6 +79,10 @@ pub struct AppState {
     pub dvids_semaphore: Arc<tokio::sync::Semaphore>,
     pub download_writers: Arc<tokio::sync::Mutex<HashMap<String, DownloadPartWriter>>>,
     pub download_progress_writes: Arc<tokio::sync::Mutex<HashMap<String, DownloadProgressWrite>>>,
+    // Item ids with a webview download pump currently running. A second pump for the same
+    // item (e.g. a caller that timed out and re-invoked while the first is still streaming)
+    // would append to the same part file concurrently and corrupt offsets.
+    pub active_webview_pumps: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -66,6 +114,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let handle = app.handle().clone();
+            configure_bundled_native_runtime(&handle)?;
 
             // Create a hidden WAR.gov-origin webview for same-origin source access.
             let _ = tauri::WebviewWindowBuilder::new(
@@ -96,6 +145,9 @@ pub fn run() {
                     dvids_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
                     download_writers: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                     download_progress_writes: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                    active_webview_pumps: Arc::new(std::sync::Mutex::new(
+                        std::collections::HashSet::new(),
+                    )),
                 });
                 anyhow::Ok(())
             })?;

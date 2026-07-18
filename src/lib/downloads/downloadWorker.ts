@@ -366,28 +366,42 @@ async function streamBody(
 	return offset;
 }
 
+// Commands that run for the whole duration of a download (or do non-idempotent work)
+// must never be timed out and re-invoked from here: a re-invoke while the first call is
+// still running starts a second concurrent pump on the same part file, which corrupts
+// offsets. The Rust side has its own inactivity timeout and the finalize command is
+// idempotent, so these calls are awaited without a worker-side deadline or retry.
+const LONG_RUNNING_COMMANDS: ReadonlySet<HostCommand> = new Set([
+	'download_war_gov_item_with_webview',
+	'finalize_download_item'
+]);
+
 async function hostCall(
 	command: HostCommand,
 	args: Record<string, unknown>,
 	retries = MAX_RETRIES
 ): Promise<unknown> {
+	if (LONG_RUNNING_COMMANDS.has(command)) retries = 0;
 	for (let i = 0; i <= retries; i++) {
 		try {
 			const id = nextCallId++;
 			const promise = new Promise((resolve, reject) => {
-				// Internal timeout for the host to acknowledge the call
-				const timeout = setTimeout(() => {
-					pending.delete(id);
-					reject(new Error(`Host call ${command} timed out`));
-				}, 60000); // 1 minute timeout per call
+				// Internal timeout for the host to acknowledge the call. Long-running
+				// commands rely on the Rust side's own timeouts instead.
+				const timeout = LONG_RUNNING_COMMANDS.has(command)
+					? null
+					: setTimeout(() => {
+							pending.delete(id);
+							reject(new Error(`Host call ${command} timed out`));
+						}, 60000); // 1 minute timeout per call
 
 				pending.set(id, {
 					resolve: (val) => {
-						clearTimeout(timeout);
+						if (timeout !== null) clearTimeout(timeout);
 						resolve(val);
 					},
 					reject: (err) => {
-						clearTimeout(timeout);
+						if (timeout !== null) clearTimeout(timeout);
 						reject(err);
 					}
 				});

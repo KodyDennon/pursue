@@ -15,7 +15,11 @@ env:
   BUN_VERSION: '1.3.9'
   NODE_VERSION: '24'
   CUDA_VERSION: '12.4.1'
-  CUDA_COMPUTE_CAP: '86'
+  # candle's kernels are compiled to PTX for this compute capability. PTX JIT-compiles
+  # FORWARD to newer GPUs but never backward: '86' (Ampere) shipped binaries whose candle
+  # kernels could not run at all on Turing cards (sm_75, e.g. RTX 20xx/Quadro RTX). 7.5 is
+  # the oldest generation we support and covers everything newer via driver JIT.
+  CUDA_COMPUTE_CAP: '75'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -52,16 +56,47 @@ jobs:
         run: bun run check
       - name: Frontend build
         run: bun run build
+      - name: Stage pinned PDFium runtime
+        run: bash .github/scripts/stage-pdfium.sh
       - name: Rust check
         run: cargo check --features metal
         working-directory: src-tauri
       - name: Rust tests
         run: cargo test --features metal
+        env:
+          PURSUE_PDFIUM_PATH: assets/pdfium
         working-directory: src-tauri
+
+  verify-windows:
+    name: verify-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Configure MSVC developer tools
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Rust check (DirectML feature set)
+        run: cargo check --features directml
+        working-directory: src-tauri
+      - name: Stage pinned PDFium runtime
+        shell: bash
+        run: bash .github/scripts/stage-pdfium.sh
+      - name: Stage coherent DirectML runtime
+        shell: pwsh
+        run: .github/scripts/stage-windows-runtime.ps1
+      - name: Rust tests (DirectML feature set)
+        shell: pwsh
+        run: .github/scripts/run-windows-tests.ps1 -Features directml
+        env:
+          PURSUE_PDFIUM_PATH: assets/pdfium
 
   installers:
     name: installer-${{ matrix.name }}
-    needs: verify
+    needs: [verify, verify-windows]
     strategy:
       fail-fast: false
       matrix:
@@ -132,6 +167,37 @@ jobs:
         run: rustup target add aarch64-apple-darwin
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
+      - name: Stage pinned PDFium runtime
+        shell: bash
+        run: bash .github/scripts/stage-pdfium.sh
+      - name: Compile selected native provider set
+        run: cargo check ${{ matrix.args }}
+        working-directory: src-tauri
+      - name: Stage Windows native provider runtime
+        if: startsWith(matrix.platform, 'windows-')
+        shell: pwsh
+        run: |
+          if ('${{ matrix.cuda }}' -eq 'true') {
+            .github/scripts/stage-windows-runtime.ps1 -Cuda
+          } else {
+            .github/scripts/stage-windows-runtime.ps1
+          }
+      - name: Validate staged installer resources
+        shell: bash
+        run: |
+          test -s src-tauri/assets/pdfium/pdfium.dll || test -s src-tauri/assets/pdfium/libpdfium.dylib
+          if [[ "${{ matrix.platform }}" == windows-* ]]; then
+            test -s src-tauri/assets/native_runtime/DirectML.dll
+          fi
+          if [[ "${{ matrix.cuda }}" == "true" ]]; then
+            test -s src-tauri/assets/native_runtime/cudnn64_9.dll
+            test -s src-tauri/assets/native_runtime/cufft64_11.dll
+            test -s src-tauri/assets/native_runtime/onnxruntime_providers_cuda.dll
+          fi
+      - name: Reclaim Windows staging build space
+        if: startsWith(matrix.platform, 'windows-')
+        run: cargo clean --profile dev
+        working-directory: src-tauri
       - name: Build Tauri installer
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: tauri-apps/tauri-action@v0

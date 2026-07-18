@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { Download, Brain, DownloadCloud } from 'lucide-svelte';
 	import { downloadStore } from '$lib/stores/downloadStore.svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
@@ -13,12 +13,15 @@
 	}>();
 
 	onMount(() => {
+		// downloadStore's lifecycle is owned by +page.svelte (app level): it must keep
+		// downloading when the user switches views. This view-scoped init used to also
+		// destroy() the worker on unmount, silently stopping every active download the
+		// moment the user left the Agent tab. Re-init here is a cheap no-op when polling
+		// is already active, and picks the job up if the user lands here first.
 		downloadStore.init(onComplete);
 		settingsStore.init();
 		intelligenceStore.loadStatus();
 	});
-
-	onDestroy(() => downloadStore.destroy());
 
 	function getProgress(job: BulkDownloadStatus) {
 		const actionable = job.total - job.skipped;

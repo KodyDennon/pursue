@@ -3,7 +3,7 @@ use sysinfo::System;
 
 use crate::analysis::hardware::{
     acceleration_backends, acceleration_recommendation, acceleration_summary,
-    gpu_acceleration_available, AccelerationBackend,
+    active_inference_backends, gpu_acceleration_available, AccelerationBackend,
 };
 pub use crate::common::IntelligenceTier;
 
@@ -18,6 +18,7 @@ pub struct HardwareSpecs {
     pub acceleration_summary: String,
     pub acceleration_recommendation: String,
     pub acceleration_backends: Vec<AccelerationBackend>,
+    pub active_inference_backends: std::collections::BTreeMap<String, String>,
     pub recommended_tier: IntelligenceTier,
 }
 
@@ -45,6 +46,7 @@ pub fn get_hardware_specs() -> HardwareSpecs {
     let acceleration_summary = acceleration_summary();
     let acceleration_recommendation = acceleration_recommendation();
     let acceleration_backends = acceleration_backends();
+    let active_inference_backends = active_inference_backends();
 
     let recommended_tier = if total_memory_gb >= 16 {
         IntelligenceTier::Elite
@@ -64,6 +66,7 @@ pub fn get_hardware_specs() -> HardwareSpecs {
         acceleration_summary,
         acceleration_recommendation,
         acceleration_backends,
+        active_inference_backends,
         recommended_tier,
     }
 }

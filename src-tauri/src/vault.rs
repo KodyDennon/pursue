@@ -167,14 +167,35 @@ impl VaultCrypto {
         {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            // Strip inheritance and grant exclusive Full Control to the current authenticated user
-            let username =
-                std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string());
+            // Strip inheritance and grant exclusive Full Control to the current user.
+            // Grant by SID, not by name: %USERNAME% does not resolve for AzureAD/Entra
+            // accounts (the principal is "AzureAD\\user") and localized account names
+            // differ, which made this silently leave default ACLs in place.
+            let sid = std::process::Command::new("whoami")
+                .args(["/user", "/fo", "csv", "/nh"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .ok()
+                .and_then(|out| String::from_utf8(out.stdout).ok())
+                .and_then(|line| {
+                    line.trim()
+                        .rsplit(',')
+                        .next()
+                        .map(|field| field.trim().trim_matches('"').to_string())
+                })
+                .filter(|sid| sid.starts_with("S-1-"));
+            let grantee = match sid {
+                Some(sid) => format!("*{sid}:F"),
+                None => format!(
+                    "{}:F",
+                    std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string())
+                ),
+            };
             let _ = std::process::Command::new("icacls")
                 .arg(&self.key_path)
                 .arg("/inheritance:r")
                 .arg("/grant:r")
-                .arg(format!("{}:F", username))
+                .arg(grantee)
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
         }

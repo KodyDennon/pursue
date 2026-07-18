@@ -140,6 +140,12 @@ target/
 # Generated local command captures
 src-tauri/check_output*.txt
 
+# Native release runtimes are checksum-pinned and staged by CI; never commit binary payloads.
+src-tauri/assets/pdfium/*
+!src-tauri/assets/pdfium/.gitkeep
+src-tauri/assets/native_runtime/*
+!src-tauri/assets/native_runtime/.gitkeep
+
 # SvelteKit specific
 .svelte-kit/
 

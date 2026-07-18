@@ -10,6 +10,7 @@
 	import IntelligenceCenter from '$lib/components/IntelligenceCenter.svelte';
 	import EvidenceVault from '$lib/components/EvidenceVault.svelte';
 	import DownloadAgent from '$lib/components/DownloadAgent.svelte';
+	import { downloadStore } from '$lib/stores/downloadStore.svelte';
 	import Settings from '$lib/components/Settings.svelte';
 	import AnalysisModal from '$lib/components/AnalysisModal.svelte';
 	import IntelligenceModal from '$lib/components/IntelligenceModal.svelte';
@@ -245,6 +246,10 @@
 
 				if (allPresent) {
 					isProvisioned = true;
+					// Resume any interrupted download job at app level. This used to live only in
+					// DownloadAgent's onMount, so interrupted jobs stayed dormant until the user
+					// happened to open the Agent view (and stopped again when they left it).
+					downloadStore.init(loadInitialData);
 					// If already provisioned, trigger load immediately
 					await loadInitialData();
 					// Without this, the $effect below (which also calls loadInitialData once

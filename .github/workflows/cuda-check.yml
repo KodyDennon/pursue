@@ -9,7 +9,9 @@ on:
   workflow_dispatch:
 
 env:
-  CUDA_COMPUTE_CAP: '86'
+  # Keep in sync with release.yml: PTX for sm_75 JITs forward to all newer GPUs; 86 broke
+  # Turing (RTX 20xx/Quadro RTX) machines entirely.
+  CUDA_COMPUTE_CAP: '75'
 
 jobs:
   rust-cuda-check:
@@ -50,4 +52,7 @@ jobs:
 
       - name: Rust CUDA feature check
         working-directory: src-tauri
-        run: cargo check --features cuda,directml
+        # DirectML is Windows-only and is validated by verify-windows. Keeping this
+        # Linux container CUDA-only prevents an irrelevant provider from masking
+        # regressions in the CUDA feature set.
+        run: cargo check --features cuda

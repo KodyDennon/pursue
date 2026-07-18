@@ -41,25 +41,14 @@ pub fn get_model_registry() -> Vec<ModelDefinition> {
             description: "Required for text-to-vector normalization.".to_string(),
         },
         ModelDefinition {
-            id: "gemma-4-e2b".to_string(),
-            name: "Gemma 4 E2B IT".to_string(),
+            id: "gemma-3-1b-it".to_string(),
+            name: "Gemma 3 1B IT".to_string(),
             model_type: ModelType::Intelligence,
-            size_label: "10.2 GB".to_string(),
-            repo_id: "google/gemma-4-E2B-it".to_string(),
+            size_label: "2.1 GB".to_string(),
+            repo_id: "google/gemma-3-1b-it".to_string(),
             filename: None,
-            description: "Standard local intelligence model for evidence-grounded synthesis."
+            description: "Maintained Gemma 3 text model for reliable GPU-accelerated, evidence-grounded synthesis."
                 .to_string(),
-        },
-        ModelDefinition {
-            id: "gemma-4-e4b".to_string(),
-            name: "Gemma 4 E4B IT".to_string(),
-            model_type: ModelType::Intelligence,
-            size_label: "16.0 GB".to_string(),
-            repo_id: "google/gemma-4-E4B-it".to_string(),
-            filename: None,
-            description:
-                "Elite local intelligence model with vision-runtime support (Requires 18GB+ VRAM)."
-                    .to_string(),
         },
     ]
 }
@@ -74,15 +63,14 @@ mod tests {
         let ids: Vec<String> = registry.iter().map(|m| m.id.clone()).collect();
 
         assert!(ids.contains(&"bge-small".to_string()));
-        assert!(ids.contains(&"gemma-4-e2b".to_string()));
-        assert!(ids.contains(&"gemma-4-e4b".to_string()));
+        assert!(ids.contains(&"gemma-3-1b-it".to_string()));
     }
 
     #[test]
     fn test_registry_model_types() {
         let registry = get_model_registry();
         let embedding = registry.iter().find(|m| m.id == "bge-small").unwrap();
-        let intelligence = registry.iter().find(|m| m.id == "gemma-4-e4b").unwrap();
+        let intelligence = registry.iter().find(|m| m.id == "gemma-3-1b-it").unwrap();
 
         assert_eq!(embedding.model_type, ModelType::Embedding);
         assert_eq!(intelligence.model_type, ModelType::Intelligence);

@@ -451,7 +451,10 @@ pub async fn factory_reset(state: State<'_, AppState>, handle: AppHandle) -> Res
         }
     }
     if let Err(e) = crate::storage::clear_pointer(&handle) {
-        log::warn!("Failed to clear storage pointer during factory reset: {}", e);
+        log::warn!(
+            "Failed to clear storage pointer during factory reset: {}",
+            e
+        );
     }
 
     info!("System purge complete. Triggering restart...");

@@ -14,6 +14,7 @@
 			available: boolean;
 			notes: string;
 		}[];
+		active_inference_backends: Record<string, string>;
 		recommended_tier: 'Standard' | 'Advanced' | 'Elite';
 	}
 
@@ -53,6 +54,13 @@
 			</div>
 		</div>
 		<div class="accel-recommendation">{diagnostics.acceleration_recommendation}</div>
+		{#if Object.keys(diagnostics.active_inference_backends ?? {}).length > 0}
+			<div class="active-workloads">
+				{#each Object.entries(diagnostics.active_inference_backends) as [workload, backend] (workload)}
+					<div><span>{workload}</span><strong>{backend}</strong></div>
+				{/each}
+			</div>
+		{/if}
 		<div class="backend-grid">
 			{#each diagnostics.acceleration_backends ?? [] as backend (backend.label)}
 				<div class="backend" class:active={backend.available && backend.compiled}>
@@ -132,6 +140,33 @@
 		color: var(--color-text-secondary);
 		font-size: var(--text-sm);
 		line-height: 1.45;
+	}
+
+	.active-workloads {
+		display: grid;
+		gap: var(--space-sm);
+		padding: var(--space-md);
+		border: 1px solid var(--color-border-subtle);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-elevated);
+	}
+
+	.active-workloads div {
+		display: flex;
+		justify-content: space-between;
+		gap: var(--space-lg);
+	}
+
+	.active-workloads span {
+		color: var(--color-text-tertiary);
+		text-transform: uppercase;
+		font-size: var(--text-xs);
+	}
+
+	.active-workloads strong {
+		color: var(--color-accent-success);
+		font-size: var(--text-sm);
+		text-align: right;
 	}
 
 	.backend-grid {

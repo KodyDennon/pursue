@@ -175,17 +175,56 @@ impl IntelligenceExtractor {
 
         // 4. Inference Orchestration (spawn_blocking)
         debug!("[Extraction] Spawning text/manifest synthesis task...");
-        let result = tokio::task::spawn_blocking(move || {
+        let active_device = ctx.device_label.clone();
+        let first_handle = handle.clone();
+        let first_rid = rid_clone.clone();
+        let first_text = processed_text.clone();
+        let first_context = related_context.clone();
+        let mut result = tokio::task::spawn_blocking(move || {
             Self::run_inference(
-                handle,
-                rid_clone,
+                first_handle,
+                first_rid,
                 ctx,
-                processed_text,
-                related_context,
+                first_text,
+                first_context,
                 Vec::new(),
             )
         })
         .await?;
+
+        if result.is_err() && !force_cpu && !active_device.contains("CPU") {
+            let gpu_error = result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            tauri_plugin_log::log::error!(
+                "[Extraction] Intelligence inference failed on {}; retrying once on CPU: {}",
+                active_device,
+                gpu_error
+            );
+            crate::analysis::hardware::clear_active_inference_backend("Intelligence model");
+            let _ = handle.emit(
+                "analysis-progress",
+                json!({
+                    "status": "loading-model",
+                    "record_id": rid,
+                    "msg": format!("GPU inference failed on {active_device}; retrying on CPU fallback")
+                }),
+            );
+            let cpu_context = Self::load_context(&repo_path, true)?;
+            result = tokio::task::spawn_blocking(move || {
+                Self::run_inference(
+                    handle,
+                    rid_clone,
+                    cpu_context,
+                    processed_text,
+                    related_context,
+                    Vec::new(),
+                )
+            })
+            .await?;
+        }
 
         // 4. Restore Cache
         match result {
@@ -201,7 +240,7 @@ impl IntelligenceExtractor {
                 let model_id = repo_path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("gemma-4")
+                    .unwrap_or("gemma-3-1b-it")
                     .to_string();
 
                 sqlx::query("INSERT INTO intelligence_logs (id, record_id, system_prompt, user_prompt, thought_block, response_json, model_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -260,17 +299,20 @@ impl IntelligenceExtractor {
     fn run_inference(
         handle: AppHandle,
         rid: String,
-        ctx: GemmaContext,
+        mut ctx: GemmaContext,
         text: String,
         related_context: String,
         _images: Vec<PathBuf>,
     ) -> Result<InferenceOutput> {
-        let device = &ctx.model.device;
+        let device = ctx.model.device.clone();
         let system_prompt = build_text_system_prompt(&related_context);
         let user_prompt = build_text_user_prompt(&text);
 
+        // Gemma instruction checkpoints use start/end-of-turn tokens. The previous
+        // ChatML prompt markers were ordinary unknown text to Gemma and undermined its
+        // ability to follow the strict JSON contract.
         let prompt = format!(
-            "<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
+            "<start_of_turn>user\n{}\n\n{}<end_of_turn>\n<start_of_turn>model\n",
             system_prompt, user_prompt
         );
 
@@ -284,7 +326,7 @@ impl IntelligenceExtractor {
         let mut logits_processor = LogitsProcessor::new(1337, Some(0.0), None);
         let mut generated_text = String::new();
         let mut pos = 0;
-        let mut kv_cache = vec![ctx.model.new_kv_cache(); ctx.model.layers.len()];
+        ctx.model.clear_kv_cache();
 
         let _ = handle.emit(
             "analysis-progress",
@@ -297,17 +339,11 @@ impl IntelligenceExtractor {
         for i in 0..2048 {
             let context_size = if pos > 0 { 1 } else { tokens.len() };
             let input_tokens = &tokens[tokens.len() - context_size..];
-            let input = Tensor::new(input_tokens, device)?.unsqueeze(0)?;
+            let input = Tensor::new(input_tokens, &device)?.unsqueeze(0)?;
 
             // SHAPE TELEMETRY: Capture internal state
             let input_dims = input.dims().to_vec();
-            let kv_dims = kv_cache[0]
-                .k
-                .as_ref()
-                .map(|k| k.dims().to_vec())
-                .unwrap_or_default();
-
-            let logits = ctx.model.forward(&input, pos, &mut kv_cache)?;
+            let logits = ctx.model.forward(&input, pos)?;
             let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
 
             let next_token = logits_processor.sample(&logits)?;
@@ -316,7 +352,7 @@ impl IntelligenceExtractor {
 
             let mut piece_to_emit = None;
             if let Some(decoded) = ctx.tokenizer.id_to_token(next_token) {
-                if decoded == "<|im_end|>" || next_token == 1 {
+                if decoded == "<end_of_turn>" || next_token == 1 || next_token == 106 {
                     break;
                 }
                 if let Ok(piece) = ctx.tokenizer.decode(&[next_token], true) {
@@ -336,7 +372,7 @@ impl IntelligenceExtractor {
                         "token_text": piece_to_emit,
                         "telemetry": {
                             "input_shape": input_dims,
-                            "kv_cache_shape": kv_dims,
+                            "kv_cache": "managed by candle Gemma 3",
                             "device": format!("{:?}", device)
                         }
                     }),
@@ -398,7 +434,13 @@ impl IntelligenceExtractor {
                 &label,
                 &requested_preference,
             ) {
-                Ok(context) => return Ok(context),
+                Ok(context) => {
+                    crate::analysis::hardware::record_active_inference_backend(
+                        "Intelligence model",
+                        &context.device_label,
+                    );
+                    return Ok(context);
+                }
                 Err(error) => {
                     tauri_plugin_log::log::warn!(
                         "[Extraction] Failed to load intelligence model on {}: {}",

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use lopdf::Document;
+use pdfium_render::prelude::{PdfRenderConfig, Pdfium};
 use std::path::Path;
+use std::sync::OnceLock;
 
 const DEFAULT_PDF_RENDER_SCALE: f64 = 3.0;
 const DEFAULT_MAX_RENDERED_PAGE_PIXELS: u64 = 24_000_000;
@@ -28,6 +30,8 @@ pub struct ForensicDiscovery {
 }
 
 pub struct PdfAnalyzer;
+
+static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 
 impl PdfAnalyzer {
     pub fn new() -> Self {
@@ -258,21 +262,201 @@ impl PdfAnalyzer {
     ) -> Result<image::DynamicImage> {
         let path = path.as_ref().to_path_buf();
         tokio::task::spawn_blocking(move || {
-            #[cfg(target_os = "macos")]
-            {
-                render_pdf_page_macos(&path, page_index, options)
-            }
-            #[cfg(target_os = "windows")]
-            {
-                render_pdf_page_windows(&path, page_index, options)
-            }
-            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-            {
-                render_pdf_page_linux(&path, page_index, options)
-            }
+            let rendered = {
+                #[cfg(target_os = "macos")]
+                {
+                    render_pdf_page_macos(&path, page_index, options)
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    render_pdf_page_windows(&path, page_index, options)
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                {
+                    render_pdf_page_linux(&path, page_index, options)
+                }
+            };
+
+            // The platform renderer can refuse individual pages (notably the WinRT/Edge PDF
+            // renderer's opaque 0x80048040 on some scanned documents). Scanned pages — the
+            // ones OCR actually needs rendered — are usually a single full-page embedded
+            // JPEG, so pulling that image straight out of the PDF recovers the page.
+            rendered
+                .or_else(|native_error| {
+                    render_pdf_page_pdfium(&path, page_index, options).map_err(|pdfium_error| {
+                        anyhow::anyhow!(
+                            "native renderer: {native_error}; PDFium fallback: {pdfium_error}"
+                        )
+                    })
+                })
+                .or_else(|render_error| {
+                    extract_page_embedded_image(&path, page_index).map_err(|image_error| {
+                        anyhow::anyhow!("{render_error}; embedded-image fallback: {image_error}")
+                    })
+                })
         })
         .await?
     }
+}
+
+fn render_pdf_page_pdfium(
+    path: &Path,
+    page_index: usize,
+    options: PdfRenderOptions,
+) -> Result<image::DynamicImage> {
+    let pdfium = load_pdfium()?;
+    // An empty password opens permission-encrypted government PDFs that have no user/open
+    // password but disable copying. Retry None for ordinary unencrypted documents.
+    let document = pdfium
+        .load_pdf_from_file(path, Some(""))
+        .or_else(|_| pdfium.load_pdf_from_file(path, None))?;
+    let page_index =
+        i32::try_from(page_index).map_err(|_| anyhow::anyhow!("PDF page index is too large"))?;
+    let page = document.pages().get(page_index)?;
+    let width_points = page.width().value as f64;
+    let height_points = page.height().value as f64;
+    let scale = bounded_render_scale(width_points, height_points, options);
+    let target_width = (width_points * scale).round().clamp(1.0, i32::MAX as f64) as i32;
+    let render_config = PdfRenderConfig::new()
+        .set_target_width(target_width)
+        .render_annotations(true)
+        .render_form_data(true);
+
+    let bitmap = page.render_with_config(&render_config)?;
+    let image = bitmap.as_image()?;
+    Ok(image)
+}
+
+fn load_pdfium() -> Result<&'static Pdfium> {
+    if let Some(pdfium) = PDFIUM.get() {
+        return Ok(pdfium);
+    }
+
+    let library_name = if cfg!(target_os = "windows") {
+        "pdfium.dll"
+    } else if cfg!(target_os = "macos") {
+        "libpdfium.dylib"
+    } else {
+        "libpdfium.so"
+    };
+    let mut candidates = Vec::new();
+    if let Some(path) = std::env::var_os("PURSUE_PDFIUM_PATH") {
+        let path = std::path::PathBuf::from(path);
+        candidates.push(if path.is_dir() {
+            path.join(library_name)
+        } else {
+            path
+        });
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            candidates.push(exe_dir.join(library_name));
+            candidates.push(exe_dir.join("resources/assets/pdfium").join(library_name));
+            // macOS bundle: Contents/MacOS/app -> Contents/Resources/assets/pdfium.
+            candidates.push(
+                exe_dir
+                    .join("../Resources/assets/pdfium")
+                    .join(library_name),
+            );
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("assets/pdfium").join(library_name));
+        candidates.push(cwd.join("src-tauri/assets/pdfium").join(library_name));
+    }
+
+    let mut errors = Vec::new();
+    for candidate in candidates {
+        if !candidate.is_file() {
+            continue;
+        }
+        match Pdfium::bind_to_library(&candidate) {
+            Ok(bindings) => {
+                let _ = PDFIUM.set(Pdfium::new(bindings));
+                return PDFIUM
+                    .get()
+                    .ok_or_else(|| anyhow::anyhow!("PDFium initialization raced and was lost"));
+            }
+            Err(error) => errors.push(format!("{}: {error}", candidate.display())),
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "bundled PDFium library was not found or could not be loaded{}",
+        if errors.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", errors.join("; "))
+        }
+    ))
+}
+
+/// Last-resort page "render": pull the largest embedded raster image out of the page's
+/// XObject resources. Covers scanned documents (one full-page JPEG per page) when the
+/// platform PDF renderer refuses the page. Only DCT (JPEG) streams are attempted — other
+/// encodings would need full colorspace handling that the real renderer exists for.
+fn extract_page_embedded_image(path: &Path, page_index: usize) -> Result<image::DynamicImage> {
+    let doc = Document::load(path)?;
+    let pages = doc.get_pages();
+    let (_, &page_id) = pages
+        .iter()
+        .nth(page_index)
+        .ok_or_else(|| anyhow::anyhow!("page index {} out of range", page_index))?;
+
+    let resolve = |object: &lopdf::Object| -> Result<lopdf::Object> {
+        Ok(match object.as_reference() {
+            Ok(reference) => doc.get_object(reference)?.clone(),
+            Err(_) => object.clone(),
+        })
+    };
+
+    let page_dict = doc.get_object(page_id)?.as_dict()?.clone();
+    let resources = resolve(
+        page_dict
+            .get(b"Resources")
+            .map_err(|_| anyhow::anyhow!("page has no Resources"))?,
+    )?;
+    let xobjects = resolve(
+        resources
+            .as_dict()?
+            .get(b"XObject")
+            .map_err(|_| anyhow::anyhow!("page has no XObject resources"))?,
+    )?;
+
+    let mut best_jpeg: Option<Vec<u8>> = None;
+    for (_name, value) in xobjects.as_dict()?.iter() {
+        let Ok(object) = resolve(value) else { continue };
+        let Ok(stream) = object.as_stream() else {
+            continue;
+        };
+        if stream.dict.get(b"Subtype").and_then(|s| s.as_name()).ok() != Some(b"Image") {
+            continue;
+        }
+        let is_dct = match stream.dict.get(b"Filter") {
+            Ok(lopdf::Object::Name(name)) => name == b"DCTDecode",
+            Ok(lopdf::Object::Array(filters)) => filters
+                .last()
+                .and_then(|f| f.as_name().ok())
+                .map(|name| name == b"DCTDecode")
+                .unwrap_or(false),
+            _ => false,
+        };
+        if !is_dct {
+            continue;
+        }
+        if best_jpeg
+            .as_ref()
+            .map(|current| stream.content.len() > current.len())
+            .unwrap_or(true)
+        {
+            best_jpeg = Some(stream.content.clone());
+        }
+    }
+
+    let jpeg = best_jpeg
+        .ok_or_else(|| anyhow::anyhow!("page {} has no embedded JPEG image", page_index + 1))?;
+    image::load_from_memory(&jpeg)
+        .map_err(|e| anyhow::anyhow!("embedded page image failed to decode: {e}"))
 }
 
 pub fn bounded_render_scale(
@@ -396,6 +580,11 @@ fn render_pdf_page_windows(
     use windows::Storage::StorageFile;
     use windows::Storage::Streams::{DataReader, InMemoryRandomAccessStream};
 
+    // This runs on tokio's blocking-thread pool; WinRT activation requires the thread to
+    // have an initialized apartment. Without this, whether a call works depends on which
+    // pool thread it lands on, which showed up as per-page 0x8004xxxx render failures.
+    init_winrt_apartment();
+
     let path_str = path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("invalid path"))?;
@@ -414,32 +603,89 @@ fn render_pdf_page_windows(
     let page = pdf.GetPage(page_index as u32)?;
     let size = page.Size()?;
 
-    let render_options = PdfPageRenderOptions::new()?;
     let width_points = f64::from(size.Width);
     let height_points = f64::from(size.Height);
     let scale = bounded_render_scale(width_points, height_points, options);
-    let dest_width = (width_points * scale).round().max(1.0) as u32;
-    render_options.SetDestinationWidth(dest_width)?;
 
-    let stream = InMemoryRandomAccessStream::new()?;
-    page.RenderWithOptionsToStreamAsync(&stream, &render_options)?
-        .get()?;
+    // The WinRT PDF renderer intermittently fails large/complex pages at high resolution
+    // (observed 0x80048040 in production on scanned 200+ page documents). Rendering the
+    // same page at a lower destination width reliably succeeds, and OCR quality at 1.5x
+    // page width is still acceptable — retry downward before giving up on the page.
+    // Rasterizing prep is documented to make RenderToStreamAsync more reliable; without it
+    // the renderer's D3D device intermittently drops under back-to-back page rendering
+    // (observed as 0x80048040 on multi-hundred-page scanned documents). Failure here is
+    // non-fatal — rendering may still succeed.
+    if let Ok(op) = page.PreparePageAsync() {
+        let _ = op.get();
+    }
 
-    let size = stream.Size()? as u32;
-    let input_stream = stream.GetInputStreamAt(0)?;
-    let reader = DataReader::CreateDataReader(&input_stream)?;
-    reader.LoadAsync(size)?.get()?;
+    let mut last_error: Option<anyhow::Error> = None;
+    for (attempt, scale_attempt) in [scale, (scale / 2.0).max(1.0), 1.0].into_iter().enumerate() {
+        if attempt > 0 {
+            // Give a removed/resetting D3D device a moment to come back before retrying.
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        let dest_width = (width_points * scale_attempt).round().max(1.0) as u32;
+        let render_result = (|| -> windows::core::Result<Vec<u8>> {
+            let render_options = PdfPageRenderOptions::new()?;
+            render_options.SetDestinationWidth(dest_width)?;
+            let stream = InMemoryRandomAccessStream::new()?;
+            page.RenderWithOptionsToStreamAsync(&stream, &render_options)?
+                .get()?;
+            let stream_size = stream.Size()? as u32;
+            let input_stream = stream.GetInputStreamAt(0)?;
+            let reader = DataReader::CreateDataReader(&input_stream)?;
+            reader.LoadAsync(stream_size)?.get()?;
+            let mut buffer = vec![0u8; stream_size as usize];
+            reader.ReadBytes(&mut buffer)?;
+            Ok(buffer)
+        })();
 
-    let mut buffer = vec![0u8; size as usize];
-    reader.ReadBytes(&mut buffer)?;
+        match render_result {
+            Ok(buffer) => {
+                let _ = page.Close();
+                return image::load_from_memory(&buffer).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to parse WinRT image bytes for page {}: {}",
+                        page_index,
+                        e
+                    )
+                });
+            }
+            Err(error) => {
+                log::warn!(
+                    "WinRT PDF render failed for page {} at width {} ({}); retrying lower",
+                    page_index + 1,
+                    dest_width,
+                    error
+                );
+                last_error = Some(error.into());
+            }
+        }
+    }
 
-    image::load_from_memory(&buffer).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to parse WinRT image bytes for page {}: {}",
-            page_index,
-            e
-        )
-    })
+    let _ = page.Close();
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("WinRT PDF render failed")))
+}
+
+/// Best-effort per-thread WinRT (MTA) apartment initialization for blocking-pool threads.
+#[cfg(target_os = "windows")]
+pub(crate) fn init_winrt_apartment() {
+    use std::cell::Cell;
+    thread_local! {
+        static WINRT_INITIALIZED: Cell<bool> = const { Cell::new(false) };
+    }
+    WINRT_INITIALIZED.with(|initialized| {
+        if !initialized.get() {
+            // RPC_E_CHANGED_MODE etc. just mean the thread already has an apartment.
+            let _ = unsafe {
+                windows::Win32::System::WinRT::RoInitialize(
+                    windows::Win32::System::WinRT::RO_INIT_MULTITHREADED,
+                )
+            };
+            initialized.set(true);
+        }
+    });
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -538,6 +784,28 @@ mod tests {
     fn bounded_scale_preserves_preferred_scale_for_normal_pages() {
         let scale = bounded_render_scale(612.0, 792.0, PdfRenderOptions::default());
         assert_eq!(scale, DEFAULT_PDF_RENDER_SCALE);
+    }
+
+    #[test]
+    fn pdfium_renders_configured_regression_pages() {
+        let Some(path) = std::env::var_os("PURSUE_PDF_REGRESSION_PATH") else {
+            return;
+        };
+        let pages = std::env::var("PURSUE_PDF_REGRESSION_PAGES")
+            .unwrap_or_else(|_| "1".to_string())
+            .split(',')
+            .map(|page| page.trim().parse::<usize>().expect("valid 1-based page"))
+            .collect::<Vec<_>>();
+
+        for page in pages {
+            let image = render_pdf_page_pdfium(
+                Path::new(&path),
+                page.checked_sub(1).expect("pages are 1-based"),
+                PdfRenderOptions::default(),
+            )
+            .unwrap_or_else(|error| panic!("PDFium failed to render page {page}: {error:#}"));
+            assert!(image.width() > 0 && image.height() > 0);
+        }
     }
 
     #[test]

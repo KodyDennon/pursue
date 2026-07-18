@@ -6,7 +6,6 @@ pub mod gemma4;
 pub mod hardware;
 pub mod indexer;
 pub mod model_manager;
-pub mod nn;
 pub mod ocr;
 pub mod pdf;
 pub mod persistence;
@@ -23,7 +22,6 @@ use tauri_plugin_log::log::{error, info};
 use tokio::fs;
 use uuid::Uuid;
 
-use crate::analysis::diagnostics::{get_hardware_specs, IntelligenceTier};
 use crate::analysis::entities::extract_entities;
 use crate::analysis::extraction::{ExtractionConfig, IntelligenceExtractor};
 use crate::analysis::indexer::TextExtractor;
@@ -119,19 +117,7 @@ impl AnalysisManager {
         info!("Starting background model provisioning...");
 
         let registry = registry::get_model_registry();
-        let specs = get_hardware_specs();
-
         for model in registry {
-            // Only provision recommended intelligence tier
-            if model.model_type == registry::ModelType::Intelligence {
-                let is_elite = model.id == "gemma-4-e4b";
-                if (is_elite && specs.recommended_tier != IntelligenceTier::Elite)
-                    || (!is_elite && specs.recommended_tier == IntelligenceTier::Elite)
-                {
-                    continue;
-                }
-            }
-
             let _ = self
                 .models
                 .ensure_model(
@@ -443,12 +429,7 @@ impl AnalysisManager {
                 .fetch_all(&self.db)
                 .await?;
 
-        let specs = get_hardware_specs();
-        let preferred_model = if specs.recommended_tier == IntelligenceTier::Elite {
-            "gemma-4-e4b"
-        } else {
-            "gemma-4-e2b"
-        };
+        let preferred_model = "gemma-3-1b-it";
         let model_path = self.models.models_dir().join(preferred_model);
 
         let mut image_paths = Vec::new();

@@ -18,7 +18,7 @@ tauri-build = { version = "2", features = [] }
 default = []
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "ort/cuda", "oar-ocr/cuda"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal", "ort/coreml", "oar-ocr/coreml"]
-directml = ["ort/directml"]
+directml = ["ort/directml", "oar-ocr/directml"]
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "macos-private-api", "test"] }
@@ -50,6 +50,7 @@ lopdf = "0.40"
 regex = "1"
 url = "2"
 image = "0.25"
+pdfium-render = { version = "0.9.3", default-features = false, features = ["pdfium_7543", "image_025", "thread_safe"] }
 strum = { version = "0.28", features = ["derive"] }
 encoding_rs = "0.8"
 percent-encoding = "2.3.2"
@@ -86,9 +87,17 @@ windows = { version = "0.52.0", features = [
     "Foundation",
     "Graphics_Imaging",
     "Security_Authorization",
+    "Win32_Foundation",
     "Win32_Security",
-    "Win32_System_Memory"
+    "Win32_System_Memory",
+    "Win32_System_LibraryLoader",
+    "Win32_System_WinRT"
 ] }
 
 [patch.crates-io]
 esaxx-rs = { path = "esaxx-rs-patched" }
+
+# Line-table debug info in release builds so Windows crash dumps (WER minidumps)
+# can be symbolized against the shipped binary.
+[profile.release]
+debug = 1

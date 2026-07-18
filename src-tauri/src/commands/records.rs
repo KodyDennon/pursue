@@ -37,7 +37,15 @@ enum WarGovDownloadEvent {
         reset_part: bool,
     },
     #[serde(rename = "chunk")]
-    Chunk { offset: u64, bytes_base64: String },
+    Chunk {
+        offset: u64,
+        bytes_base64: String,
+        /// True only for the last slice of one network read. Rust must request the next
+        /// read only after this slice, otherwise a second readNext() overlaps the first
+        /// one's remaining slices and the two race on the shared write offset.
+        #[serde(default, rename = "final")]
+        is_final: bool,
+    },
     #[serde(rename = "done")]
     Done,
     #[serde(rename = "error")]
@@ -64,9 +72,11 @@ pub async fn sync_official_source_with_csv(
         .await
         .map_err(to_error)?;
 
-    // Automatic healing: Reset failed items to 'queued' so they are retried
+    // Automatic healing: Reset failed items to 'queued' so they are retried. Also reset
+    // retry_count, since get_next_download_items stops picking failed items once their
+    // retry budget is spent — healing is the deliberate "try again from scratch" path.
     sqlx::query(
-        "UPDATE download_job_items SET status = 'queued', error = NULL, error_class = NULL WHERE status = 'failed'"
+        "UPDATE download_job_items SET status = 'queued', error = NULL, error_class = NULL, retry_count = 0 WHERE status = 'failed'"
     )
     .execute(&state.db)
     .await
@@ -425,10 +435,14 @@ pub async fn get_next_download_items(
     state: State<'_, AppState>,
 ) -> Result<Vec<BulkDownloadItem>, String> {
     let limit = limit.unwrap_or(4).clamp(1, 16);
+    // retry_count < 5: without a budget, retryable failures (network blips, the old pump
+    // ordering bug, WAF blocks) were re-picked forever, keeping the job spinning. Capped
+    // items stay 'failed' and are re-armed only by sync's healing pass, which also resets
+    // retry_count.
     sqlx::query_as::<_, BulkDownloadItem>(
         r#"
         SELECT * FROM download_job_items
-        WHERE job_id = ? AND status IN ('queued', 'failed')
+        WHERE job_id = ? AND (status = 'queued' OR (status = 'failed' AND retry_count < 5))
         ORDER BY retry_count ASC, updated_at ASC, title ASC
         LIMIT ?
         "#,
@@ -547,6 +561,17 @@ pub async fn finalize_download_item(
     request: FinalizeDownloadItemRequest,
     state: State<'_, AppState>,
 ) -> Result<DownloadResult, String> {
+    // Idempotency guard: the worker retries host calls that time out, and a finalize that
+    // is merely slow (hashing a large file) can complete after its caller gave up. A
+    // second finalize used to fail on the missing part file and mark an already-completed
+    // item failed. Return the recorded result instead.
+    if let Some(result) = completed_download_result(&state.db, &request.item_id)
+        .await
+        .map_err(to_error)?
+    {
+        return Ok(result);
+    }
+
     let writer = download_part_writer(&state, &request.item_id)
         .await
         .map_err(to_error)?;
@@ -554,6 +579,10 @@ pub async fn finalize_download_item(
     remove_download_part_writer(&state, &request.item_id).await;
     if let Some(expected) = request.expected_size {
         if expected >= 0 && finalized.byte_size != expected {
+            // The part content cannot be trusted (e.g. corrupted by an interrupted or
+            // pre-fix racing stream). Discard it so the retry restarts from offset 0
+            // instead of resuming the same broken file into the same mismatch forever.
+            let _ = writer.reset().await;
             return Err(format!(
                 "download size mismatch: expected {}, got {}",
                 expected, finalized.byte_size
@@ -615,6 +644,11 @@ pub async fn download_war_gov_item_with_webview(
 ) -> Result<DownloadResult, String> {
     // Acquire permit to respect concurrency limit for the hidden webview
     let _permit = state.webview_semaphore.acquire().await.map_err(to_error)?;
+
+    // Single-pump guard: refuse a second concurrent pump for the same item. A caller that
+    // gave up on a still-running pump and re-invoked would otherwise append to the same
+    // part file from two streams at once, corrupting offsets.
+    let _pump_guard = ActivePumpGuard::acquire(&state, &request.item_id)?;
 
     let source_url = request.resolved_url.as_deref().unwrap_or(&request.url);
     ensure_war_gov_url(source_url)?;
@@ -740,6 +774,7 @@ pub async fn download_war_gov_item_with_webview(
                 WarGovDownloadEvent::Chunk {
                     offset: chunk_offset,
                     bytes_base64,
+                    is_final,
                 } => {
                     let bytes = BASE64
                         .decode(bytes_base64)
@@ -773,15 +808,19 @@ pub async fn download_war_gov_item_with_webview(
                         last_progress_write_offset = offset;
                     }
 
-                    // Pull the next chunk only now that this one is durably written — see
-                    // build_war_gov_download_script for why this bounds the webview's memory
-                    // use instead of letting it read arbitrarily far ahead.
-                    if let Err(error) =
-                        window.eval(build_war_gov_continue_download_script(&request_id))
-                    {
-                        return Err(format!(
-                            "failed to continue WAR.gov download script: {error}"
-                        ));
+                    // Pull the next read only after the LAST slice of the current read is
+                    // durably written. One network read can be split into several 64 KB
+                    // chunk events; continuing after a non-final slice starts a second
+                    // overlapping readNext() that races the first on the shared write
+                    // offset, producing duplicate/out-of-order chunks ("offset mismatch").
+                    if is_final {
+                        if let Err(error) =
+                            window.eval(build_war_gov_continue_download_script(&request_id, offset))
+                        {
+                            return Err(format!(
+                                "failed to continue WAR.gov download script: {error}"
+                            ));
+                        }
                     }
                 }
                 WarGovDownloadEvent::Done => break,
@@ -793,6 +832,9 @@ pub async fn download_war_gov_item_with_webview(
         remove_download_part_writer(&state, &request.item_id).await;
         if let Some(expected) = expected_size {
             if expected >= 0 && finalized.byte_size != expected {
+                // Same rationale as finalize_download_item: a size-mismatched part is
+                // corrupt; drop it so the retry restarts clean instead of resuming it.
+                let _ = writer.reset().await;
                 return Err(format!(
                     "download size mismatch: expected {}, got {}",
                     expected, finalized.byte_size
@@ -854,6 +896,13 @@ pub async fn fail_download_item(
     request: FailDownloadItemRequest,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    // Offset/hash failures mean the part file's contents can no longer be trusted;
+    // resuming it would only re-fail at finalize. Start the retry from a clean slate.
+    if request.error_class == "corrupt" {
+        if let Ok(writer) = download_part_writer(&state, &request.item_id).await {
+            let _ = writer.reset().await;
+        }
+    }
     remove_download_part_writer(&state, &request.item_id).await;
     let status = if request.error_class == "cancelled" {
         "cancelled"
@@ -922,6 +971,68 @@ pub async fn cancel_bulk_download(id: String, state: State<'_, AppState>) -> Res
         .await
         .map_err(to_error)?;
     Ok(())
+}
+
+/// RAII registration of an active webview download pump for one item; the item id is
+/// released when the guard drops (success, error, or panic-unwind of the command future).
+struct ActivePumpGuard {
+    pumps: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    item_id: String,
+}
+
+impl ActivePumpGuard {
+    fn acquire(state: &State<'_, AppState>, item_id: &str) -> Result<Self, String> {
+        let mut pumps = state
+            .active_webview_pumps
+            .lock()
+            .map_err(|_| "webview pump registry poisoned".to_string())?;
+        if !pumps.insert(item_id.to_string()) {
+            return Err(format!(
+                "a download is already in progress for item {item_id}; refusing to start a second stream over the same part file"
+            ));
+        }
+        Ok(Self {
+            pumps: state.active_webview_pumps.clone(),
+            item_id: item_id.to_string(),
+        })
+    }
+}
+
+impl Drop for ActivePumpGuard {
+    fn drop(&mut self) {
+        if let Ok(mut pumps) = self.pumps.lock() {
+            pumps.remove(&self.item_id);
+        }
+    }
+}
+
+/// Returns the already-recorded download result for an item that a previous (possibly
+/// timed-out-from-the-caller's-view) finalize completed, or None if the item is not in a
+/// completed state.
+async fn completed_download_result(
+    db: &SqlitePool,
+    item_id: &str,
+) -> Result<Option<DownloadResult>> {
+    let row = sqlx::query(
+        r#"
+        SELECT i.record_id, i.artifact_id, a.sha256, a.relative_path, a.byte_size
+        FROM download_job_items i
+        JOIN artifacts a ON a.id = i.artifact_id
+        WHERE i.id = ? AND i.status = 'completed' AND i.artifact_id IS NOT NULL
+        "#,
+    )
+    .bind(item_id)
+    .fetch_optional(db)
+    .await?;
+
+    Ok(row.map(|row| DownloadResult {
+        record_id: row.get("record_id"),
+        artifact_id: row.get("artifact_id"),
+        sha256: row.get("sha256"),
+        relative_path: row.get("relative_path"),
+        byte_size: row.get("byte_size"),
+        skipped_existing: true,
+    }))
 }
 
 async fn download_part_writer(
@@ -1332,7 +1443,10 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
                     await emitResult({{
                         kind: 'chunk',
                         offset: writeOffset,
-                        bytes_base64: bytesToBase64(slice)
+                        bytes_base64: bytesToBase64(slice),
+                        // Only the last slice of this network read may trigger the next
+                        // readNext() on the Rust side; see WarGovDownloadEvent::Chunk.
+                        final: i + maxChunk >= bytes.length
                     }});
                     writeOffset += slice.byteLength;
                 }}
@@ -1352,7 +1466,13 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
             // Reads one chunk then returns; Rust pulls the next one only after this chunk is
             // flushed to disk. A self-driving read loop here let the webview read arbitrarily
             // far ahead of disk writes, which is what caused OOM on large downloads.
-            window[stateKey + '_readNext'] = async () => {{
+            //
+            // baseOffset is ALWAYS passed in by the caller (Rust's continue script injects the
+            // authoritative post-append offset). It must never live in shared JS state: the
+            // continue ExecuteScript and the emit-invoke responses arrive on different host
+            // channels with no ordering guarantee, so a stateful writeOffset could be read
+            // stale by the next readNext and re-emit old offsets (the "offset mismatch" bug).
+            window[stateKey + '_readNext'] = async (baseOffset) => {{
                 const state = window[stateKey];
                 if (!state) return;
                 try {{
@@ -1363,7 +1483,7 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
                         delete window[stateKey + '_readNext'];
                         return;
                     }}
-                    state.writeOffset = await emitChunk(next.value, state.writeOffset);
+                    await emitChunk(next.value, baseOffset);
                 }} catch (e) {{
                     await emitResult({{ kind: 'error', error: e && e.stack ? e.stack : String(e) }});
                     delete window[stateKey];
@@ -1403,8 +1523,8 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
                 }}
                 if (!res.body) throw new Error('Response body is not streamable');
 
-                window[stateKey] = {{ reader: res.body.getReader(), writeOffset: baseOffset }};
-                await window[stateKey + '_readNext']();
+                window[stateKey] = {{ reader: res.body.getReader() }};
+                await window[stateKey + '_readNext'](baseOffset);
             }} catch (e) {{
                 await emitResult({{ kind: 'error', error: e && e.stack ? e.stack : String(e) }});
             }}
@@ -1414,17 +1534,19 @@ fn build_war_gov_download_script(source_url: &str, offset: u64, request_id: &str
 }
 
 /// Pulls the next chunk for an in-progress download started by `build_war_gov_download_script`.
-/// Rust calls this (a fresh, separate `eval()`) only after fully processing the previously
-/// emitted chunk, which is what bounds how far the webview's network read can run ahead of
-/// Rust's disk-write pace.
-fn build_war_gov_continue_download_script(request_id: &str) -> String {
+/// Rust calls this (a fresh, separate `eval()`) only after fully processing the final slice of
+/// the previously emitted read, which is what bounds how far the webview's network read can run
+/// ahead of Rust's disk-write pace. `next_offset` is the authoritative offset after the last
+/// append — injected here rather than kept in webview state, because this ExecuteScript and the
+/// webview's pending emit-invoke responses have no cross-channel ordering guarantee.
+fn build_war_gov_continue_download_script(request_id: &str, next_offset: u64) -> String {
     let state_key =
         serde_json::to_string(&war_gov_download_state_key(request_id)).unwrap_or_default();
     format!(
         r#"
         (async () => {{
             const fn = window[{state_key} + '_readNext'];
-            if (fn) await fn();
+            if (fn) await fn({next_offset});
         }})()
         "#
     )
@@ -1599,12 +1721,48 @@ mod tests {
     }
 
     #[test]
+    fn war_gov_chunk_events_mark_the_final_slice_of_each_network_read() {
+        // Regression test for the offset-mismatch download failures seen in production on
+        // Windows: one network read is sliced into multiple 64 KB chunk events, and Rust
+        // must only request the next read after the LAST slice. The script therefore has
+        // to tag each slice with `final: <is last slice>`.
+        let script = build_war_gov_download_script("https://www.war.gov/file.mp4", 0, "dl-4");
+        assert!(
+            script.contains("final: i + maxChunk >= bytes.length"),
+            "chunk events must carry a final-slice marker"
+        );
+
+        // And the Rust event type must accept it (serde `final` -> is_final).
+        let event: super::WarGovDownloadEvent = serde_json::from_str(
+            r#"{"kind":"chunk","offset":0,"bytes_base64":"QUJD","final":true}"#,
+        )
+        .expect("chunk event with final flag parses");
+        match event {
+            super::WarGovDownloadEvent::Chunk { is_final, .. } => assert!(is_final),
+            _ => panic!("expected chunk event"),
+        }
+
+        // Events from an older script without the flag must still parse (default false).
+        let legacy: super::WarGovDownloadEvent =
+            serde_json::from_str(r#"{"kind":"chunk","offset":0,"bytes_base64":"QUJD"}"#)
+                .expect("legacy chunk event parses");
+        match legacy {
+            super::WarGovDownloadEvent::Chunk { is_final, .. } => assert!(!is_final),
+            _ => panic!("expected chunk event"),
+        }
+    }
+
+    #[test]
     fn war_gov_continue_download_script_targets_the_same_state_key_as_the_initial_script() {
         let initial = build_war_gov_download_script("https://www.war.gov/file.mp4", 0, "dl-3");
-        let continue_script = build_war_gov_continue_download_script("dl-3");
+        let continue_script = build_war_gov_continue_download_script("dl-3", 123_456);
 
         assert!(initial.contains("__pursue_dl_dl-3"));
         assert!(continue_script.contains("__pursue_dl_dl-3"));
         assert!(continue_script.contains("_readNext"));
+        // The authoritative post-append offset must be injected by Rust — the webview must
+        // never derive the next base offset from its own (possibly stale) state.
+        assert!(continue_script.contains("await fn(123456)"));
+        assert!(!initial.contains("writeOffset: baseOffset"));
     }
 }
