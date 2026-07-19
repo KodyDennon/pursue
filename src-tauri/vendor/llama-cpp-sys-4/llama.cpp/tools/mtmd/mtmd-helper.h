@@ -161,7 +161,7 @@ MTMD_API int32_t mtmd_helper_video_read_next(mtmd_helper_video * ctx,
 } // extern "C"
 #endif
 
-#ifdef __cplusplus
+#if defined(__cplusplus) && !defined(PURSUE_BINDGEN)
 #include <set>
 #include <memory>
 

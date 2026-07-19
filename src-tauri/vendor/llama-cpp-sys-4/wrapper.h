@@ -2,15 +2,14 @@
 // llama-grammar.h and llama-sampler.h live in src/ (internal) — everything
 // we need from them is already re-exported through llama.h.
 #include "llama.h"
-#include "common.h"
-#include "fit.h"
+#include "fit_bindings.h"
 #include "mtp_shim.h"
 #include "ext_shim.h"
 
-// llama-ext.h lives in src/ but exports LLAMA_API entry points (pre-norm
-// embeddings setter/getters, memory-breakdown, etc). Pull it in so bindgen
-// emits the corresponding extern fns.
-#include "llama-ext.h"
+// Bind only the extension ABI consumed by llama-cpp-4. The upstream C++
+// header also exposes implementation-only std::map and quantization test
+// helpers; parsing those drags host standard-library internals into bindgen.
+#include "llama_ext_bindings.h"
 
 #ifdef RPC_SUPPORT
 #include "ggml-rpc.h"

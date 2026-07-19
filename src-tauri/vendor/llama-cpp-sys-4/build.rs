@@ -1321,6 +1321,7 @@ fn main() {
         // "fatal error: 'string' file not found" on macOS
         .clang_arg("-xc++")
         .clang_arg("-std=c++17")
+        .clang_arg("-DPURSUE_BINDGEN=1")
         // .raw_line("#![feature(unsafe_extern_blocks)]") // https://github.com/rust-lang/rust/issues/123743
         .clang_arg(format!("-I{}", llama_dst.join("include").display()))
         .clang_arg(format!("-I{}", llama_dst.join("ggml/include").display()))
@@ -1370,8 +1371,6 @@ fn main() {
         .allowlist_type("mtp_spec_type")
         .allowlist_item("MTP_SPEC_TYPE_.*")
         .opaque_type("mtp_session")
-        .allowlist_function("common_token_to_piece")
-        .allowlist_function("common_tokenize")
         .allowlist_function("common_fit_params")
         .allowlist_function("common_fit_print")
         .allowlist_function("common_memory_breakdown_print")
