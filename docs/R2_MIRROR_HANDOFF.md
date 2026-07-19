@@ -25,7 +25,7 @@ The `downloads.kodydennon.com` custom domain is served by the private downloads-
 - Direct R2 origin: `https://releases.kodydennon.com/`, with active ownership, active SSL, and TLS 1.2 minimum. The managed `r2.dev` origin remains disabled.
 - GitHub has the four required R2 variables, bucket-scoped encrypted S3 credentials, and `R2_MIRROR_ENABLED=true`. Credential values are intentionally not recorded here.
 - Manual releases `v0.10.0` and `v0.10.1` are mirrored. Stable aliases point to `v0.10.1`, and the retention pass permits only those two immutable version prefixes.
-- Expected first fully mirrored unsigned release: `v0.10.7` (confirm with `gh release list`).
+- Expected first fully mirrored unsigned release: `v0.10.8` (confirm with `gh release list`).
 - Automatic updater artifact generation and signing are disabled. Releases use manual installers only.
 - `v0.10.1` has five legacy manual installers. It can be mirrored for manual downloads only with a release-specific override.
 

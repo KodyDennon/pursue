@@ -41,23 +41,12 @@ fn hugging_face_credentials_never_use_plaintext_app_settings() {
 }
 
 #[test]
-fn updater_config_requires_signed_artifacts_and_https() {
+fn updater_artifact_signing_is_disabled() {
     let config: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(tauri_root().join("tauri.conf.json")).unwrap())
             .unwrap();
 
-    assert_eq!(config["bundle"]["createUpdaterArtifacts"], true);
-    let pubkey = config["plugins"]["updater"]["pubkey"]
-        .as_str()
-        .unwrap_or_default();
-    assert!(pubkey.len() > 100, "embedded updater public key is missing");
-    let endpoints = config["plugins"]["updater"]["endpoints"]
-        .as_array()
-        .expect("updater endpoints");
-    assert!(!endpoints.is_empty());
-    assert!(endpoints.iter().all(|endpoint| endpoint
-        .as_str()
-        .is_some_and(|value| value.starts_with("https://"))));
+    assert_eq!(config["bundle"]["createUpdaterArtifacts"], false);
 }
 
 #[test]
@@ -82,14 +71,18 @@ fn installer_hooks_preserve_all_user_data() {
 }
 
 #[test]
-fn release_workflow_publishes_every_signed_update_lane() {
+fn release_workflow_publishes_unsigned_installers_without_secrets() {
     let workflow =
         fs::read_to_string(repository_root().join(".github/workflows/release.yml")).unwrap();
-    assert!(workflow.contains("Verify updater signing configuration"));
+    assert!(workflow.contains("Build release installer"));
+    assert!(workflow.contains("--no-sign"));
     assert!(workflow.contains("bundle_args: --bundles msi"));
-    assert!(workflow.contains("*.msi.zip.sig"));
-    assert!(workflow.contains("*.nsis.zip.sig"));
-    assert!(workflow.contains("*.app.tar.gz.sig"));
-    assert!(workflow.contains("generate-updater-manifest.mjs"));
-    assert!(workflow.contains("needs: [installers, publish-updater]"));
+    assert!(workflow.contains("bundle_args: --bundles msi,nsis"));
+    assert!(workflow.contains("bundle/dmg/*.dmg"));
+    assert!(workflow.contains("bundle/msi/*.msi"));
+    assert!(workflow.contains("bundle/nsis/*.exe"));
+    assert!(workflow.contains("needs: installers"));
+    assert!(!workflow.contains("TAURI_SIGNING"));
+    assert!(!workflow.contains(".sig"));
+    assert!(!workflow.contains("publish-updater"));
 }
