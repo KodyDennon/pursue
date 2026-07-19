@@ -7,7 +7,7 @@ PURSUE is published through the private `KodyDennon/downloads-hub` portal reposi
 - `https://downloads.kodydennon.com/` — Kody Dennon multi-project download directory.
 - `https://downloads.kodydennon.com/PURSUE` — complete PURSUE download, installation, privacy, usage, integrity, and system-selection experience.
 - `https://downloads.kodydennon.com/releases/*` — stable public paths that the hub redirects to the direct `releases.kodydennon.com` R2 custom domain.
-- `https://downloads.kodydennon.com/latest.json` — stable signed-updater path, populated by the next updater-capable release.
+- `https://downloads.kodydennon.com/latest.json` — reserved updater path; it remains unavailable while updater artifacts and signing are disabled.
 
 ## Editing PURSUE content
 
@@ -17,8 +17,8 @@ PURSUE is published through the private `KodyDennon/downloads-hub` portal reposi
 - platform and GPU selection guidance;
 - installer aliases and system requirements;
 - capabilities and first-run workflow;
-- installation, local-data, network, updater, persistence, and trust guidance;
-- source, release, manifest, and updater links;
+- installation, local-data, network, manual-update, persistence, and trust guidance;
+- source, release, and verified-manifest links;
 - the independent-project disclaimer.
 
 Validate every edit before committing:
@@ -46,6 +46,6 @@ The hub provides canonical metadata, Open Graph and Twitter previews, a sitemap,
 
 ## Responsibility boundary
 
-This integration intentionally does not use a git subtree or submodule. Project content is a versioned public data contract; portal implementation has a single private owner. Release building, signing, mirroring, updater publication, two-version retention, and R2 credentials remain in PURSUE. Neither the hub nor project Worker has R2 upload or Tauri signing credentials.
+This integration intentionally does not use a git subtree or submodule. Project content is a versioned public data contract; portal implementation has a single private owner. Release building, digest verification, mirroring, two-version retention, and R2 credentials remain in PURSUE. Neither the hub nor project Worker has R2 upload or code-signing credentials. Automatic updater artifacts and signing are currently disabled.
 
 See `downloads/README.md` for the editing contract and `docs/R2_MIRROR_HANDOFF.md` for release-mirror operations.

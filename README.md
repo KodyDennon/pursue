@@ -11,7 +11,7 @@ The app keeps official source snapshots, tracks changes between source releases,
 
 The machine-aware download center includes system selection, install guidance, privacy details, and current SHA-256 checksums:
 
-https://downloads.kodydennon.com/
+https://downloads.kodydennon.com/PURSUE
 
 Installers are mirrored through Cloudflare R2 after their GitHub digests are verified. GitHub Releases remains the fallback, authoritative history, and source of truth:
 
@@ -27,7 +27,7 @@ Supported production lanes:
 - Windows x64 CUDA for NVIDIA GPUs (Turing/SM75 and newer).
 - Windows x64 DirectML for other supported Windows GPUs.
 
-Automatic update bundles are signed with the Tauri updater key and selected by acceleration lane. Operating-system code signing and Apple notarization are separate; until those certificates are configured, Windows SmartScreen and macOS Gatekeeper can still warn about the installer/application.
+Automatic updater bundles and signing are currently disabled. Download the latest installer for your platform when updating; ordinary reinstalls preserve PURSUE data. The installers are also not Authenticode-signed or Apple-notarized, so Windows SmartScreen and macOS Gatekeeper can still warn about the installer/application.
 
 ### macOS Install Notes
 

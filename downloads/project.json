@@ -163,8 +163,8 @@
       "body": "Your database, evidence library, snapshots, models, notes, and exports remain in the operating-system app-data directory. Network access is used for official source/evidence downloads, release checks, and model downloads you initiate. PURSUE does not require hosted OCR, hosted embeddings, or a paid AI API."
     },
     {
-      "title": "Are PURSUE updates signed, and will an update preserve my data?",
-      "body": "Production update bundles are signed with the Tauri updater key. Updates and reinstalls preserve the database, evidence vault, models, exports, resumable downloads, and custom-storage pointer. Operating-system trust warnings are separate from updater signatures. GitHub remains the release source of truth; this R2 mirror publishes the same digest-verified bytes."
+      "title": "How do I update PURSUE, and will an update preserve my data?",
+      "body": "Automatic updater bundles and signing are currently disabled. Download and run the latest installer for your platform; ordinary updates and reinstalls preserve the database, evidence vault, models, exports, resumable downloads, and custom-storage pointer. GitHub remains the release source of truth, and this R2 mirror publishes the same digest-verified installer bytes."
     }
   ]
 }
