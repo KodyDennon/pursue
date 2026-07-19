@@ -112,6 +112,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
             configure_bundled_native_runtime(&handle)?;
@@ -188,6 +189,11 @@ pub fn run() {
             export_case,
             get_hardware_diagnostics,
             get_disk_space_info,
+            get_update_target,
+            prepare_for_update,
+            begin_hugging_face_device_auth,
+            complete_hugging_face_device_auth,
+            set_hugging_face_manual_token,
             provision_model,
             check_model_status,
             get_system_stats,

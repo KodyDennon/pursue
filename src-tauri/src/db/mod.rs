@@ -28,18 +28,17 @@ pub async fn init_db(app_handle: &AppHandle) -> anyhow::Result<SqlitePool> {
 
     let pool = connect_db(&db_path).await?;
 
-    match initialize_schema(&pool).await {
-        Ok(()) => {}
-        Err(error) if is_incompatible_schema_error(&error) => {
-            pool.close().await;
-            quarantine_incompatible_database(&db_path)?;
-            let fresh_pool = connect_db(&db_path).await?;
-            initialize_schema(&fresh_pool).await?;
-            record_schema_reset_notice(&fresh_pool, &error.to_string()).await?;
-            return finish_db_startup(fresh_pool).await;
-        }
-        Err(error) => return Err(error),
-    }
+    let backup = create_versioned_backup(&pool, &db_path).await?;
+    initialize_schema(&pool).await.map_err(|error| {
+        let recovery = backup
+            .as_ref()
+            .map(|path| format!(" A verified pre-migration backup is at {}.", path.display()))
+            .unwrap_or_default();
+        anyhow::anyhow!(
+            "database migration was stopped without replacing the existing vault: {error}.{recovery}"
+        )
+    })?;
+    mark_schema_version_backed_up(&db_path)?;
 
     finish_db_startup(pool).await
 }
@@ -49,7 +48,8 @@ async fn connect_db(db_path: &std::path::Path) -> anyhow::Result<SqlitePool> {
         .filename(db_path)
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+        .synchronous(sqlx::sqlite::SqliteSynchronous::Full)
+        .foreign_keys(true)
         // WAL allows only one writer at a time, and the sync transaction can hold the write
         // lock for a while; give concurrent download writes room to wait it out.
         .busy_timeout(std::time::Duration::from_secs(60));
@@ -74,6 +74,14 @@ async fn initialize_schema(pool: &SqlitePool) -> anyhow::Result<()> {
     })?;
 
     validate_required_schema(pool).await?;
+    let integrity: String = sqlx::query_scalar("PRAGMA quick_check")
+        .fetch_one(pool)
+        .await?;
+    if integrity != "ok" {
+        return Err(anyhow::anyhow!(
+            "SQLite integrity verification failed after migration: {integrity}"
+        ));
+    }
     Ok(())
 }
 
@@ -108,71 +116,93 @@ async fn finish_db_startup(pool: SqlitePool) -> anyhow::Result<SqlitePool> {
     Ok(pool)
 }
 
-fn is_incompatible_schema_error(error: &anyhow::Error) -> bool {
-    let message = error.to_string();
-    message.contains("previously applied but has been modified")
-        || message.contains("migration") && message.contains("not found")
-        || message.contains("database schema is missing required table")
+async fn create_versioned_backup(
+    pool: &SqlitePool,
+    db_path: &std::path::Path,
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    if !db_path.is_file() || fs::metadata(db_path)?.len() == 0 {
+        return Ok(None);
+    }
+    let marker = db_path.with_extension("schema-backup-version");
+    if fs::read_to_string(&marker)
+        .ok()
+        .is_some_and(|value| value.trim() == env!("CARGO_PKG_VERSION"))
+    {
+        return Ok(None);
+    }
+
+    let integrity: String = sqlx::query_scalar("PRAGMA quick_check")
+        .fetch_one(pool)
+        .await?;
+    if integrity != "ok" {
+        return Err(anyhow::anyhow!(
+            "existing database failed integrity verification before migration: {integrity}"
+        ));
+    }
+    let checkpoint: (i64, i64, i64) = sqlx::query_as("PRAGMA wal_checkpoint(TRUNCATE)")
+        .fetch_one(pool)
+        .await?;
+    if checkpoint.0 != 0 {
+        return Err(anyhow::anyhow!(
+            "database was busy and could not be checkpointed before migration"
+        ));
+    }
+
+    let backup_dir = db_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("database path has no parent"))?
+        .join("database-backups");
+    fs::create_dir_all(&backup_dir)?;
+    let backup_path = backup_dir.join(format!(
+        "pursue-before-v{}-{}.db",
+        env!("CARGO_PKG_VERSION"),
+        chrono::Utc::now().format("%Y%m%d%H%M%S")
+    ));
+    fs::copy(db_path, &backup_path)?;
+    let backup_file = fs::File::open(&backup_path)?;
+    backup_file.sync_all()?;
+    verify_backup_database(&backup_path).await?;
+
+    let mut backups = fs::read_dir(&backup_dir)?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "db"))
+        .collect::<Vec<_>>();
+    backups.sort_by_key(|entry| entry.file_name());
+    let remove_count = backups.len().saturating_sub(3);
+    for stale in backups.into_iter().take(remove_count) {
+        if let Err(error) = fs::remove_file(stale.path()) {
+            log::warn!("Could not prune old database backup: {error}");
+        }
+    }
+    Ok(Some(backup_path))
 }
 
-fn quarantine_incompatible_database(db_path: &std::path::Path) -> anyhow::Result<()> {
-    let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
-    for suffix in ["", "-wal", "-shm"] {
-        let path = std::path::PathBuf::from(format!("{}{}", db_path.display(), suffix));
-        if path.exists() {
-            let quarantined = std::path::PathBuf::from(format!(
-                "{}.incompatible-{}{}",
-                db_path.display(),
-                timestamp,
-                suffix
-            ));
-
-            // Windows Hardening: Retry renaming a few times in case of lingering locks
-            let mut last_err = None;
-            for attempt in 0..5 {
-                match fs::rename(&path, &quarantined) {
-                    Ok(_) => {
-                        last_err = None;
-                        break;
-                    }
-                    Err(e) => {
-                        last_err = Some(e);
-                        std::thread::sleep(std::time::Duration::from_millis(100 * (attempt + 1)));
-                    }
-                }
-            }
-
-            if let Some(e) = last_err {
-                log::error!(
-                    "Failed to quarantine incompatible database file {:?}: {}",
-                    path,
-                    e
-                );
-                // On Windows, if we can't rename, we might have to copy and delete (best effort)
-                if let Err(e2) = std::fs::copy(&path, &quarantined) {
-                    log::error!("Copy fallback also failed: {}", e2);
-                    return Err(e.into());
-                }
-                let _ = std::fs::remove_file(&path);
-            }
-        }
+async fn verify_backup_database(path: &std::path::Path) -> anyhow::Result<()> {
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(false)
+        .read_only(true);
+    let backup = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await?;
+    let integrity: String = sqlx::query_scalar("PRAGMA quick_check")
+        .fetch_one(&backup)
+        .await?;
+    backup.close().await;
+    if integrity != "ok" {
+        return Err(anyhow::anyhow!(
+            "pre-migration database backup failed integrity verification: {integrity}"
+        ));
     }
     Ok(())
 }
 
-async fn record_schema_reset_notice(pool: &SqlitePool, reason: &str) -> anyhow::Result<()> {
-    let value = serde_json::json!({
-        "reset_at": chrono::Utc::now().to_rfc3339(),
-        "reason": reason,
-        "message": "An incompatible pre-production database was moved aside and a fresh encrypted production vault was created."
-    });
-    sqlx::query(
-        "INSERT INTO app_settings (key, value_json, updated_at) VALUES ('schema_reset_notice', ?, CURRENT_TIMESTAMP)",
+fn mark_schema_version_backed_up(db_path: &std::path::Path) -> anyhow::Result<()> {
+    crate::storage::write_file_atomically(
+        &db_path.with_extension("schema-backup-version"),
+        env!("CARGO_PKG_VERSION").as_bytes(),
     )
-    .bind(value.to_string())
-    .execute(pool)
-    .await?;
-    Ok(())
 }
 
 async fn validate_required_schema(pool: &SqlitePool) -> anyhow::Result<()> {
@@ -259,10 +289,11 @@ mod tests {
     }
 
     #[test]
-    fn detects_modified_baseline_as_incompatible_schema() {
-        let error = anyhow::anyhow!(
-            "database schema is incompatible with this production baseline. Migration error: migration 20260511000000 was previously applied but has been modified"
-        );
-        assert!(super::is_incompatible_schema_error(&error));
+    fn database_init_never_automatically_replaces_an_incompatible_vault() {
+        let source = include_str!("mod.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(!production_source.contains("quarantine_incompatible_database"));
+        assert!(!production_source.contains("record_schema_reset_notice"));
+        assert!(production_source.contains("create_versioned_backup"));
     }
 }

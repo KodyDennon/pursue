@@ -139,12 +139,28 @@ target/
 
 # Generated local command captures
 src-tauri/check_output*.txt
+.tools/
 
 # Native release runtimes are checksum-pinned and staged by CI; never commit binary payloads.
 src-tauri/assets/pdfium/*
 !src-tauri/assets/pdfium/.gitkeep
 src-tauri/assets/native_runtime/*
 !src-tauri/assets/native_runtime/.gitkeep
+
+# Local application state and generated sidecars never belong in source control.
+src-tauri/pursue.db*
+src-tauri/*.sqlite*
+src-tauri/binaries/*.exe
+
+# Generated installer and updater artifacts are published by GitHub Actions.
+*.msi
+*.msi.zip
+*.msi.zip.sig
+*.nsis.zip
+*.nsis.zip.sig
+*.dmg
+*.app.tar.gz
+*.app.tar.gz.sig
 
 # SvelteKit specific
 .svelte-kit/

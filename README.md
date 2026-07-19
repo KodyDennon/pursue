@@ -13,18 +13,21 @@ Installers are published from GitHub Releases:
 
 https://github.com/KodyDennon/pursue/releases/latest
 
-Supported release targets:
+Large release artifacts can also be mirrored to Cloudflare R2. The production mirror setup and integrity contract are documented in [docs/R2_MIRROR_HANDOFF.md](docs/R2_MIRROR_HANDOFF.md). GitHub remains the fallback and source of truth.
 
-- macOS 26 or newer on Apple Silicon (`aarch64-apple-darwin`).
-- Windows x64 through the default Tauri Windows installer target.
+Supported production lanes:
 
-Release artifacts are unsigned. Unsigned macOS and Windows builds can trigger operating-system warnings.
+- macOS 14 or newer on Apple Silicon, with Metal/CoreML acceleration.
+- Windows x64 CUDA for NVIDIA GPUs (Turing/SM75 and newer).
+- Windows x64 DirectML for other supported Windows GPUs.
+
+Automatic update bundles are signed with the Tauri updater key and selected by acceleration lane. Operating-system code signing and Apple notarization are separate; until those certificates are configured, Windows SmartScreen and macOS Gatekeeper can still warn about the installer/application.
 
 ### macOS Install Notes
 
-Download `PURSUE.Data.Analyzer_0.2.1_aarch64.dmg`, open it, and drag `PURSUE Data Analyzer.app` to `/Applications`.
+Download the release's `PURSUE.Data.Analyzer_<version>_aarch64.dmg`, open it, and drag `PURSUE Data Analyzer.app` to `/Applications`.
 
-Because the current build is unsigned and not notarized, macOS may say the app is damaged or cannot be opened. If you trust the release you downloaded from this repository, remove the quarantine attribute after installing it:
+Because the current app is not Apple-notarized, macOS may say it cannot be opened. If you trust the official release, remove the quarantine attribute after installing it:
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/PURSUE Data Analyzer.app"
@@ -42,12 +45,12 @@ Alternative macOS path:
 
 Download one Windows installer from the release:
 
-- `PURSUE.Data.Analyzer_0.2.1_x64-setup.exe`: normal interactive installer.
-- `PURSUE.Data.Analyzer_0.2.1_x64_en-US.msi`: Windows Installer package, better for managed installs.
+- `PURSUE.Data.Analyzer_<version>_x64-cuda_en-US.msi`: self-contained NVIDIA CUDA installer; preferred for supported NVIDIA GPUs. CUDA is MSI-only because its bundled runtime payload exceeds NSIS's 2 GiB compiler limit.
+- `PURSUE.Data.Analyzer_<version>_x64-setup.exe` and matching `.msi`: DirectML installers for other Windows GPUs.
 
-Windows may show a Microsoft Defender SmartScreen warning because the build is unsigned. Choose More info, then Run anyway if you trust the release from this repository.
+Windows may show a Microsoft Defender SmartScreen warning until Windows code signing is configured. Choose More info, then Run anyway only for an official release.
 
-The app uses the system WebView2 runtime through Tauri. Modern Windows 10 and Windows 11 installations usually already include WebView2. If the app does not open because WebView2 is missing, install the Microsoft Edge WebView2 Runtime from Microsoft and run the installer again.
+The installer preserves the database, evidence vault, model cache, exports, resumable downloads, and custom-storage pointer across updates/uninstall/reinstall. It bundles Microsoft's signed Visual C++ redistributable and can bootstrap WebView2 when missing. CUDA builds ship the required CUDA/cuDNN/ONNX runtime DLLs; users do not need a CUDA toolkit.
 
 ## Features
 
@@ -55,7 +58,7 @@ The app uses the system WebView2 runtime through Tauri. Modern Windows 10 and Wi
 - Preserve immutable raw source snapshots and added/changed/removed diffs.
 - Download official evidence files and deduplicate local artifacts by SHA-256.
 - Import investigator-provided local evidence.
-- Extract digital PDF text, plain text, image OCR, and scanned-PDF OCR through local tools.
+- Extract digital PDF text, plain text, and scanned/image OCR through bundled local models.
 - Index chunks, entities, metadata, and deterministic local vectors in SQLite.
 - Search records and analyzed content without hosted APIs.
 - Build cases with notes and selected records.
@@ -76,13 +79,7 @@ For development:
 - Rust stable.
 - Platform build tools for Tauri.
 
-Optional local OCR tools:
-
-```bash
-brew install tesseract ocrmypdf poppler
-```
-
-Windows builds can run source sync, downloads, imports, digital text extraction, search, cases, and exports without hosted services. Image/scanned-PDF OCR requires local OCR tools available on the Windows machine.
+Production OCR models are bundled. Gemma 4 E4B and gated Hugging Face assets are provisioned by onboarding; Hugging Face device authorization opens a browser without asking users to paste access tokens into the app. CPU inference is the final fallback after CUDA, CoreML, and DirectML provider attempts.
 
 ## Development
 
@@ -117,7 +114,9 @@ More details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Releases
 
-The release workflow verifies the frontend and Rust backend, then builds installers for macOS 26 Apple Silicon and Windows. Tags matching `v*` publish non-draft GitHub Releases with downloadable installer assets.
+The release workflow verifies the frontend and Rust backend, then builds installers for macOS 14+ Apple Silicon, Windows DirectML, and Windows CUDA. Tags matching `v*` publish non-draft GitHub Releases with downloadable installer assets.
+
+Each production tag must publish four installers, three signed updater bundles with matching signatures, and `latest.json`. If R2 mirroring is enabled, those exact bytes and digests are copied to immutable R2 keys before stable aliases are advanced.
 
 Release documentation is in [docs/RELEASES.md](docs/RELEASES.md).
 

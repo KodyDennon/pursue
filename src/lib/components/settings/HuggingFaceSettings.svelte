@@ -1,6 +1,41 @@
 <script lang="ts">
-	import { ShieldCheck, Save } from 'lucide-svelte';
+	import { invoke } from '@tauri-apps/api/core';
+	import { openUrl } from '@tauri-apps/plugin-opener';
+	import { ShieldCheck, Save, LogIn } from 'lucide-svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
+
+	interface DeviceAuthSession {
+		device_code: string;
+		user_code: string;
+		verification_uri: string;
+		verification_uri_complete: string;
+		interval: number;
+		expires_in: number;
+	}
+
+	let authBusy = $state(false);
+	let authMessage = $state('');
+	let authError = $state('');
+
+	async function signIn() {
+		authBusy = true;
+		authError = '';
+		authMessage = 'Requesting a secure Hugging Face sign-in code...';
+		try {
+			const session = await invoke<DeviceAuthSession>('begin_hugging_face_device_auth');
+			authMessage = `Enter code ${session.user_code} in the browser and approve access.`;
+			await openUrl(session.verification_uri_complete);
+			const result = await invoke<{ username: string }>('complete_hugging_face_device_auth', {
+				session
+			});
+			authMessage = `Signed in securely as ${result.username}.`;
+		} catch (error) {
+			authMessage = '';
+			authError = error instanceof Error ? error.message : String(error);
+		} finally {
+			authBusy = false;
+		}
+	}
 </script>
 
 <section class="settings-section glass-panel">
@@ -10,8 +45,16 @@
 	</div>
 	<div class="s-body">
 		<p class="section-desc">
-			Provide a User Access Token to download gated models (e.g., official Google Gemma series).
-			Create one at <a
+			Sign in through the system browser to access official gated models. Credentials are saved in
+			Windows Credential Manager or macOS Keychain, never the SQLite settings database.
+		</p>
+		<button class="s-btn signin" onclick={signIn} disabled={authBusy}>
+			<LogIn size={14} /> {authBusy ? 'Waiting for browser approval...' : 'Sign in with Hugging Face'}
+		</button>
+		{#if authMessage}<p class="auth-message">{authMessage}</p>{/if}
+		{#if authError}<p class="auth-error" role="alert">{authError}</p>{/if}
+		<p class="section-desc">
+			As a fallback, provide a read token. It is verified before secure storage. Create one at <a
 				href="https://huggingface.co/settings/tokens"
 				target="_blank"
 				class="accent-link">huggingface.co/settings/tokens</a
@@ -141,6 +184,27 @@
 	.s-btn.primary {
 		background: var(--color-accent-primary);
 		color: #000;
+	}
+
+	.s-btn.signin {
+		align-self: flex-start;
+		background: transparent;
+		border-color: var(--color-border-subtle);
+		color: var(--color-text-primary);
+	}
+
+	.auth-message,
+	.auth-error {
+		margin: 0;
+		font-size: var(--text-sm);
+	}
+
+	.auth-message {
+		color: var(--color-accent-primary);
+	}
+
+	.auth-error {
+		color: var(--color-danger);
 	}
 
 	.s-btn:hover {

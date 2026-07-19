@@ -48,7 +48,13 @@ pub fn active_inference_backends() -> BTreeMap<String, String> {
 }
 
 pub fn cpu_inference_threads() -> usize {
-    (num_cpus::get() / 2).max(1)
+    let available = num_cpus::get().max(1);
+    std::env::var("PURSUE_CPU_THREADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|threads| *threads > 0)
+        .unwrap_or(available)
+        .min(available)
 }
 
 pub fn cuda_device_id() -> i32 {
@@ -260,6 +266,56 @@ pub fn candle_device_candidates(force_cpu: bool) -> Vec<(String, candle_core::De
 /// without this probe it used to surface mid-inference with no CPU fallback.
 fn cuda_kernel_smoke_test(device: &candle_core::Device) -> candle_core::Result<()> {
     accelerator_kernel_smoke_test(device)
+}
+
+/// Full BF16 Gemma 4 E4B is roughly 16 GB before KV/cache workspace. Use it only
+/// when the active accelerator has a safe margin; all other systems use Google's
+/// official QAT Q4_0 checkpoint. The environment override is intentionally opt-in.
+pub async fn gemma4_bf16_accelerator_suitable() -> bool {
+    if std::env::var("PURSUE_GEMMA4_BF16")
+        .ok()
+        .is_some_and(|value| matches!(value.to_lowercase().as_str(), "1" | "true" | "yes"))
+    {
+        return true;
+    }
+
+    #[cfg(all(target_os = "windows", feature = "cuda"))]
+    {
+        let mut candidates = vec![std::path::PathBuf::from("nvidia-smi.exe")];
+        if let Some(windows) = std::env::var_os("WINDIR") {
+            candidates.push(
+                std::path::PathBuf::from(windows)
+                    .join("System32")
+                    .join("nvidia-smi.exe"),
+            );
+        }
+        for executable in candidates {
+            let mut command = tokio::process::Command::new(executable);
+            command.args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"]);
+            let output = match crate::common::hide_console(&mut command).output().await {
+                Ok(output) if output.status.success() => output,
+                _ => continue,
+            };
+            let max_mib = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter_map(|line| line.trim().parse::<u64>().ok())
+                .max()
+                .unwrap_or(0);
+            return max_mib >= 20 * 1024;
+        }
+        return false;
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    {
+        let mut system = sysinfo::System::new();
+        system.refresh_memory();
+        return system.total_memory() >= 24 * 1024_u64.pow(3)
+            && system.available_memory() >= 18 * 1024_u64.pow(3);
+    }
+
+    #[allow(unreachable_code)]
+    false
 }
 
 fn accelerator_kernel_smoke_test(device: &candle_core::Device) -> candle_core::Result<()> {

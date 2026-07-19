@@ -14,8 +14,9 @@ pub mod thumbnails;
 pub mod verifier;
 pub mod vision_runtime;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use sqlx::{Row, SqlitePool};
+use std::path::Path;
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri_plugin_log::log::{error, info};
@@ -33,6 +34,28 @@ use crate::db::analysis_repo::AnalysisRepository;
 use crate::db::records;
 use crate::library::LibraryManager;
 use crate::models::{AnalysisReport, RecordAsset};
+
+fn gemma4_bf16_repository_ready(path: &Path) -> bool {
+    let config_is_gemma4 = std::fs::read_to_string(path.join("config.json"))
+        .ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+        .and_then(|config| {
+            config
+                .get("model_type")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .is_some_and(|model_type| model_type == "gemma4");
+    config_is_gemma4
+        && path.join("tokenizer.json").exists()
+        && std::fs::read_dir(path)
+            .map(|entries| {
+                entries.filter_map(|entry| entry.ok()).any(|entry| {
+                    entry.path().extension().and_then(|value| value.to_str()) == Some("safetensors")
+                })
+            })
+            .unwrap_or(false)
+}
 
 use self::ocr::OcrEngine;
 use self::pdf::PdfAnalyzer;
@@ -118,15 +141,20 @@ impl AnalysisManager {
 
         let registry = registry::get_model_registry();
         for model in registry {
-            let _ = self
-                .models
+            let source = model
+                .download_url()
+                .unwrap_or_else(|| model.repo_id.clone());
+            self.models
                 .ensure_model(
                     app,
                     &model.id,
                     model.filename.as_deref().unwrap_or(&model.id),
-                    &model.repo_id,
+                    &source,
+                    model.expected_bytes,
+                    model.expected_sha256.as_deref(),
                 )
-                .await;
+                .await
+                .with_context(|| format!("failed to provision required model {}", model.name))?;
         }
 
         info!("Background model provisioning completed");
@@ -429,8 +457,34 @@ impl AnalysisManager {
                 .fetch_all(&self.db)
                 .await?;
 
-        let preferred_model = "gemma-3-1b-it";
-        let model_path = self.models.models_dir().join(preferred_model);
+        let bf16_path = self.models.models_dir().join("gemma-4-e4b");
+        let q4_path = self.models.models_dir().join("gemma-4-E4B_q4_0-it.gguf");
+        let bf16_ready = gemma4_bf16_repository_ready(&bf16_path);
+        let bf16_accelerator_suitable =
+            bf16_ready && crate::analysis::hardware::gemma4_bf16_accelerator_suitable().await;
+        let q4_ready = q4_path.exists()
+            && std::fs::metadata(&q4_path)
+                .map(|metadata| metadata.len() == 5_154_939_136)
+                .unwrap_or(false)
+            && !crate::analysis::verifier::is_model_corrupted(&q4_path, "gemma-4-E4B_q4_0-it.gguf")
+                .await;
+        let model_path = if bf16_accelerator_suitable {
+            info!(
+                "[Analysis] Using existing full-precision Gemma 4 E4B on a high-memory accelerator"
+            );
+            bf16_path.clone()
+        } else if q4_ready {
+            info!("[Analysis] Using official Gemma 4 E4B QAT Q4_0 with adaptive GPU offload");
+            q4_path
+        } else if bf16_ready {
+            return Err(anyhow!(
+                "The existing Gemma 4 E4B BF16 cache is preserved, but this accelerator does not have the safe 20 GiB memory margin it requires. Download the official Gemma 4 E4B QAT Q4_0 model from Intelligence Setup."
+            ));
+        } else {
+            return Err(anyhow!(
+                "Gemma 4 E4B is not ready. Download the required official QAT Q4_0 model from Intelligence Setup. Gemma 3 and Gemma 2 are not valid fallbacks."
+            ));
+        };
 
         let mut image_paths = Vec::new();
         for asset in assets.iter().filter(|a| a.asset_type == "image") {
@@ -441,7 +495,21 @@ impl AnalysisManager {
             );
         }
 
-        let intelligence_json = if image_paths.is_empty() {
+        let vision_runtime_ready = if !image_paths.is_empty() && bf16_accelerator_suitable {
+            match self.vision.status().await {
+                Ok(ready) => ready,
+                Err(error) => {
+                    log::warn!(
+                        "[Analysis] Elite vision runtime probe failed; using embedded Gemma 4 text path: {error}"
+                    );
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
+        let intelligence_json = if !vision_runtime_ready {
             self.extractor
                 .extract_forensics(
                     app,
@@ -458,7 +526,7 @@ impl AnalysisManager {
         } else {
             let value = self
                 .vision
-                .audit(app, record_id, &model_path, &text, &image_paths)
+                .audit(app, record_id, &bf16_path, &text, &image_paths)
                 .await?;
             self.persist_vision_intelligence_log(record_id, &value)
                 .await?;

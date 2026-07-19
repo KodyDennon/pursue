@@ -7,7 +7,10 @@
 		speedMbps,
 		etaSeconds,
 		currentModelIndex,
-		totalModels
+		totalModels,
+		error,
+		onRetry,
+		onBack
 	} = $props<{
 		statusText: string;
 		progressWidth: number;
@@ -17,6 +20,9 @@
 		etaSeconds: number | null;
 		currentModelIndex: number;
 		totalModels: number;
+		error: string | null;
+		onRetry: () => void;
+		onBack: () => void;
 	}>();
 </script>
 
@@ -46,6 +52,17 @@
 <div class="step-counter">
 	<span>Model {currentModelIndex} of {totalModels}</span>
 </div>
+
+{#if error}
+	<div class="error-panel" role="alert">
+		<strong>Provisioning stopped</strong>
+		<p>{error}</p>
+		<div class="error-actions">
+			<button onclick={onRetry}>Retry safely</button>
+			<button class="secondary" onclick={onBack}>Back to setup</button>
+		</div>
+	</div>
+{/if}
 
 <style>
 	h2 {
@@ -114,5 +131,46 @@
 		text-transform: uppercase;
 		letter-spacing: 0.15em;
 		font-weight: 600;
+	}
+
+	.error-panel {
+		width: 100%;
+		box-sizing: border-box;
+		margin-top: var(--space-3xl);
+		padding: var(--space-3xl);
+		border: 1px solid var(--color-accent-danger, #e57373);
+		border-radius: var(--radius-base);
+		background: rgba(229, 115, 115, 0.08);
+		text-align: left;
+		color: var(--color-text-primary);
+	}
+
+	.error-panel p {
+		margin: var(--space-sm) 0 var(--space-3xl);
+		font-size: var(--text-sm);
+		line-height: 1.5;
+		text-transform: none;
+		letter-spacing: normal;
+	}
+
+	.error-actions {
+		display: flex;
+		gap: var(--space-xl);
+	}
+
+	.error-actions button {
+		flex: 1;
+		padding: var(--space-xl);
+		border: 1px solid var(--color-accent-primary);
+		border-radius: var(--radius-base);
+		background: var(--color-accent-primary);
+		color: #000;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.error-actions button.secondary {
+		background: transparent;
+		color: var(--color-text-primary);
 	}
 </style>

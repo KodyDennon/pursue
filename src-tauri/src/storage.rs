@@ -1,4 +1,6 @@
 use anyhow::{anyhow, Result};
+use sha2::{Digest, Sha256};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
@@ -33,37 +35,52 @@ pub fn configured_storage_root<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> 
     Some(PathBuf::from(trimmed))
 }
 
-/// Effective storage root: the user-configured directory when present and
-/// reachable, otherwise the platform-default app data directory. Falling back
-/// (rather than failing startup) keeps the app usable when a secondary drive
-/// is temporarily unavailable; the settings UI surfaces the mismatch.
+/// Effective storage root. A configured root is authoritative: silently
+/// falling back to an older/default database would create two diverging vaults
+/// and can make current evidence appear lost.
 pub fn resolve_storage_root<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf> {
     let default_root = default_storage_root(app)?;
     let Some(custom) = configured_storage_root(app) else {
         return Ok(default_root);
     };
-    if std::fs::create_dir_all(&custom).is_ok() {
-        Ok(custom)
-    } else {
-        log::warn!(
-            "configured storage root {} is not reachable; falling back to {}",
+    std::fs::create_dir_all(&custom).map_err(|error| {
+        anyhow!(
+            "configured PURSUE storage root {} is unavailable: {error}. Reconnect the drive or repair {} before starting PURSUE; no fallback database was opened",
             custom.display(),
-            default_root.display()
-        );
-        Ok(default_root)
-    }
+            pointer_path(app)
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|_| POINTER_FILE.to_string())
+        )
+    })?;
+    Ok(custom)
 }
 
 pub fn write_pointer<R: tauri::Runtime>(app: &tauri::AppHandle<R>, root: &Path) -> Result<()> {
     let pointer = pointer_path(app)?;
-    if let Some(parent) = pointer.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     let payload = serde_json::to_string_pretty(&StoragePointer {
         storage_root: root.to_string_lossy().into_owned(),
     })?;
-    std::fs::write(pointer, payload)?;
-    Ok(())
+    write_file_atomically(&pointer, payload.as_bytes())
+}
+
+/// Durably replaces a small state file without exposing a partially written
+/// value after a crash or power loss.
+pub(crate) fn write_file_atomically(path: &Path, contents: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        let mut file = std::fs::File::create(&temporary)?;
+        file.write_all(contents)?;
+        file.sync_all()?;
+        replace_file(&temporary, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 pub fn clear_pointer<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<()> {
@@ -99,6 +116,12 @@ pub fn validate_new_root(new_root: &Path, current_root: &Path) -> Result<()> {
         )
     })?;
     let _ = std::fs::remove_file(&probe);
+
+    if std::fs::read_dir(new_root)?.next().is_some() {
+        return Err(anyhow!(
+            "the new storage folder must be empty so existing files can never be overwritten"
+        ));
+    }
 
     let canonical_new = std::fs::canonicalize(new_root)?;
     let canonical_current =
@@ -137,9 +160,10 @@ pub fn migrate_storage(
     to: &Path,
     mut progress: impl FnMut(u64, u64),
 ) -> Result<MigrationStats> {
-    // download-parts and decrypted-cache are rebuildable scratch data; copying
-    // them would only slow down a migration that already spans drives.
-    const SKIP_NAMES: [&str; 3] = [POINTER_FILE, "download-parts", "decrypted-cache"];
+    // Decrypted cache entries are disposable plaintext. Resumable download
+    // parts are retained because discarding a multi-gigabyte partial transfer
+    // during a storage move is both surprising and expensive.
+    const SKIP_NAMES: [&str; 2] = [POINTER_FILE, "decrypted-cache"];
 
     let should_skip = |path: &Path| -> bool {
         path.file_name()
@@ -165,7 +189,13 @@ fn dir_size(dir: &Path, should_skip: &impl Fn(&Path) -> bool) -> Result<u64> {
         if should_skip(&path) {
             continue;
         }
-        let metadata = entry.metadata()?;
+        let metadata = path.symlink_metadata()?;
+        if metadata.file_type().is_symlink() {
+            return Err(anyhow!(
+                "storage migration refuses symbolic link {}",
+                path.display()
+            ));
+        }
         if metadata.is_dir() {
             total += dir_size(&path, should_skip)?;
         } else {
@@ -190,21 +220,97 @@ fn copy_tree(
             continue;
         }
         let target = to.join(entry.file_name());
-        if entry.metadata()?.is_dir() {
+        let metadata = source.symlink_metadata()?;
+        if metadata.file_type().is_symlink() {
+            return Err(anyhow!(
+                "storage migration refuses symbolic link {}",
+                source.display()
+            ));
+        }
+        if metadata.is_dir() {
             copy_tree(&source, &target, should_skip, stats, progress)?;
         } else {
-            let copied = std::fs::copy(&source, &target).map_err(|e| {
-                anyhow!(
-                    "failed to copy {} to {}: {e}",
-                    source.display(),
-                    target.display()
-                )
+            let copied = copy_file_verified(&source, &target, |bytes| {
+                stats.bytes_copied += bytes;
+                progress(stats.bytes_copied, stats.bytes_total);
             })?;
             stats.files_copied += 1;
-            stats.bytes_copied += copied;
-            progress(stats.bytes_copied, stats.bytes_total);
+            debug_assert_eq!(copied, metadata.len());
         }
     }
+    Ok(())
+}
+
+fn copy_file_verified(source: &Path, target: &Path, mut progress: impl FnMut(u64)) -> Result<u64> {
+    let temporary = target.with_extension(format!("pursue-copy-{}", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<u64> {
+        let mut input = std::fs::File::open(source)?;
+        let mut output = std::fs::File::create(&temporary)?;
+        let mut source_hash = Sha256::new();
+        let mut buffer = vec![0_u8; 1024 * 1024];
+        let mut copied = 0_u64;
+        loop {
+            let read = input.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            output.write_all(&buffer[..read])?;
+            source_hash.update(&buffer[..read]);
+            copied += read as u64;
+            progress(read as u64);
+        }
+        output.sync_all()?;
+        drop(output);
+
+        let mut verified = std::fs::File::open(&temporary)?;
+        let mut target_hash = Sha256::new();
+        loop {
+            let read = verified.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            target_hash.update(&buffer[..read]);
+        }
+        if source_hash.finalize() != target_hash.finalize() {
+            return Err(anyhow!(
+                "SHA-256 verification failed while copying {}",
+                source.display()
+            ));
+        }
+        replace_file(&temporary, target)?;
+        Ok(copied)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_file(source: &Path, target: &Path) -> Result<()> {
+    std::fs::rename(source, target)?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn replace_file(source: &Path, target: &Path) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let mut source_wide = source.as_os_str().encode_wide().collect::<Vec<_>>();
+    source_wide.push(0);
+    let mut target_wide = target.as_os_str().encode_wide().collect::<Vec<_>>();
+    target_wide.push(0);
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source_wide.as_ptr()),
+            PCWSTR(target_wide.as_ptr()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )?
+    };
     Ok(())
 }
 
@@ -250,10 +356,10 @@ mod tests {
 
         let stats = migrate_storage(&from, &to, |_, _| {}).unwrap();
 
-        assert_eq!(stats.files_copied, 2);
+        assert_eq!(stats.files_copied, 3);
         assert!(to.join("library/ab/artifact.pdf").exists());
         assert!(to.join("pursue.db").exists());
-        assert!(!to.join("download-parts").exists());
+        assert!(to.join("download-parts/junk.tmp").exists());
         assert!(!to.join(POINTER_FILE).exists());
         // Originals stay in place until the user removes them.
         assert!(from.join("pursue.db").exists());

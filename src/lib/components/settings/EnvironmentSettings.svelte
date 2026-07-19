@@ -46,9 +46,7 @@
 			<span class="d-label">Storage Location</span>
 			<code class="d-val">{settingsStore.storageLocation?.effective_root || 'Loading...'}</code>
 			<span class="d-val">
-				{#if settingsStore.storageLocation?.is_fallback}
-					Configured location is unreachable — running from the default location this session
-				{:else if settingsStore.storageLocation?.is_custom}
+				{#if settingsStore.storageLocation?.is_custom}
 					Custom location — database, evidence library, and models are stored here
 				{:else}
 					Default location — pick another folder to route all storage to a different drive

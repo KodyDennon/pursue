@@ -70,14 +70,6 @@ impl OcrEngine {
         }
     }
 
-    #[cfg(test)]
-    pub async fn ensure_initialized<R: tauri::Runtime>(
-        &self,
-        app: &tauri::AppHandle<R>,
-    ) -> Result<Arc<OAROCR>> {
-        Ok(self.ensure_active(app).await?.engine)
-    }
-
     async fn ensure_active<R: tauri::Runtime>(
         &self,
         app: &tauri::AppHandle<R>,
@@ -361,12 +353,16 @@ fn ocr_provider_attempts() -> Vec<OcrProviderAttempt> {
     let preference = acceleration_preference(false);
 
     #[allow(unused_variables)]
-    let strict_gpu_config = |provider: OrtExecutionProvider| {
+    // PP-OCR's convolution/attention work is assigned to the accelerator, but
+    // ONNX Runtime retains a handful of shape/control nodes on CPU. Provider
+    // registration itself is fatal in the vendored oar-ocr-core patch, so this
+    // cannot silently label an unavailable accelerator as active. A complete
+    // CPU inference session remains the final separate attempt below.
+    let accelerated_config = |provider: OrtExecutionProvider| {
         OrtSessionConfig::new()
             .with_intra_threads(1)
             .with_parallel_execution(false)
             .with_execution_providers(vec![provider])
-            .add_config_entry("session.disable_cpu_ep_fallback", "1")
     };
 
     let push_cuda = |_attempts: &mut Vec<OcrProviderAttempt>| {
@@ -375,7 +371,7 @@ fn ocr_provider_attempts() -> Vec<OcrProviderAttempt> {
             let attempts = _attempts;
             attempts.push(OcrProviderAttempt {
                 backend: "NVIDIA CUDA",
-                config: strict_gpu_config(OrtExecutionProvider::CUDA {
+                config: accelerated_config(OrtExecutionProvider::CUDA {
                     device_id: Some(crate::analysis::hardware::cuda_device_id()),
                     gpu_mem_limit: crate::analysis::hardware::cuda_memory_limit_bytes(),
                     arena_extend_strategy: Some("SameAsRequested".to_string()),
@@ -392,7 +388,7 @@ fn ocr_provider_attempts() -> Vec<OcrProviderAttempt> {
             let attempts = _attempts;
             attempts.push(OcrProviderAttempt {
                 backend: "Apple CoreML",
-                config: strict_gpu_config(OrtExecutionProvider::CoreML {
+                config: accelerated_config(OrtExecutionProvider::CoreML {
                     ane_only: Some(false),
                     subgraphs: Some(true),
                 }),
@@ -406,7 +402,7 @@ fn ocr_provider_attempts() -> Vec<OcrProviderAttempt> {
             let attempts = _attempts;
             attempts.push(OcrProviderAttempt {
                 backend: "Windows DirectML",
-                config: strict_gpu_config(OrtExecutionProvider::DirectML { device_id: Some(0) })
+                config: accelerated_config(OrtExecutionProvider::DirectML { device_id: Some(0) })
                     .with_memory_pattern(false),
             });
         }
@@ -511,29 +507,58 @@ mod tests {
     use super::*;
     use image::GenericImageView;
 
-    #[tokio::test]
-    async fn test_ocr_initialization_and_prediction() {
-        let app = tauri::test::mock_app();
-        let handle = app.handle();
+    #[test]
+    fn test_ocr_provider_initialization_and_prediction_with_real_assets() {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let models = manifest.join("assets/models");
+        let image = image::open(manifest.join("icons/128x128.png"))
+            .expect("the checked-in application icon must decode")
+            .to_rgb8();
+        let mut failures = Vec::new();
+        let mut successful_backend = None;
+        for attempt in ocr_provider_attempts() {
+            match build_ocr(
+                &models.join("pp-ocrv5_mobile_det.onnx"),
+                &models.join("pp-ocrv5_mobile_rec.onnx"),
+                &models.join("ppocrv5_dict.txt"),
+                attempt.config,
+            ) {
+                Ok(engine) => match engine.predict(vec![image.clone()]) {
+                    Ok(_) => {
+                        successful_backend = Some(attempt.backend);
+                        break;
+                    }
+                    Err(error) => failures.push(format!("{} inference: {error}", attempt.backend)),
+                },
+                Err(error) => failures.push(format!("{} initialization: {error}", attempt.backend)),
+            }
+        }
+        let backend = successful_backend.unwrap_or_else(|| {
+            panic!(
+                "real OCR models failed on every configured provider: {}",
+                failures.join("; ")
+            )
+        });
+        if std::env::var("PURSUE_REQUIRE_CUDA_INFERENCE").as_deref() == Ok("1") {
+            assert_eq!(
+                backend,
+                "NVIDIA CUDA",
+                "OCR provider failures before {backend}: {}",
+                failures.join("; ")
+            );
+        }
 
-        let engine = OcrEngine::new();
-        let ocr_res = engine.ensure_initialized(handle).await;
-        assert!(
-            ocr_res.is_ok(),
-            "Failed to initialize OCR engine: {:?}",
-            ocr_res.err()
-        );
-
-        // Test with a white 100x100 image (no redactions)
+        // Pure redaction-scoring boundary tests remain independent of inference.
+        let redaction_engine = OcrEngine::new();
         let white_img = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
             100,
             100,
             image::Rgb([255, 255, 255]),
         ));
-        let output = engine.extract_structured(handle, &white_img).await.unwrap();
-        assert_eq!(output.text, "");
 
-        let white_redaction_ratio = engine.analyze_redactions_image(&white_img).unwrap();
+        let white_redaction_ratio = redaction_engine
+            .analyze_redactions_image(&white_img)
+            .unwrap();
         assert_eq!(white_redaction_ratio, 0.0);
 
         // Test with a black 100x100 image (high redactions)
@@ -542,7 +567,9 @@ mod tests {
             100,
             image::Rgb([0, 0, 0]),
         ));
-        let black_redaction_ratio = engine.analyze_redactions_image(&black_img).unwrap();
+        let black_redaction_ratio = redaction_engine
+            .analyze_redactions_image(&black_img)
+            .unwrap();
         assert!(black_redaction_ratio > 0.9);
     }
 

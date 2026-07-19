@@ -2,9 +2,230 @@ use crate::analysis::diagnostics;
 use crate::analysis::model_manager::ModelManager;
 use crate::commands::{database_status, to_error, AppState};
 use crate::models::{BulkDownloadItem, BulkDownloadReport, BulkDownloadStatus, DatabaseStatus};
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_log::log::info;
+
+const HF_DEVICE_OAUTH_CLIENT_ID: &str = "26be6b09-91c5-47da-9861-d2d2bb7a7e36";
+const HF_DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HuggingFaceDeviceAuthSession {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    verification_uri_complete: String,
+    interval: u64,
+    expires_in: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HuggingFaceAuthResult {
+    username: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct HuggingFaceDeviceResponse {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    verification_uri_complete: Option<String>,
+    interval: Option<u64>,
+    expires_in: Option<u64>,
+}
+
+fn hugging_face_oauth_client_id() -> String {
+    std::env::var("PURSUE_HF_OAUTH_CLIENT_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| HF_DEVICE_OAUTH_CLIENT_ID.to_string())
+}
+
+#[tauri::command]
+pub async fn begin_hugging_face_device_auth() -> Result<HuggingFaceDeviceAuthSession, String> {
+    let client_id = hugging_face_oauth_client_id();
+    let response = reqwest::Client::new()
+        .post("https://huggingface.co/oauth/device")
+        .form(&[("client_id", client_id.as_str())])
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|error| format!("could not reach Hugging Face authentication: {error}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Hugging Face could not start device authentication (HTTP {})",
+            response.status()
+        ));
+    }
+    let device = response
+        .json::<HuggingFaceDeviceResponse>()
+        .await
+        .map_err(|error| {
+            format!("Hugging Face returned an invalid authentication response: {error}")
+        })?;
+    let verification_uri_complete = device
+        .verification_uri_complete
+        .unwrap_or_else(|| device.verification_uri.clone());
+
+    Ok(HuggingFaceDeviceAuthSession {
+        device_code: device.device_code,
+        user_code: device.user_code,
+        verification_uri: device.verification_uri,
+        verification_uri_complete,
+        interval: device.interval.unwrap_or(5).clamp(1, 30),
+        expires_in: device.expires_in.unwrap_or(900).clamp(60, 1_800),
+    })
+}
+
+#[tauri::command]
+pub async fn complete_hugging_face_device_auth(
+    session: HuggingFaceDeviceAuthSession,
+    state: State<'_, AppState>,
+) -> Result<HuggingFaceAuthResult, String> {
+    let client = reqwest::Client::new();
+    let client_id = hugging_face_oauth_client_id();
+    let deadline = Instant::now() + Duration::from_secs(session.expires_in.clamp(60, 1_800));
+    let mut interval = Duration::from_secs(session.interval.clamp(1, 30));
+
+    loop {
+        if Instant::now() + interval > deadline {
+            return Err(
+                "Hugging Face sign-in expired. Start sign-in again to get a new code.".into(),
+            );
+        }
+        tokio::time::sleep(interval).await;
+
+        let response = client
+            .post("https://huggingface.co/oauth/token")
+            .form(&[
+                ("grant_type", HF_DEVICE_GRANT_TYPE),
+                ("device_code", session.device_code.as_str()),
+                ("client_id", client_id.as_str()),
+            ])
+            .timeout(Duration::from_secs(20))
+            .send()
+            .await;
+        let response = match response {
+            Ok(response) => response,
+            Err(_) if Instant::now() < deadline => continue,
+            Err(error) => return Err(format!("Hugging Face sign-in connection failed: {error}")),
+        };
+        let payload = response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|error| format!("Hugging Face returned an invalid token response: {error}"))?;
+
+        if let Some(access_token) = payload.get("access_token").and_then(|value| value.as_str()) {
+            let whoami = client
+                .get("https://huggingface.co/api/whoami-v2")
+                .bearer_auth(access_token)
+                .timeout(Duration::from_secs(20))
+                .send()
+                .await
+                .map_err(|error| format!("Hugging Face account verification failed: {error}"))?;
+            if !whoami.status().is_success() {
+                return Err("Hugging Face issued a token that failed account verification.".into());
+            }
+            let identity = whoami
+                .json::<serde_json::Value>()
+                .await
+                .map_err(|error| format!("Hugging Face returned an invalid profile: {error}"))?;
+            let username = identity
+                .get("name")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("Hugging Face user")
+                .to_string();
+
+            let refresh_token = payload
+                .get("refresh_token")
+                .and_then(|value| value.as_str());
+            crate::analysis::model_manager::store_hf_oauth_credentials(access_token, refresh_token)
+                .map_err(to_error)?;
+            sqlx::query("DELETE FROM app_settings WHERE key = 'huggingface_token'")
+                .execute(&state.db)
+                .await
+                .map_err(to_error)?;
+            save_json_setting(&state.db, "huggingface_username", &username).await?;
+            return Ok(HuggingFaceAuthResult { username });
+        }
+
+        match payload.get("error").and_then(|value| value.as_str()) {
+            Some("authorization_pending") | None if Instant::now() < deadline => continue,
+            Some("slow_down") if Instant::now() < deadline => {
+                interval = (interval + Duration::from_secs(5)).min(Duration::from_secs(30));
+            }
+            Some("access_denied") => return Err("Hugging Face sign-in was denied.".into()),
+            Some("expired_token") => {
+                return Err("Hugging Face sign-in expired. Start sign-in again.".into())
+            }
+            Some(error) => return Err(format!("Hugging Face sign-in failed: {error}")),
+            None => return Err("Hugging Face sign-in returned no access token.".into()),
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn set_hugging_face_manual_token(
+    token: String,
+    state: State<'_, AppState>,
+) -> Result<HuggingFaceAuthResult, String> {
+    let token = token.trim();
+    if token.len() < 20 {
+        return Err("Enter a valid Hugging Face read token.".into());
+    }
+    let response = reqwest::Client::new()
+        .get("https://huggingface.co/api/whoami-v2")
+        .bearer_auth(token)
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|error| format!("Hugging Face token verification failed: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Hugging Face rejected this token (HTTP {}). Use a read token with access to the accepted Gemma license.",
+            response.status()
+        ));
+    }
+    let identity = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| format!("Hugging Face returned an invalid profile: {error}"))?;
+    let username = identity
+        .get("name")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("Hugging Face user")
+        .to_string();
+
+    crate::analysis::model_manager::store_hf_manual_token(token).map_err(to_error)?;
+    sqlx::query("DELETE FROM app_settings WHERE key = 'huggingface_token'")
+        .execute(&state.db)
+        .await
+        .map_err(to_error)?;
+    save_json_setting(&state.db, "huggingface_username", &username).await?;
+    Ok(HuggingFaceAuthResult { username })
+}
+
+async fn save_json_setting<T: Serialize + ?Sized>(
+    pool: &sqlx::SqlitePool,
+    key: &str,
+    value: &T,
+) -> Result<(), String> {
+    let value_json = serde_json::to_string(value).map_err(to_error)?;
+    sqlx::query(
+        "INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = CURRENT_TIMESTAMP",
+    )
+    .bind(key)
+    .bind(value_json)
+    .execute(pool)
+    .await
+    .map_err(to_error)?;
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn get_database_status(state: State<'_, AppState>) -> Result<DatabaseStatus, String> {
@@ -33,7 +254,17 @@ pub async fn check_model_status(
 
     for model in registry {
         let is_ready = if let Some(filename) = &model.filename {
-            manager.models_dir().join(filename).exists()
+            let path = manager.models_dir().join(filename);
+            path.exists()
+                && !crate::analysis::verifier::is_model_corrupted(&path, filename).await
+                && model
+                    .expected_bytes
+                    .map(|expected| {
+                        std::fs::metadata(&path)
+                            .map(|metadata| metadata.len() == expected)
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(true)
         } else {
             let repo_dir = manager.models_dir().join(&model.id);
             let has_config = repo_dir.join("config.json").exists();
@@ -51,6 +282,20 @@ pub async fn check_model_status(
         };
         status.insert(model.id, is_ready);
     }
+
+    // Preserve and report the original full-precision E4B cache independently. It is
+    // never deleted or treated as the Q4 download; high-memory accelerators can use it.
+    let bf16_dir = manager.models_dir().join("gemma-4-e4b");
+    let bf16_ready = bf16_dir.join("config.json").exists()
+        && bf16_dir.join("tokenizer.json").exists()
+        && std::fs::read_dir(&bf16_dir)
+            .map(|entries| {
+                entries.filter_map(Result::ok).any(|entry| {
+                    entry.path().extension().and_then(|value| value.to_str()) == Some("safetensors")
+                })
+            })
+            .unwrap_or(false);
+    status.insert("gemma-4-e4b-bf16".to_string(), bf16_ready);
 
     Ok(status)
 }
@@ -70,23 +315,13 @@ pub async fn provision_model(
         .find(|model| model.id == id)
         .ok_or_else(|| format!("unknown model id: {id}"))?;
 
-    let (model_name, source_url) = match definition.filename.as_deref() {
-        Some("bge-small-en-v1.5.onnx") => (
-            "bge-small-en-v1.5.onnx".to_string(),
-            format!(
-                "https://huggingface.co/{}/resolve/main/onnx/model.onnx",
-                definition.repo_id
-            ),
-        ),
-        Some(filename) => (
-            filename.to_string(),
-            format!(
-                "https://huggingface.co/{}/resolve/main/{}",
-                definition.repo_id, filename
-            ),
-        ),
-        None => (definition.id.clone(), definition.repo_id.clone()),
-    };
+    let model_name = definition
+        .filename
+        .clone()
+        .unwrap_or_else(|| definition.id.clone());
+    let source_url = definition
+        .download_url()
+        .unwrap_or_else(|| definition.repo_id.clone());
 
     manager
         .ensure_model(
@@ -94,6 +329,8 @@ pub async fn provision_model(
             &id,
             name.as_deref().unwrap_or(&model_name),
             url.as_deref().unwrap_or(&source_url),
+            definition.expected_bytes,
+            definition.expected_sha256.as_deref(),
         )
         .await
         .map(|p| p.to_string_lossy().into_owned())
@@ -262,6 +499,9 @@ pub async fn get_app_settings(
     key: String,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
+    if key == "huggingface_token" {
+        return Ok(serde_json::Value::Null);
+    }
     let row = sqlx::query("SELECT value_json FROM app_settings WHERE key = ?")
         .bind(&key)
         .fetch_optional(&state.db)
@@ -283,6 +523,11 @@ pub async fn set_app_settings(
     value: serde_json::Value,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    if key == "huggingface_token" {
+        return Err(
+            "Hugging Face credentials must be stored with set_hugging_face_manual_token".into(),
+        );
+    }
     let val_str = serde_json::to_string(&value).map_err(to_error)?;
     sqlx::query(
         "INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = CURRENT_TIMESTAMP"
@@ -512,6 +757,54 @@ pub async fn get_disk_space_info(state: State<'_, AppState>) -> Result<DiskSpace
     } else {
         Err("Could not determine disk space for application directory".to_string())
     }
+}
+
+/// Exact signed-update lane for this binary. Windows CUDA and DirectML builds
+/// intentionally use different targets so an update can never replace one
+/// provider bundle with the other merely because both share the same OS/arch.
+#[tauri::command]
+pub fn get_update_target() -> &'static str {
+    #[cfg(all(target_os = "windows", feature = "cuda"))]
+    {
+        return "windows-cuda-x86_64";
+    }
+    #[cfg(all(target_os = "windows", not(feature = "cuda"), feature = "directml"))]
+    {
+        return "windows-directml-x86_64";
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "metal"))]
+    {
+        return "macos-metal-aarch64";
+    }
+    #[allow(unreachable_code)]
+    "unsupported-development-build"
+}
+
+/// Flush durable database state immediately before the signed updater hands
+/// control to the platform installer. The pool remains usable if installation
+/// is cancelled or fails before the process exits.
+#[tauri::command]
+pub async fn prepare_for_update(state: State<'_, AppState>) -> Result<(), String> {
+    let integrity: String = sqlx::query_scalar("PRAGMA quick_check")
+        .fetch_one(&state.db)
+        .await
+        .map_err(to_error)?;
+    if integrity != "ok" {
+        return Err(format!(
+            "database integrity check blocked the update: {integrity}"
+        ));
+    }
+    let checkpoint: (i64, i64, i64) = sqlx::query_as("PRAGMA wal_checkpoint(TRUNCATE)")
+        .fetch_one(&state.db)
+        .await
+        .map_err(to_error)?;
+    if checkpoint.0 != 0 {
+        return Err(format!(
+            "database checkpoint remained busy (status {})",
+            checkpoint.0
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]

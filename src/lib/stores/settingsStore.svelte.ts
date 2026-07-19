@@ -28,7 +28,6 @@ class SettingsStore {
 	} | null>(null);
 	storageLocation = $state<StorageLocationInfo | null>(null);
 	migration = $state<StorageMigrationProgress | null>(null);
-	private storageFallbackNotified = false;
 
 	async init() {
 		await Promise.all([
@@ -46,14 +45,6 @@ class SettingsStore {
 				addToast({
 					type: 'error',
 					message: `Storage migration failed: ${this.storageLocation.last_migration_error}. Your data is still at the previous location.`,
-					duration: 0
-				});
-			}
-			if (this.storageLocation.is_fallback && !this.storageFallbackNotified) {
-				this.storageFallbackNotified = true;
-				addToast({
-					type: 'error',
-					message: `Configured storage location ${this.storageLocation.configured_root} is unreachable. Using the default location for this session.`,
 					duration: 0
 				});
 			}
@@ -129,9 +120,6 @@ class SettingsStore {
 			const p = await invoke<string>('get_app_settings', { key: 'intelligence_persona' });
 			if (typeof p === 'string') this.personaModifier = p;
 
-			const t = await invoke<string>('get_app_settings', { key: 'huggingface_token' });
-			if (typeof t === 'string') this.hfToken = t;
-
 			const perf = await invoke<boolean | null>('get_app_settings', { key: 'performance_mode' });
 			if (typeof perf === 'boolean') this.performanceMode = perf;
 		} catch (e) {
@@ -160,8 +148,14 @@ class SettingsStore {
 	async saveHfToken() {
 		this.busy = 'token';
 		try {
-			await invoke('set_app_settings', { key: 'huggingface_token', value: this.hfToken });
-			addToast({ type: 'success', message: 'Hugging Face Token Updated', duration: 2000 });
+			if (!this.hfToken.trim()) throw new Error('Enter a Hugging Face read token.');
+			await invoke('set_hugging_face_manual_token', { token: this.hfToken.trim() });
+			this.hfToken = '';
+			addToast({
+				type: 'success',
+				message: 'Hugging Face token verified and secured in the OS credential vault.',
+				duration: 3000
+			});
 		} catch (e) {
 			addToast({ type: 'error', message: `Failed to save token: ${e}` });
 		} finally {

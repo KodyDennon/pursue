@@ -1,6 +1,6 @@
 [package]
 name = "pursue-data-analyzer"
-version = "0.10.1"
+version = "0.10.2"
 description = "Local-first PURSUE/WAR.gov OSINT evidence analyzer"
 authors = ["PURSUE Data Analyzer contributors"]
 edition = "2021"
@@ -11,13 +11,19 @@ edition = "2021"
 name = "pursue_data_analyzer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "pursue-data-analyzer"
+path = "src/main.rs"
+test = false
+bench = false
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [features]
 default = []
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "ort/cuda", "oar-ocr/cuda"]
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal", "ort/coreml", "oar-ocr/coreml"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "llama-cpp-4/cuda", "ort/cuda", "oar-ocr/cuda"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal", "llama-cpp-4/metal", "ort/coreml", "oar-ocr/coreml"]
 directml = ["ort/directml", "oar-ocr/directml"]
 
 [dependencies]
@@ -60,9 +66,15 @@ log = "0.4.29"
 once_cell = "1.21.4"
 futures = "0.3.32"
 tauri-plugin-process = "2.3.1"
-candle-core = "0.8.2"
-candle-nn = "0.8.2"
-candle-transformers = "0.8.2"
+tauri-plugin-updater = "2"
+candle-core = "0.11.0"
+candle-nn = "0.11.0"
+candle-transformers = "0.11.0"
+# llama-cpp-4 exposes helpers backed by llama.cpp's common library even when
+# its optional speculative API is unused.  Enabling `mtmd` makes the sys crate
+# compile/link that common library on every platform; without it, 0.4.2 passes
+# `cargo check` but fails during the final Windows link with unresolved symbols.
+llama-cpp-4 = { version = "0.4.2", default-features = false, features = ["mtmd"] }
 tokenizers = "0.23"
 ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
 num_cpus = "1.17.0"
@@ -72,6 +84,7 @@ flate2 = "1.0"
 oar-ocr = "0.6.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSURL", "NSString", "NSArray", "NSDictionary", "NSError"] }
 objc2-pdf-kit = { version = "0.3", features = ["PDFDocument", "PDFPage"] }
@@ -80,6 +93,7 @@ objc2-app-kit = { version = "0.3", features = ["NSImage"] }
 accelerate-src = "0.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 windows = { version = "0.52.0", features = [
     "Data_Pdf",
     "Storage",
@@ -89,6 +103,7 @@ windows = { version = "0.52.0", features = [
     "Security_Authorization",
     "Win32_Foundation",
     "Win32_Security",
+    "Win32_Storage_FileSystem",
     "Win32_System_Memory",
     "Win32_System_LibraryLoader",
     "Win32_System_WinRT"
@@ -96,6 +111,21 @@ windows = { version = "0.52.0", features = [
 
 [patch.crates-io]
 esaxx-rs = { path = "esaxx-rs-patched" }
+# Candle 0.11 defines CUDA helpers using names CUDA 12.4 already owns, which
+# prevents SM75/Turing builds. This local, source-identical patch namespaces
+# only those two helpers; remove it once the upstream crate includes the fix.
+candle-kernels = { path = "vendor/candle-kernels" }
+# cudaforge reports ordinary cache/thread progress as Cargo warnings. Keep the
+# compiler warning channel actionable while retaining status on build stderr.
+cudaforge = { path = "vendor/cudaforge" }
+# The upstream build script overwrites user-requested CMake parallelism. Our
+# narrow patch respects it and bounds Windows CUDA compilation to twelve jobs;
+# library code and bundled llama.cpp are unchanged.
+llama-cpp-sys-4 = { path = "vendor/llama-cpp-sys-4" }
+# oar-ocr-core did not mark requested GPU provider registration as required.
+# This narrow patch makes provider load failures fatal while still permitting
+# ONNX Runtime's lightweight CPU shape/control nodes inside a GPU graph.
+oar-ocr-core = { path = "vendor/oar-ocr-core" }
 
 # Line-table debug info in release builds so Windows crash dumps (WER minidumps)
 # can be symbolized against the shipped binary.

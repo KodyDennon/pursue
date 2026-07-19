@@ -7,7 +7,14 @@ import svelteParser from 'svelte-eslint-parser';
 
 export default tseslint.config(
 	{
-		ignores: ['build/**', '.svelte-kit/**', 'dist/**', 'src-tauri/target/**', 'src-python/venv/**']
+		ignores: [
+			'build/**',
+			'.svelte-kit/**',
+			'.tools/**',
+			'dist/**',
+			'src-tauri/target/**',
+			'src-python/venv/**'
+		]
 	},
 	eslint.configs.recommended,
 	...tseslint.configs.recommended,

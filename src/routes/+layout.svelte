@@ -7,11 +7,16 @@
 	import GlobalSearch from '$lib/components/GlobalSearch.svelte';
 	import Toasts from '$lib/components/Toasts.svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
+	import { updateStore } from '$lib/stores/updateStore.svelte';
 
 	let { children } = $props();
 
 	onMount(() => {
 		logger.debug('[Layout] Layout mounted.');
+		const timer = window.setTimeout(() => {
+			void updateStore.checkForUpdate({ silent: true, automatic: true });
+		}, 10_000);
+		return () => window.clearTimeout(timer);
 	});
 
 	$effect(() => {

@@ -1,97 +1,75 @@
-# Releases
+# Production Releases
 
-Releases are published through GitHub Actions and GitHub Releases.
+PURSUE releases are built, tested, signed for in-app updates, and published by GitHub Actions. GitHub Releases is the source of truth; an optional Cloudflare R2 mirror provides an independent large-file origin.
 
-## Supported Targets
+## Release lanes
 
-- macOS 26 or newer, Apple Silicon only (`aarch64-apple-darwin`).
-- Windows x64 through the default Tauri Windows installer target.
+- `macos-metal-aarch64`: macOS 14+ on Apple Silicon using Metal/CoreML.
+- `windows-cuda-x86_64`: Windows x64 with bundled CUDA 12/cuDNN/ONNX runtimes for NVIDIA Turing (SM75) and newer.
+- `windows-directml-x86_64`: Windows x64 using DirectML for non-NVIDIA or CUDA-incompatible GPUs.
 
-There is no Intel macOS or universal macOS release target.
+There is no Intel or universal macOS artifact. Windows users do not need a CUDA toolkit: the CUDA installer carries the redistributable runtime libraries. Both Windows installers carry Microsoft's signed Visual C++ redistributable and can bootstrap WebView2 when it is missing.
 
-## Installing On macOS
+## Update and persistence contract
 
-Use the DMG asset:
+The application checks a signed `latest.json` manifest after startup and on demand. It requests only its exact acceleration lane, verifies the Tauri updater signature before installation, runs SQLite `quick_check`, checkpoints the WAL, installs, and relaunches.
 
-- `PURSUE.Data.Analyzer_0.2.1_aarch64.dmg`
+An ordinary update, uninstall, or reinstall must preserve:
 
-Open the DMG and drag `PURSUE Data Analyzer.app` to `/Applications`.
+- `pursue.db`, WAL state, and versioned pre-migration backups;
+- the evidence library and source snapshots;
+- model files and resumable model/evidence downloads;
+- exports and the custom-storage pointer;
+- user settings and credentials stored by the OS keychain.
 
-The public build is unsigned and not notarized. macOS may report that the app is damaged or cannot be opened because the downloaded app is quarantined. If the app came from the official GitHub Release and you trust that download, remove the quarantine attribute:
+Destructive data removal is available only from the explicit Factory Reset flow inside the app.
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/PURSUE Data Analyzer.app"
-```
+The updater signature is not Windows Authenticode signing or Apple Developer ID notarization. Those OS trust systems require separate certificates; until configured, SmartScreen or Gatekeeper can still warn even though the in-app update bundle is cryptographically verified.
 
-Then open the app again.
+## Required GitHub configuration
 
-You can also try the graphical Gatekeeper override:
+Encrypted repository secrets:
 
-1. Try to open the app once.
-2. Open System Settings.
-3. Go to Privacy & Security.
-4. Use Open Anyway for PURSUE Data Analyzer if macOS shows the blocked app prompt.
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 
-## Installing On Windows
+The matching public key is committed at `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`. Never store the private key in a GitHub variable, repository file, workflow output, or release asset.
 
-Use one Windows asset:
+Optional R2 variables and secrets are documented in `docs/R2_MIRROR_HANDOFF.md`.
 
-- `PURSUE.Data.Analyzer_0.2.1_x64-setup.exe`: interactive setup executable for normal installs.
-- `PURSUE.Data.Analyzer_0.2.1_x64_en-US.msi`: MSI package for Windows Installer and managed deployment flows.
+## Validation performed by `build-installers`
 
-The Windows build is unsigned. Microsoft Defender SmartScreen may warn that the app is from an unknown publisher. If you trust the release from this repository, choose More info, then Run anyway.
+Every relevant push or pull request runs:
 
-Runtime notes:
+- frozen Bun install, Svelte typecheck, frontend production build, and lint-compatible configuration;
+- macOS Metal `cargo check` and tests;
+- Windows DirectML `cargo check` and tests with the production manifest embedded in the test executable;
+- installer compilation for Apple Silicon Metal, Windows DirectML, and Windows CUDA;
+- pinned PDFium and native-runtime staging checks.
 
-- The app targets 64-bit Windows.
-- Tauri uses Microsoft Edge WebView2. Current Windows 10 and Windows 11 systems usually include it already.
-- If Windows reports a missing WebView2 runtime, install Microsoft Edge WebView2 Runtime from Microsoft and run the PURSUE installer again.
-- Local image OCR or scanned-PDF OCR requires local OCR tools. Source sync, downloads, imports, embedded-text extraction, search, cases, and exports do not require hosted services.
+Tag builds additionally require the signing secrets, produce Tauri updater artifacts, publish installers and signatures, generate a strict three-lane `latest.json`, and mirror to R2 when enabled. The manifest job refuses missing, duplicate, partial, draft, or non-HTTPS release assets.
 
-## Release Automation
+## Published assets
 
-The `build-installers` workflow runs on pushes, pull requests, manual dispatch, and tags matching `v*`.
+A production tag is complete only when GitHub contains:
 
-For normal branch pushes and pull requests it runs:
+- one Apple Silicon DMG;
+- one Windows CUDA setup EXE and MSI;
+- one Windows DirectML setup EXE and MSI;
+- one Apple Silicon `.app.tar.gz` updater and `.sig`;
+- one CUDA `.msi.zip` updater and `.sig` (the self-contained CUDA payload exceeds NSIS's 2 GiB compiler limit);
+- one DirectML `.nsis.zip` updater and `.sig`;
+- `latest.json` containing exactly the three release lanes.
 
-- `bun install --frozen-lockfile`
-- `bun run check`
-- `bun run build`
-- `cargo check`
-- `cargo test`
-- Tauri installer builds for macOS and Windows
+## Publishing
 
-For tags matching `v*`, the workflow publishes a non-draft GitHub Release with downloadable installer assets.
-
-The repository Actions permission is configured with `contents: write` so tag builds can create and update releases.
-
-## Publishing A Release
-
-Manual release path:
-
-```bash
-git tag v0.2.1
-git push origin v0.2.1
-```
-
-Automated version path:
-
-```bash
-git commit -m "release: patch"
-git push origin main
-```
-
-The `Auto Version and Release` workflow accepts:
+The `Auto Version and Release` workflow accepts commit subjects beginning with:
 
 - `release: patch`
 - `release: minor`
 - `release: major`
 - `release: 1.2.3`
 
-It updates `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, commits the version bump when needed, and pushes the matching `v*` tag.
+It synchronizes `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, then creates the matching `v*` tag. A manually created tag is also supported, but all four version sources must already agree.
 
-## Signing
-
-The public release workflow intentionally publishes unsigned installers by default. Invalid or incomplete signing secrets must not block downloadable releases.
-
-Unsigned builds can still be downloaded from GitHub Releases, but macOS and Windows may show trust warnings during install. Add a separate signed release lane only after Apple Developer ID, notarization, Windows code signing, and Tauri signing secrets have been verified in CI.
+After pushing, monitor both `Auto Version and Release` and `build-installers` to completion. Do not announce production deployment until the tag exists, all required jobs are green, the GitHub asset inventory is complete, updater signatures match their manifests, and any enabled R2 mirror has passed public URL/digest verification.

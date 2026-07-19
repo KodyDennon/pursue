@@ -161,7 +161,6 @@ export interface StorageLocationInfo {
 	configured_root: string | null;
 	effective_root: string;
 	is_custom: boolean;
-	is_fallback: boolean;
 	last_migration_error: string | null;
 }
 

@@ -106,7 +106,7 @@ fn load_embedding_session_from(
 struct EmbeddingProviderAttempt {
     label: &'static str,
     providers: Vec<ExecutionProviderDispatch>,
-    strict_gpu: bool,
+    allow_cpu_control_ops: bool,
 }
 
 fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
@@ -127,9 +127,9 @@ fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
                 cuda = cuda.with_memory_limit(limit);
             }
             attempts.push(EmbeddingProviderAttempt {
-                label: "NVIDIA CUDA",
+                label: "NVIDIA CUDA (GPU compute; CPU control ops allowed)",
                 providers: vec![cuda.build().error_on_failure()],
-                strict_gpu: true,
+                allow_cpu_control_ops: true,
             });
         }
     };
@@ -139,14 +139,14 @@ fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
         {
             let attempts = _attempts;
             attempts.push(EmbeddingProviderAttempt {
-                label: "Apple CoreML",
+                label: "Apple CoreML (GPU/ANE compute; CPU control ops allowed)",
                 providers: vec![ort::ep::CoreML::default()
                     .with_compute_units(ort::ep::coreml::ComputeUnits::All)
                     .with_subgraphs(true)
                     .with_low_precision_accumulation_on_gpu(true)
                     .build()
                     .error_on_failure()],
-                strict_gpu: true,
+                allow_cpu_control_ops: true,
             });
         }
     };
@@ -156,12 +156,12 @@ fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
         {
             let attempts = _attempts;
             attempts.push(EmbeddingProviderAttempt {
-                label: "Windows DirectML",
+                label: "Windows DirectML (GPU compute; CPU control ops allowed)",
                 providers: vec![ort::ep::DirectML::default()
                     .with_device_id(0)
                     .build()
                     .error_on_failure()],
-                strict_gpu: true,
+                allow_cpu_control_ops: true,
             });
         }
     };
@@ -187,7 +187,7 @@ fn embedding_provider_attempts() -> Vec<EmbeddingProviderAttempt> {
     attempts.push(EmbeddingProviderAttempt {
         label: "CPU fallback",
         providers: vec![ort::ep::CPU::default().build()],
-        strict_gpu: false,
+        allow_cpu_control_ops: true,
     });
     attempts
 }
@@ -200,16 +200,22 @@ fn build_embedding_session(
         .map_err(|e| anyhow::anyhow!("failed to create ort session builder: {}", e))?
         .with_intra_threads(crate::analysis::hardware::cpu_inference_threads())
         .map_err(|e| anyhow::anyhow!("failed to set intra-op threads: {}", e))?;
-    if attempt.strict_gpu {
+    if !attempt.allow_cpu_control_ops {
         builder = builder
             .with_config_entry("session.disable_cpu_ep_fallback", "1")
             .map_err(|e| anyhow::anyhow!("failed to disable implicit CPU fallback: {}", e))?;
     }
-    if attempt.label == "Windows DirectML" {
+    // The pinned BGE graph executes its matrix and attention kernels on the
+    // selected accelerator, while ONNX Runtime assigns a few shape/control
+    // nodes to CPU. Disabling those tiny nodes rejects an otherwise GPU-run
+    // graph. A complete CPU session remains the final explicit attempt.
+    if attempt.label.starts_with("Windows DirectML") {
         builder = builder
             .with_parallel_execution(false)
-            .and_then(|builder| builder.with_memory_pattern(false))
             .map_err(|e| anyhow::anyhow!("failed to configure DirectML session safety: {}", e))?;
+        builder = builder
+            .with_memory_pattern(false)
+            .map_err(|e| anyhow::anyhow!("failed to configure DirectML memory safety: {}", e))?;
     }
     builder
         .with_execution_providers(&attempt.providers)

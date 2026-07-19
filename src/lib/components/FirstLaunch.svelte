@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+	import { openUrl } from '@tauri-apps/plugin-opener';
 	import Logo from '$lib/components/Logo.svelte';
 	import { MODELS } from '$lib/models';
 
@@ -26,6 +27,15 @@
 		eta_seconds?: number;
 	}
 
+	interface HuggingFaceDeviceAuthSession {
+		device_code: string;
+		user_code: string;
+		verification_uri: string;
+		verification_uri_complete: string;
+		interval: number;
+		expires_in: number;
+	}
+
 	let step = $state<'diagnostic' | 'selection' | 'provisioning' | 'ready'>('diagnostic');
 	let statusText = $state('Analyzing hardware environment...');
 	let modelProgress = $state(0);
@@ -40,6 +50,16 @@
 	let modelStatus = $state<Record<string, boolean>>({});
 	let selectedTier = $state<'Standard' | 'Elite'>('Standard');
 	let currentModelName = $state('');
+	let hfToken = $state('');
+	let hfUsername = $state('');
+	let hfAuthStatus = $state('');
+	let hfAuthError = $state<string | null>(null);
+	let hfAuthBusy = $state(false);
+	let provisioningError = $state<string | null>(null);
+
+	function errorMessage(error: unknown): string {
+		return error instanceof Error ? error.message : String(error);
+	}
 
 	onMount(() => {
 		console.log('[FirstLaunch] Component mounted.');
@@ -49,16 +69,21 @@
 			try {
 				specs = await invoke<HardwareDiagnostics>('get_hardware_diagnostics');
 				modelStatus = await invoke<Record<string, boolean>>('check_model_status');
-				const runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
+				const savedUsername = await invoke<string | null>('get_app_settings', {
+					key: 'huggingface_username'
+				});
+				if (typeof savedUsername === 'string') hfUsername = savedUsername;
 
 				console.log('[FirstLaunch] Diagnostics:', specs);
 				console.log('[FirstLaunch] Model Status:', modelStatus);
-				console.log('[FirstLaunch] Runtime Status:', runtimeProvisioned);
 
 				selectedTier = specs.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
 
 				const requiredIds = MODELS[selectedTier].map((m) => m.id);
-				const allPresent = requiredIds.every((id) => modelStatus[id]) && runtimeProvisioned;
+				const modelsPresent = requiredIds.every((id) => modelStatus[id]);
+				const runtimeProvisioned =
+					selectedTier === 'Elite' ? await invoke<boolean>('check_neural_runtime_status') : true;
+				const allPresent = modelsPresent && runtimeProvisioned;
 
 				console.log('[FirstLaunch] Tier:', selectedTier, 'All present:', allPresent);
 
@@ -127,11 +152,49 @@
 		};
 	});
 
+	async function signInToHuggingFace() {
+		hfAuthBusy = true;
+		hfAuthError = null;
+		hfAuthStatus = 'Requesting a secure sign-in code…';
+		try {
+			const session = await invoke<HuggingFaceDeviceAuthSession>('begin_hugging_face_device_auth');
+			hfAuthStatus = `Enter code ${session.user_code} in the Hugging Face window, then approve access.`;
+			await openUrl(session.verification_uri_complete);
+			const result = await invoke<{ username: string }>('complete_hugging_face_device_auth', {
+				session
+			});
+			hfUsername = result.username;
+			// The backend stores and refreshes the OAuth token. Do not overwrite it later with a
+			// stale manually entered token that may have been loaded before this sign-in.
+			hfToken = '';
+			hfAuthStatus = `Signed in as ${result.username}.`;
+		} catch (error) {
+			hfAuthError = errorMessage(error);
+			hfAuthStatus = '';
+		} finally {
+			hfAuthBusy = false;
+		}
+	}
+
 	async function startProvisioning() {
 		step = 'provisioning';
+		provisioningError = null;
+		if (hfToken.trim()) {
+			try {
+				const result = await invoke<{ username: string }>('set_hugging_face_manual_token', {
+					token: hfToken.trim()
+				});
+				hfUsername = result.username;
+				hfToken = '';
+			} catch (error) {
+				provisioningError = `Could not securely save the Hugging Face token: ${errorMessage(error)}`;
+				statusText = 'Provisioning stopped before download.';
+				return;
+			}
+		}
 		const models = MODELS[selectedTier];
-		// We add 1 for the Neural Vision Runtime
-		totalModels = models.length + 1;
+		const requiresVisionRuntime = selectedTier === 'Elite';
+		totalModels = models.length + (requiresVisionRuntime ? 1 : 0);
 		modelsCompleted = 0;
 		overallProgress = 0;
 		let skipped = 0;
@@ -145,8 +208,14 @@
 			speedMbps = null;
 			etaSeconds = null;
 
-			// Re-check status
-			const currentStatus = await invoke<Record<string, boolean>>('check_model_status');
+			let currentStatus: Record<string, boolean>;
+			try {
+				currentStatus = await invoke<Record<string, boolean>>('check_model_status');
+			} catch (error) {
+				provisioningError = `Could not verify the model cache: ${errorMessage(error)}`;
+				statusText = 'Provisioning stopped because cache verification failed.';
+				return;
+			}
 			if (currentStatus[model.id]) {
 				statusText = `[${i + 1}/${totalModels}] ${model.name} — Already cached`;
 				modelProgress = 100;
@@ -195,44 +264,46 @@
 					statusText = `[${i + 1}/${totalModels}] ${model.name} downloaded`;
 				} catch (e2) {
 					console.error(`Critical failure for ${model.name}`, e2);
-					statusText = `[${i + 1}/${totalModels}] ✗ Failed: ${model.name}`;
-					modelsCompleted = i + 1;
-					overallProgress = Math.round((modelsCompleted / totalModels) * 100);
-					await new Promise((r) => setTimeout(r, 1500));
+					statusText = `[${i + 1}/${totalModels}] Failed: ${model.name}`;
+					provisioningError = errorMessage(e2);
+					return;
 				}
 			}
 		}
 
-		// 2. Provision Neural Vision Runtime (Python)
-		currentModelIndex = totalModels;
-		currentModelName = 'Neural Vision Runtime';
-		modelProgress = 0;
-		speedMbps = null;
-		etaSeconds = null;
+		// The Python vision sidecar is optional and only belongs to the Elite tier.
+		// Standard uses the embedded Rust runtimes and has no Python prerequisite.
+		if (requiresVisionRuntime) {
+			// 2. Provision Neural Vision Runtime (Python)
+			currentModelIndex = totalModels;
+			currentModelName = 'Neural Vision Runtime';
+			modelProgress = 0;
+			speedMbps = null;
+			etaSeconds = null;
 
-		const runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
-		if (runtimeProvisioned) {
-			statusText = `[${totalModels}/${totalModels}] Neural Runtime — Verified`;
-			modelProgress = 100;
-			modelsCompleted = totalModels;
-			overallProgress = 100;
-			skipped++;
-			await new Promise((r) => setTimeout(r, 500));
-		} else {
-			statusText = `[${totalModels}/${totalModels}] Provisioning Neural Runtime...`;
 			try {
-				await invoke('provision_neural_runtime');
-				modelProgress = 100;
-				modelsCompleted = totalModels;
-				overallProgress = 100;
-				statusText = `[${totalModels}/${totalModels}] Neural Runtime ready`;
-				await new Promise((r) => setTimeout(r, 1000));
+				const runtimeProvisioned = await invoke<boolean>('check_neural_runtime_status');
+				if (runtimeProvisioned) {
+					statusText = `[${totalModels}/${totalModels}] Neural Runtime — Verified`;
+					modelProgress = 100;
+					modelsCompleted = totalModels;
+					overallProgress = 100;
+					skipped++;
+					await new Promise((r) => setTimeout(r, 500));
+				} else {
+					statusText = `[${totalModels}/${totalModels}] Provisioning Neural Runtime...`;
+					await invoke('provision_neural_runtime');
+					modelProgress = 100;
+					modelsCompleted = totalModels;
+					overallProgress = 100;
+					statusText = `[${totalModels}/${totalModels}] Neural Runtime ready`;
+					await new Promise((r) => setTimeout(r, 1000));
+				}
 			} catch (e) {
 				console.error('Failed to provision neural runtime', e);
-				statusText = `[${totalModels}/${totalModels}] ✗ Runtime Provisioning Failed: ${e}`;
-				modelsCompleted = totalModels;
-				overallProgress = 100;
-				await new Promise((r) => setTimeout(r, 3000));
+				statusText = `[${totalModels}/${totalModels}] Neural Runtime provisioning failed`;
+				provisioningError = errorMessage(e);
+				return;
 			}
 		}
 
@@ -257,7 +328,16 @@
 			<SelectionStep
 				{specs}
 				{selectedTier}
+				{hfToken}
+				{hfUsername}
+				{hfAuthStatus}
+				{hfAuthError}
+				{hfAuthBusy}
 				onSelectTier={(tier) => (selectedTier = tier)}
+				onHfTokenChange={(token) => (hfToken = token)}
+				onHfSignIn={signInToHuggingFace}
+				onOpenGemmaLicense={() =>
+					openUrl('https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf')}
 				onStartProvisioning={startProvisioning}
 			/>
 		{:else if step === 'provisioning'}
@@ -270,6 +350,12 @@
 				{etaSeconds}
 				{currentModelIndex}
 				{totalModels}
+				error={provisioningError}
+				onRetry={startProvisioning}
+				onBack={() => {
+					provisioningError = null;
+					step = 'selection';
+				}}
 			/>
 		{:else if step === 'ready'}
 			<ReadyStep {statusText} />

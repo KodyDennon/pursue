@@ -7,6 +7,16 @@ $stageDir = Join-Path $PSScriptRoot '..\..\src-tauri\assets\native_runtime'
 $stageDir = [System.IO.Path]::GetFullPath($stageDir)
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 
+function Download-SignedMicrosoftFile([string]$Url, [string]$Destination) {
+    & curl.exe --fail --location --retry 5 --retry-all-errors $Url --output $Destination
+    if ($LASTEXITCODE -ne 0) { throw "Download failed: $Url" }
+    $signature = Get-AuthenticodeSignature -LiteralPath $Destination
+    if ($signature.Status -ne 'Valid' -or
+        $signature.SignerCertificate.Subject -notmatch '(^|, )O=Microsoft Corporation(, |$)') {
+        throw "Microsoft Authenticode validation failed for $Url"
+    }
+}
+
 function Copy-ResolvedFile([string]$Source, [string]$DestinationDirectory) {
     $item = Get-Item -LiteralPath $Source
     if ($item.LinkType) {
@@ -41,6 +51,14 @@ Download-PinnedFile `
     'https://raw.githubusercontent.com/microsoft/onnxruntime/v1.24.2/LICENSE' `
     (Join-Path $stageDir 'Microsoft-ONNX-Runtime-LICENSE.txt') `
     '2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c'
+
+# ONNX Runtime and the MSVC-built CUDA/DirectML libraries depend on the current
+# Microsoft Visual C++ v14 runtime. Bundle Microsoft's signed x64 redistributable
+# so the NSIS installer can repair/install it without asking users to diagnose a
+# missing vcruntime DLL after installation.
+Download-SignedMicrosoftFile `
+    'https://aka.ms/vs/17/release/vc_redist.x64.exe' `
+    (Join-Path $stageDir 'vc_redist.x64.exe')
 
 # ort's copy-dylibs feature may create symlinks into its user-level download cache. Those
 # links are fragile in sandboxes and on locked-down Windows installations, and the test
@@ -113,7 +131,7 @@ if ($Cuda) {
     Remove-Item -LiteralPath $workDir -Recurse -Force
 }
 
-$required = @('DirectML.dll')
+$required = @('DirectML.dll', 'vc_redist.x64.exe')
 if ($Cuda) {
     $required += @('onnxruntime_providers_cuda.dll', 'onnxruntime_providers_shared.dll', 'cudnn64_9.dll', 'cudart64_12.dll', 'cublas64_12.dll', 'cublasLt64_12.dll', 'cufft64_11.dll')
 }

@@ -13,9 +13,37 @@ use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 use tokenizers::Tokenizer;
 
+use llama_cpp_4::prelude::{
+    fit_params, AddBos, FitParams, LlamaBackend, LlamaBatch, LlamaChatMessage, LlamaContextParams,
+    LlamaFlashAttnType, LlamaModel, LlamaModelParams, LlamaSampler, Special,
+};
+use std::num::NonZeroU32;
+
+const JSON_GBNF: &str = r#"
+root ::= object
+value ::= object | array | string | number | ("true" | "false" | "null") ws
+object ::= "{" ws (string ":" ws value ("," ws string ":" ws value)*)? "}" ws
+array ::= "[" ws (value ("," ws value)*)? "]" ws
+string ::= "\"" ([^"\\\x7F\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{4}))* "\"" ws
+number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9]+)? ws
+ws ::= | " " | "\n" [ \t]{0,20}
+"#;
+
+pub enum GemmaRuntime {
+    Native {
+        model: Box<gemma4::Model>,
+        tokenizer: Box<Tokenizer>,
+    },
+    Gguf {
+        backend: LlamaBackend,
+        model: LlamaModel,
+        context_size: u32,
+        gpu_layers: i32,
+    },
+}
+
 pub struct GemmaContext {
-    pub model: gemma4::Model,
-    pub tokenizer: Tokenizer,
+    pub runtime: GemmaRuntime,
     pub repo_path: PathBuf,
     pub device_label: String,
     pub acceleration_preference: String,
@@ -109,6 +137,9 @@ impl IntelligenceExtractor {
             .unwrap_or(true);
 
         if cache_needs_reload {
+            // llama.cpp permits one backend per process. Drop any resident GGUF runtime
+            // before initializing a replacement with a different acceleration policy.
+            *cache = None;
             debug!("[Extraction] Loading model from: {:?}", repo_path);
             let _ = handle.emit(
                 "analysis-progress",
@@ -156,10 +187,13 @@ impl IntelligenceExtractor {
             }
         }
 
-        let related_context = format!(
-            "{}\n\nCRITICAL CONTEXT FROM SEMANTIC INDEX:\n{}\n",
-            forensic_manifest,
-            fragments.join("\n---\n")
+        let related_context = bounded_evidence_context(
+            format!(
+                "{}\n\nCRITICAL CONTEXT FROM SEMANTIC INDEX:\n{}\n",
+                forensic_manifest,
+                fragments.join("\n---\n")
+            ),
+            12_000,
         );
 
         // 3. OPTIMIZED INPUT TEXT
@@ -240,7 +274,7 @@ impl IntelligenceExtractor {
                 let model_id = repo_path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("gemma-3-1b-it")
+                    .unwrap_or("gemma-4-e4b")
                     .to_string();
 
                 sqlx::query("INSERT INTO intelligence_logs (id, record_id, system_prompt, user_prompt, thought_block, response_json, model_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -304,20 +338,83 @@ impl IntelligenceExtractor {
         related_context: String,
         _images: Vec<PathBuf>,
     ) -> Result<InferenceOutput> {
-        let device = ctx.model.device.clone();
         let system_prompt = build_text_system_prompt(&related_context);
         let user_prompt = build_text_user_prompt(&text);
 
-        // Gemma instruction checkpoints use start/end-of-turn tokens. The previous
-        // ChatML prompt markers were ordinary unknown text to Gemma and undermined its
-        // ability to follow the strict JSON contract.
+        let (generated_text, runtime_context) = match ctx.runtime {
+            GemmaRuntime::Native { model, tokenizer } => Self::run_native_inference(
+                &handle,
+                &rid,
+                model,
+                tokenizer,
+                &system_prompt,
+                &user_prompt,
+                &ctx.device_label,
+            )?,
+            GemmaRuntime::Gguf {
+                backend,
+                model,
+                context_size,
+                gpu_layers,
+            } => Self::run_gguf_inference(
+                &handle,
+                &rid,
+                backend,
+                model,
+                context_size,
+                gpu_layers,
+                &system_prompt,
+                &user_prompt,
+                &ctx.device_label,
+            )?,
+        };
+
+        ctx.runtime = runtime_context;
+
+        let json_start = generated_text.find('{').unwrap_or(0);
+        let preamble = generated_text[..json_start].trim().to_string();
+
+        let json_end = generated_text
+            .rfind('}')
+            .map(|i| i + 1)
+            .unwrap_or(generated_text.len());
+        let json_str = &generated_text[json_start..json_end];
+
+        let mut val = serde_json::from_str::<Value>(json_str).map_err(|error| {
+            anyhow!(
+                "Gemma 4 synthesis returned invalid JSON: {}. Raw response prefix: {}",
+                error,
+                generated_text.chars().take(240).collect::<String>()
+            )
+        })?;
+        normalize_text_audit_schema(&mut val, &ctx.device_label);
+
+        Ok(InferenceOutput {
+            response: val,
+            preamble,
+            system_prompt,
+            user_prompt,
+            context: ctx,
+        })
+    }
+
+    fn run_native_inference(
+        handle: &AppHandle,
+        rid: &str,
+        mut model: Box<gemma4::Model>,
+        tokenizer: Box<Tokenizer>,
+        system_prompt: &str,
+        user_prompt: &str,
+        device_label: &str,
+    ) -> Result<(String, GemmaRuntime)> {
+        let device = model.device.clone();
+
         let prompt = format!(
-            "<start_of_turn>user\n{}\n\n{}<end_of_turn>\n<start_of_turn>model\n",
+            "<bos><|turn>system\n{}<turn|>\n<|turn>user\n{}<turn|>\n<|turn>model\n",
             system_prompt, user_prompt
         );
 
-        let mut tokens = ctx
-            .tokenizer
+        let mut tokens = tokenizer
             .encode(prompt, true)
             .map_err(|e| anyhow!("Tokenization failed: {}", e))?
             .get_ids()
@@ -326,7 +423,7 @@ impl IntelligenceExtractor {
         let mut logits_processor = LogitsProcessor::new(1337, Some(0.0), None);
         let mut generated_text = String::new();
         let mut pos = 0;
-        ctx.model.clear_kv_cache();
+        model.clear_kv_cache();
 
         let _ = handle.emit(
             "analysis-progress",
@@ -343,7 +440,7 @@ impl IntelligenceExtractor {
 
             // SHAPE TELEMETRY: Capture internal state
             let input_dims = input.dims().to_vec();
-            let logits = ctx.model.forward(&input, pos)?;
+            let logits = model.forward(&input, pos)?;
             let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
 
             let next_token = logits_processor.sample(&logits)?;
@@ -351,11 +448,11 @@ impl IntelligenceExtractor {
             pos += context_size;
 
             let mut piece_to_emit = None;
-            if let Some(decoded) = ctx.tokenizer.id_to_token(next_token) {
-                if decoded == "<end_of_turn>" || next_token == 1 || next_token == 106 {
+            if let Some(decoded) = tokenizer.id_to_token(next_token) {
+                if decoded == "<turn|>" || next_token == 1 {
                     break;
                 }
-                if let Ok(piece) = ctx.tokenizer.decode(&[next_token], true) {
+                if let Ok(piece) = tokenizer.decode(&[next_token], true) {
                     generated_text.push_str(&piece);
                     piece_to_emit = Some(piece);
                 }
@@ -372,7 +469,7 @@ impl IntelligenceExtractor {
                         "token_text": piece_to_emit,
                         "telemetry": {
                             "input_shape": input_dims,
-                            "kv_cache": "managed by candle Gemma 3",
+                            "kv_cache": "managed by native Candle Gemma 4",
                             "device": format!("{:?}", device)
                         }
                     }),
@@ -380,34 +477,125 @@ impl IntelligenceExtractor {
             }
         }
 
-        let json_start = generated_text.find('{').unwrap_or(0);
-        let preamble = generated_text[..json_start].trim().to_string();
+        let _ = device_label;
+        Ok((generated_text, GemmaRuntime::Native { model, tokenizer }))
+    }
 
-        let json_end = generated_text
-            .rfind('}')
-            .map(|i| i + 1)
-            .unwrap_or(generated_text.len());
-        let json_str = &generated_text[json_start..json_end];
+    #[allow(clippy::too_many_arguments)]
+    fn run_gguf_inference(
+        handle: &AppHandle,
+        rid: &str,
+        backend: LlamaBackend,
+        model: LlamaModel,
+        context_size: u32,
+        gpu_layers: i32,
+        system_prompt: &str,
+        user_prompt: &str,
+        device_label: &str,
+    ) -> Result<(String, GemmaRuntime)> {
+        let messages = [
+            LlamaChatMessage::new("system".to_string(), system_prompt.to_string())?,
+            LlamaChatMessage::new("user".to_string(), user_prompt.to_string())?,
+        ];
+        let prompt = model.apply_chat_template(None, &messages, true)?;
+        let tokens = model.str_to_token(&prompt, AddBos::Never)?;
+        let generation_limit = 2048_usize;
+        if tokens.len().saturating_add(generation_limit) > context_size as usize {
+            return Err(anyhow!(
+                "Gemma 4 prompt requires {} tokens, exceeding the fitted {}-token context; reduce record context or free accelerator memory",
+                tokens.len().saturating_add(generation_limit),
+                context_size
+            ));
+        }
 
-        let mut val = serde_json::from_str::<Value>(json_str).map_err(|error| {
-            anyhow!(
-                "Gemma text synthesis returned invalid JSON: {}. Raw response prefix: {}",
-                error,
-                generated_text.chars().take(240).collect::<String>()
-            )
-        })?;
-        normalize_text_audit_schema(&mut val, &ctx.device_label);
+        let context_params = LlamaContextParams::default()
+            .with_n_ctx(NonZeroU32::new(context_size))
+            .with_n_batch(context_size.min(1024))
+            .with_n_threads(crate::analysis::hardware::cpu_inference_threads() as i32)
+            .with_n_threads_batch(crate::analysis::hardware::cpu_inference_threads() as i32)
+            .with_flash_attn_type(LlamaFlashAttnType::Auto);
+        let mut llama_context = model.new_context(&backend, context_params)?;
+        let batch_capacity = context_size.min(1024) as usize;
+        let mut batch = LlamaBatch::new(batch_capacity, 1);
+        for (chunk_index, chunk) in tokens.chunks(batch_capacity).enumerate() {
+            batch.clear();
+            let base = chunk_index * batch_capacity;
+            for (local_index, token) in chunk.iter().copied().enumerate() {
+                let absolute_index = base + local_index;
+                batch.add(
+                    token,
+                    absolute_index as i32,
+                    &[0],
+                    absolute_index + 1 == tokens.len(),
+                )?;
+            }
+            llama_context.decode(&mut batch)?;
+        }
 
-        Ok(InferenceOutput {
-            response: val,
-            preamble,
-            system_prompt,
-            user_prompt,
-            context: ctx,
-        })
+        // Constrain generation to syntactically valid JSON. The schema is still normalized
+        // and provenance-checked after parsing, but malformed braces can no longer discard an
+        // otherwise expensive synthesis pass.
+        let sampler = LlamaSampler::chain_simple([
+            LlamaSampler::grammar(&model, JSON_GBNF, "root"),
+            LlamaSampler::greedy(),
+        ]);
+        let mut generated = Vec::new();
+        let _ = handle.emit(
+            "analysis-progress",
+            json!({"status": "synthesizing-start", "record_id": rid}),
+        );
+
+        for (position, index) in (tokens.len() as i32..).zip(0..generation_limit) {
+            let token = sampler.sample(&llama_context, 0);
+            if model.is_eog_token(token) {
+                break;
+            }
+            let bytes = model.token_to_bytes(token, Special::Plaintext)?;
+            generated.extend_from_slice(&bytes);
+            let piece = String::from_utf8_lossy(&bytes).to_string();
+
+            if index % 5 == 0 || !piece.is_empty() {
+                let _ = handle.emit(
+                    "analysis-progress",
+                    json!({
+                        "status": "synthesizing",
+                        "record_id": rid,
+                        "token_index": index,
+                        "token_limit": generation_limit,
+                        "token_text": piece,
+                        "telemetry": {
+                            "kv_cache": "managed by llama.cpp Gemma 4",
+                            "device": device_label,
+                            "gpu_layers": gpu_layers,
+                            "context_size": context_size
+                        }
+                    }),
+                );
+            }
+
+            batch.clear();
+            batch.add(token, position, &[0], true)?;
+            llama_context.decode(&mut batch)?;
+        }
+
+        let generated_text = String::from_utf8(generated)
+            .map_err(|error| anyhow!("Gemma 4 returned invalid UTF-8: {error}"))?;
+        drop(llama_context);
+        Ok((
+            generated_text,
+            GemmaRuntime::Gguf {
+                backend,
+                model,
+                context_size,
+                gpu_layers,
+            },
+        ))
     }
 
     fn load_context(repo_path: &PathBuf, force_cpu: bool) -> Result<GemmaContext> {
+        if repo_path.extension().and_then(|value| value.to_str()) == Some("gguf") {
+            return Self::load_gguf_context(repo_path, force_cpu);
+        }
         let config_data = std::fs::read_to_string(repo_path.join("config.json"))?;
         let config_wrapper: gemma4::ConfigWrapper = serde_json::from_str(&config_data)?;
         let config = config_wrapper.extract().map_err(|e| anyhow!("{}", e))?;
@@ -455,6 +643,63 @@ impl IntelligenceExtractor {
         Err(last_error.unwrap_or_else(|| anyhow!("No inference devices were available")))
     }
 
+    fn load_gguf_context(model_path: &Path, force_cpu: bool) -> Result<GemmaContext> {
+        let mut backend = LlamaBackend::init()?;
+        backend.void_logs();
+
+        let (model_params, context_size, gpu_layers) = if force_cpu {
+            (LlamaModelParams::default().with_n_gpu_layers(0), 8192, 0)
+        } else {
+            let fitted = fit_params(
+                &backend,
+                model_path,
+                FitParams::default().with_n_ctx_min(8192),
+            )
+            .map_err(|error| anyhow!("could not fit Gemma 4 to available memory: {error}"))?;
+            let context_size = fitted
+                .context_params
+                .n_ctx()
+                .map(NonZeroU32::get)
+                .unwrap_or(8192)
+                .max(8192);
+            let gpu_layers = fitted.model_params.n_gpu_layers();
+            (fitted.model_params, context_size, gpu_layers)
+        };
+
+        let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
+            .map_err(|error| anyhow!("failed to load Gemma 4 GGUF: {error}"))?;
+        let device_label = if gpu_layers > 0 {
+            if cfg!(feature = "cuda") {
+                format!("NVIDIA CUDA via llama.cpp ({gpu_layers} GPU layers)")
+            } else if cfg!(feature = "metal") {
+                format!("Apple Metal via llama.cpp ({gpu_layers} GPU layers)")
+            } else {
+                format!("GPU offload via llama.cpp ({gpu_layers} GPU layers)")
+            }
+        } else {
+            format!(
+                "CPU last-resort fallback via llama.cpp ({} threads)",
+                crate::analysis::hardware::cpu_inference_threads()
+            )
+        };
+        crate::analysis::hardware::record_active_inference_backend(
+            "Intelligence model",
+            &device_label,
+        );
+
+        Ok(GemmaContext {
+            runtime: GemmaRuntime::Gguf {
+                backend,
+                model,
+                context_size,
+                gpu_layers,
+            },
+            repo_path: model_path.to_path_buf(),
+            device_label,
+            acceleration_preference: format!("{:?}", acceleration_preference(force_cpu)),
+        })
+    }
+
     fn load_context_on_device(
         repo_path: &Path,
         safetensors_paths: &[PathBuf],
@@ -471,13 +716,37 @@ impl IntelligenceExtractor {
             Tokenizer::from_file(repo_path.join("tokenizer.json")).map_err(|e| anyhow!(e))?;
 
         Ok(GemmaContext {
-            model,
-            tokenizer,
+            runtime: GemmaRuntime::Native {
+                model: Box::new(model),
+                tokenizer: Box::new(tokenizer),
+            },
             repo_path: repo_path.to_path_buf(),
             device_label: device_label.to_string(),
             acceleration_preference: requested_preference.to_string(),
         })
     }
+}
+
+fn bounded_evidence_context(input: String, max_chars: usize) -> String {
+    let char_count = input.chars().count();
+    if char_count <= max_chars {
+        return input;
+    }
+
+    let head_chars = max_chars.saturating_mul(3) / 4;
+    let tail_chars = max_chars.saturating_sub(head_chars);
+    let head = input.chars().take(head_chars).collect::<String>();
+    let tail = input
+        .chars()
+        .rev()
+        .take(tail_chars)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    format!(
+        "{head}\n\n[Context truncated deterministically to fit the local model window.]\n\n{tail}"
+    )
 }
 
 fn build_text_system_prompt(related_context: &str) -> String {
@@ -535,7 +804,7 @@ fn normalize_text_audit_schema(value: &mut Value, device_label: &str) {
             "This synthesis path is text/manifest-only and did not inspect image pixels."
         ])
     });
-    object.insert("runtime".to_string(), json!("local_candle_text"));
+    object.insert("runtime".to_string(), json!("local_gemma4"));
     object.insert("runtime_device".to_string(), json!(device_label));
 }
 
@@ -583,7 +852,7 @@ mod tests {
     fn text_schema_notes_no_image_inspection() {
         let mut value = json!({});
         normalize_text_audit_schema(&mut value, "CPU");
-        assert_eq!(value["runtime"], "local_candle_text");
+        assert_eq!(value["runtime"], "local_gemma4");
         assert!(value["caveats"].as_array().unwrap().iter().any(|item| item
             .as_str()
             .unwrap_or("")
