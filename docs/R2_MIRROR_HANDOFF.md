@@ -24,7 +24,8 @@ The `downloads.kodydennon.com` custom domain is served by the private downloads-
 - Download center: `https://downloads.kodydennon.com/`, owned by the private downloads-hub Worker custom domain; PURSUE is at `/PURSUE`.
 - Direct R2 origin: `https://releases.kodydennon.com/`, with active ownership, active SSL, and TLS 1.2 minimum. The managed `r2.dev` origin remains disabled.
 - GitHub has the required R2 variables, bucket-scoped encrypted S3 credentials, and `R2_MIRROR_ENABLED=true`. Credential values are intentionally not recorded here.
-- Confirm the live mirrored version from `releases/latest/manifest.json`; do not hard-code a release number in this runbook.
+- The live stable manifest is `v0.10.9`; the retained immutable prefixes are `v0.10.9` and `v0.10.1`.
+- Stable installer routes resolve through the Worker to `v0.10.9`; legacy binary objects under `releases/latest/` have been removed.
 - Automatic updater artifact generation and signing are disabled. Releases use manual installers only.
 - `v0.10.1` has five legacy manual installers. It can be mirrored for manual downloads only with a release-specific override.
 
@@ -174,13 +175,7 @@ Do not store Tauri signing keys, Cloudflare tokens, or S3 secrets as GitHub vari
 
 ## 5. Backfill and verify
 
-Backfill `v0.10.1` for manual installer aliases if desired:
-
-```bash
-gh workflow run mirror-release.yml --repo KodyDennon/pursue -f tag=v0.10.1
-```
-
-Then mirror the newest production tag (replace after checking the actual release list):
+To repair or re-promote the newest complete production release, first confirm that its GitHub release has exactly four production installers, then dispatch that explicit tag:
 
 ```bash
 export RELEASE_TAG="$(gh release list --repo KodyDennon/pursue --limit 1 --json tagName --jq '.[0].tagName')"
@@ -224,8 +219,7 @@ No updater endpoint change is required while signed updater artifacts are disabl
 - [x] Hub Worker owns the custom domain and delegates `/PURSUE` to the private PURSUE Worker through a Service Binding.
 - [x] Bucket-scoped S3 credentials are encrypted GitHub secrets.
 - [x] `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_PUBLIC_BASE_URL`, and `R2_ORIGIN_BASE_URL` are GitHub variables.
-- [x] `v0.10.0` and `v0.10.1` manual installer backfills pass.
-- [ ] New production tag mirrors exactly four installers.
+- [x] `v0.10.9` mirrors exactly four installers and dynamically advances the stable manifest and Worker routes.
 - [x] R2 contains no more than the current and previous immutable release prefixes after the workflow completes.
 - [x] Public manual manifest parses and points at immutable HTTPS objects.
 - [ ] Full CUDA installer download matches the manifest SHA-256.
