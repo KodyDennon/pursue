@@ -42,11 +42,13 @@ jobs:
 
       - name: Configure libclang for bindgen
         run: |
-          LIBCLANG_PATH="$(find /usr/lib/llvm-* -type f -name 'libclang.so*' -printf '%h\n' | sort -V | tail -n 1)"
-          test -n "$LIBCLANG_PATH"
-          test -f "$LIBCLANG_PATH/libclang.so"
+          CLANG_RESOURCE_DIR="$(clang -print-resource-dir)"
+          LIBCLANG_PATH="$(dirname "$(dirname "$CLANG_RESOURCE_DIR")")"
+          LIBCLANG_FILE="$(find -L "$LIBCLANG_PATH" -maxdepth 1 -type f \( -name 'libclang.so*' -o -name 'libclang-[0-9]*.so*' \) -print -quit)"
+          test -n "$LIBCLANG_FILE"
           echo "LIBCLANG_PATH=$LIBCLANG_PATH" >> "$GITHUB_ENV"
-          "$LIBCLANG_PATH/../bin/clang" --version
+          clang --version
+          echo "Using $LIBCLANG_FILE"
 
       - uses: actions/checkout@v4
 
