@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://downloads.kodydennon.com/schemas/project-profile-v1.json",
+  "title": "Kody Dennon Downloads project profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "slug",
+    "route",
+    "name",
+    "short_name",
+    "status",
+    "card",
+    "hero",
+    "identity",
+    "project",
+    "sections",
+    "release",
+    "platforms",
+    "capabilities",
+    "workflow",
+    "support_notes"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": 1 },
+    "slug": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]*$" },
+    "route": { "type": "string", "pattern": "^/[A-Za-z0-9_-]+$" },
+    "name": { "type": "string", "minLength": 1 },
+    "short_name": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["available", "preview", "unavailable"] },
+    "card": { "$ref": "#/$defs/card" },
+    "hero": { "$ref": "#/$defs/hero" },
+    "identity": { "$ref": "#/$defs/identity" },
+    "project": { "$ref": "#/$defs/project" },
+    "sections": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "release": { "$ref": "#/$defs/release" },
+    "platforms": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/platform" }
+    },
+    "capabilities": { "$ref": "#/$defs/contentList" },
+    "workflow": { "$ref": "#/$defs/contentList" },
+    "support_notes": { "$ref": "#/$defs/contentList" }
+  },
+  "$defs": {
+    "httpsUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eyebrow", "title", "summary", "action"],
+      "properties": {
+        "eyebrow": { "type": "string" },
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "action": { "type": "string" }
+      }
+    },
+    "hero": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coordinate", "title", "summary"],
+      "properties": {
+        "coordinate": { "type": "string" },
+        "title": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["monogram", "theme", "descriptor", "mirror_label"],
+      "properties": {
+        "monogram": { "type": "string" },
+        "theme": { "type": "string" },
+        "descriptor": { "type": "string" },
+        "mirror_label": { "type": "string" }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_name",
+        "source_url",
+        "repository_url",
+        "releases_url",
+        "license",
+        "independence_notice"
+      ],
+      "properties": {
+        "source_name": { "type": "string" },
+        "source_url": { "$ref": "#/$defs/httpsUrl" },
+        "repository_url": { "$ref": "#/$defs/httpsUrl" },
+        "releases_url": { "$ref": "#/$defs/httpsUrl" },
+        "license": { "type": "string" },
+        "independence_notice": { "type": "string" }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_origin_url",
+        "public_manifest_url",
+        "updater_url",
+        "stable_url_prefix",
+        "artifact_aliases"
+      ],
+      "properties": {
+        "manifest_origin_url": { "$ref": "#/$defs/httpsUrl" },
+        "public_manifest_url": { "$ref": "#/$defs/httpsUrl" },
+        "updater_url": { "$ref": "#/$defs/httpsUrl" },
+        "stable_url_prefix": { "$ref": "#/$defs/httpsUrl" },
+        "artifact_aliases": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tab", "readout", "lanes"],
+      "properties": {
+        "id": { "type": "string" },
+        "tab": { "type": "string" },
+        "readout": { "type": "string" },
+        "lanes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/lane" }
+        }
+      }
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alias",
+        "label",
+        "title",
+        "body",
+        "action",
+        "primary",
+        "wide",
+        "build_name",
+        "build_detail"
+      ],
+      "properties": {
+        "alias": { "type": "string" },
+        "secondary_alias": { "type": "string" },
+        "label": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "action": { "type": "string" },
+        "secondary_action": { "type": "string" },
+        "primary": { "type": "boolean" },
+        "wide": { "type": "boolean" },
+        "build_name": { "type": "string" },
+        "build_detail": { "type": "string" }
+      }
+    },
+    "contentList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body"],
+        "properties": {
+          "title": { "type": "string" },
+          "body": { "type": "string" }
+        }
+      }
+    }
+  }
+}

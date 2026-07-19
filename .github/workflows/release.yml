@@ -23,6 +23,10 @@ env:
   RUSTFLAGS: '-D warnings'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+concurrency:
+  group: build-installers-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   verify:
     name: verify
@@ -224,19 +228,23 @@ jobs:
           } else {
             .github/scripts/stage-windows-runtime.ps1
           }
-      - name: Validate staged installer resources
+      - name: Validate staged PDFium resources
         shell: bash
         run: |
           test -s src-tauri/assets/pdfium/pdfium.dll || test -s src-tauri/assets/pdfium/libpdfium.dylib
-          if [[ "${{ matrix.platform }}" == windows-* ]]; then
-            test -s src-tauri/assets/native_runtime/DirectML.dll
-            test -s src-tauri/assets/native_runtime/vc_redist.x64.exe
-          fi
-          if [[ "${{ matrix.cuda }}" == "true" ]]; then
-            test -s src-tauri/assets/native_runtime/cudnn64_9.dll
-            test -s src-tauri/assets/native_runtime/cufft64_11.dll
-            test -s src-tauri/assets/native_runtime/onnxruntime_providers_cuda.dll
-          fi
+      - name: Validate staged Windows runtime
+        if: startsWith(matrix.platform, 'windows-')
+        shell: bash
+        run: |
+          test -s src-tauri/assets/native_runtime/DirectML.dll
+          test -s src-tauri/assets/native_runtime/vc_redist.x64.exe
+      - name: Validate staged CUDA runtime
+        if: matrix.cuda
+        shell: bash
+        run: |
+          test -s src-tauri/assets/native_runtime/cudnn64_9.dll
+          test -s src-tauri/assets/native_runtime/cufft64_11.dll
+          test -s src-tauri/assets/native_runtime/onnxruntime_providers_cuda.dll
       - name: Reclaim Windows staging build space
         if: startsWith(matrix.platform, 'windows-')
         run: cargo clean --profile dev

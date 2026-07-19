@@ -4,7 +4,7 @@ PURSUE releases are built, tested, signed for in-app updates, and published by G
 
 ## Release lanes
 
-- `macos-metal-aarch64`: macOS 14+ on Apple Silicon using Metal/CoreML.
+- `macos-metal-aarch64`: macOS 26+ on Apple Silicon using Metal/CoreML.
 - `windows-cuda-x86_64`: Windows x64 with bundled CUDA 12/cuDNN/ONNX runtimes for NVIDIA Turing (SM75) and newer.
 - `windows-directml-x86_64`: Windows x64 using DirectML for non-NVIDIA or CUDA-incompatible GPUs.
 

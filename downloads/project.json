@@ -1,0 +1,170 @@
+{
+  "$schema": "./project.schema.json",
+  "schema_version": 1,
+  "slug": "PURSUE",
+  "route": "/PURSUE",
+  "name": "PURSUE Data Analyzer",
+  "short_name": "PURSUE",
+  "status": "available",
+  "card": {
+    "eyebrow": "Public-record intelligence",
+    "title": "Preserve the release. Pursue the record.",
+    "summary": "A local-first desktop system for syncing, preserving, searching, analyzing, and exporting public UAP records.",
+    "action": "Open download dossier"
+  },
+  "hero": {
+    "coordinate": "38°52′15″N, 77°03′18″W // PUBLIC RECORD ANALYSIS",
+    "title": "Preserve the release. Pursue the record.",
+    "summary": "A polished, independent desktop companion for syncing, preserving, searching, analyzing, and exporting the public records released through the Department of War PURSUE portal."
+  },
+  "identity": {
+    "monogram": "PA",
+    "theme": "archive-olive",
+    "descriptor": "Local-first desktop evidence system",
+    "mirror_label": "Verified GitHub + Cloudflare R2 mirror"
+  },
+  "project": {
+    "source_name": "Department of War PURSUE portal",
+    "source_url": "https://www.war.gov/UFO/",
+    "repository_url": "https://github.com/KodyDennon/pursue",
+    "releases_url": "https://github.com/KodyDennon/pursue/releases",
+    "license": "MIT",
+    "independence_notice": "PURSUE Data Analyzer is an independent open-source analysis tool. It is not produced, endorsed, or operated by the U.S. Department of War or any other government agency. References to WAR.gov describe the public source material the application can sync and preserve."
+  },
+  "sections": {
+    "download_index": "Download / hardware routing",
+    "download_title": "Select your system",
+    "capabilities_index": "Mission / capabilities",
+    "capabilities_title": "What the analyzer does",
+    "capabilities_lead": "The official portal publishes the source material. PURSUE turns those public releases into a durable, searchable working library without sending your evidence to a hosted analysis service.",
+    "workflow_index": "Field workflow",
+    "workflow_title": "From release to dossier",
+    "workflow_lead": "The normal workflow is deliberately simple. You stay in control of what is synced, downloaded, analyzed, and exported.",
+    "builds_index": "Complete installer index",
+    "builds_title": "All production builds",
+    "builds_lead": "Stable URLs always resolve to the current digest-verified release. GitHub retains the authoritative release history.",
+    "support_index": "Installation / privacy / trust",
+    "support_title": "Before you begin",
+    "support_lead": "Everything needed to choose, install, and trust the correct build—without burying the important caveats.",
+    "integrity_index": "Integrity record",
+    "integrity_title": "Verify the download",
+    "integrity_lead": "Compare the SHA-256 for the file you downloaded. The mirror verifies these values against GitHub before stable download links advance."
+  },
+  "release": {
+    "manifest_origin_url": "https://releases.kodydennon.com/releases/latest/manifest.json",
+    "public_manifest_url": "https://downloads.kodydennon.com/releases/latest/manifest.json",
+    "updater_url": "https://downloads.kodydennon.com/latest.json",
+    "stable_url_prefix": "https://downloads.kodydennon.com/releases/latest/",
+    "artifact_aliases": [
+      "macos-apple-silicon.dmg",
+      "windows-cuda.msi",
+      "windows-directml-setup.exe",
+      "windows-directml.msi"
+    ]
+  },
+  "platforms": [
+    {
+      "id": "mac",
+      "tab": "macOS",
+      "readout": "MACOS SIGNAL DETECTED",
+      "lanes": [
+        {
+          "alias": "macos-apple-silicon.dmg",
+          "label": "macOS 26+ // Apple Silicon required",
+          "title": "Metal acceleration",
+          "body": "For M-series Macs running macOS 26 or newer. Open the DMG, move PURSUE to Applications, and launch it from there. Intel Macs and older macOS releases are not supported by the current build.",
+          "action": "Download macOS Apple Silicon",
+          "primary": true,
+          "wide": true,
+          "build_name": "macOS · Apple Silicon",
+          "build_detail": "DMG / Metal / macOS 26+"
+        }
+      ]
+    },
+    {
+      "id": "windows",
+      "tab": "Windows",
+      "readout": "WINDOWS SIGNAL DETECTED",
+      "lanes": [
+        {
+          "alias": "windows-cuda.msi",
+          "label": "Windows 10/11 x64 // NVIDIA Turing or newer",
+          "title": "CUDA lane",
+          "body": "Includes the pinned NVIDIA runtime for local GPU acceleration. No separate CUDA toolkit is required. This package is intentionally large and MSI-only.",
+          "action": "Download Windows NVIDIA",
+          "primary": true,
+          "wide": false,
+          "build_name": "Windows · NVIDIA",
+          "build_detail": "MSI / CUDA / Windows 10–11 x64"
+        },
+        {
+          "alias": "windows-directml-setup.exe",
+          "secondary_alias": "windows-directml.msi",
+          "label": "Windows 10/11 x64 // AMD, Intel, or unsure",
+          "title": "DirectML lane",
+          "body": "The broad-compatibility choice for non-NVIDIA hardware. Use the setup EXE for a normal installation; the MSI is available for managed deployment.",
+          "action": "Download Windows DirectML",
+          "secondary_action": "Managed deployment MSI",
+          "primary": false,
+          "wide": false,
+          "build_name": "Windows · DirectML setup",
+          "build_detail": "EXE / AMD, Intel, and broad GPU support"
+        }
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "title": "Preserve releases",
+      "body": "Sync official WAR.gov PURSUE source snapshots and retain change history."
+    },
+    {
+      "title": "Build a local library",
+      "body": "Download evidence into a SHA-256 content-addressed archive on your computer."
+    },
+    {
+      "title": "Analyze locally",
+      "body": "Extract text and OCR, index entities, search vectors, and use local AI models."
+    },
+    {
+      "title": "Create dossiers",
+      "body": "Add case notes and export portable Markdown or self-contained HTML reports."
+    }
+  ],
+  "workflow": [
+    {
+      "title": "Install",
+      "body": "Choose the build for your operating system and GPU, then complete the installer."
+    },
+    {
+      "title": "Sync",
+      "body": "Open PURSUE and sync the current official WAR.gov release index."
+    },
+    {
+      "title": "Collect",
+      "body": "Select records or source files to preserve in your local evidence library."
+    },
+    {
+      "title": "Analyze",
+      "body": "Run local text extraction, OCR, search, notes, and dossier exports as needed."
+    }
+  ],
+  "support_notes": [
+    {
+      "title": "How do I install PURSUE on macOS?",
+      "body": "Requires macOS 26 or newer on Apple Silicon (M-series), matching the current release build target. Open the DMG and move PURSUE to Applications. Apple may show a Gatekeeper warning until Developer ID notarization is configured; verify this domain and the SHA-256 first, then use Privacy & Security → Open Anyway if needed."
+    },
+    {
+      "title": "Which PURSUE installer should I use on Windows?",
+      "body": "Requires 64-bit Windows 10 or 11. Use CUDA for a supported NVIDIA GPU; use DirectML for AMD, Intel, other GPUs, or when unsure. SmartScreen may warn until Authenticode signing is configured; verify the hostname and checksum before choosing More info → Run anyway."
+    },
+    {
+      "title": "Where does PURSUE store data, and what network access does it use?",
+      "body": "Your database, evidence library, snapshots, models, notes, and exports remain in the operating-system app-data directory. Network access is used for official source/evidence downloads, release checks, and model downloads you initiate. PURSUE does not require hosted OCR, hosted embeddings, or a paid AI API."
+    },
+    {
+      "title": "Are PURSUE updates signed, and will an update preserve my data?",
+      "body": "Production update bundles are signed with the Tauri updater key. Updates and reinstalls preserve the database, evidence vault, models, exports, resumable downloads, and custom-storage pointer. Operating-system trust warnings are separate from updater signatures. GitHub remains the release source of truth; this R2 mirror publishes the same digest-verified bytes."
+    }
+  ]
+}

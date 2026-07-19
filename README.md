@@ -9,15 +9,21 @@ The app keeps official source snapshots, tracks changes between source releases,
 
 ## Download
 
-Installers are published from GitHub Releases:
+The machine-aware download center includes system selection, install guidance, privacy details, and current SHA-256 checksums:
+
+https://downloads.kodydennon.com/
+
+Installers are mirrored through Cloudflare R2 after their GitHub digests are verified. GitHub Releases remains the fallback, authoritative history, and source of truth:
 
 https://github.com/KodyDennon/pursue/releases/latest
 
-Large release artifacts can also be mirrored to Cloudflare R2. The production mirror setup and integrity contract are documented in [docs/R2_MIRROR_HANDOFF.md](docs/R2_MIRROR_HANDOFF.md). GitHub remains the fallback and source of truth.
+The production mirror setup, two-version retention policy, and integrity contract are documented in [docs/R2_MIRROR_HANDOFF.md](docs/R2_MIRROR_HANDOFF.md).
+
+The private multi-project portal owns shared presentation and deployment, while this repository owns PURSUE's validated public copy in [`downloads/project.json`](downloads/project.json). Editing, download-count privacy, SEO/answer-discovery, and repository responsibility boundaries are documented in [docs/DOWNLOADS_HUB.md](docs/DOWNLOADS_HUB.md).
 
 Supported production lanes:
 
-- macOS 14 or newer on Apple Silicon, with Metal/CoreML acceleration.
+- macOS 26 or newer on Apple Silicon, with Metal/CoreML acceleration.
 - Windows x64 CUDA for NVIDIA GPUs (Turing/SM75 and newer).
 - Windows x64 DirectML for other supported Windows GPUs.
 
@@ -114,7 +120,7 @@ More details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Releases
 
-The release workflow verifies the frontend and Rust backend, then builds installers for macOS 14+ Apple Silicon, Windows DirectML, and Windows CUDA. Tags matching `v*` publish non-draft GitHub Releases with downloadable installer assets.
+The release workflow verifies the frontend and Rust backend, then builds installers for macOS 26+ Apple Silicon, Windows DirectML, and Windows CUDA. Tags matching `v*` publish non-draft GitHub Releases with downloadable installer assets.
 
 Each production tag must publish four installers, three signed updater bundles with matching signatures, and `latest.json`. If R2 mirroring is enabled, those exact bytes and digests are copied to immutable R2 keys before stable aliases are advanced. Once the new mirror is publicly verified, R2 keeps only the current and immediately previous immutable release prefixes.
 

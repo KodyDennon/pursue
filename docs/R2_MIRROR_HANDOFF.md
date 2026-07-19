@@ -1,4 +1,4 @@
-# Cloudflare R2 Release Mirror — CLI/API Handoff
+# Cloudflare R2 Release Mirror — Production Runbook
 
 ## Mission and boundaries
 
@@ -10,17 +10,22 @@ Repository implementation already present:
 - `.github/workflows/mirror-release.yml`
 - `mirror-r2` in `.github/workflows/release.yml`
 - signed three-lane updater generation in `scripts/generate-updater-manifest.mjs`
+- machine-aware portal/detail UI in the private `KodyDennon/downloads-hub` repository
+- canonical public PURSUE profile in `downloads/project.json`
 
 The mirror uploads immutable release objects first, verifies GitHub digests and R2 metadata, then advances stable aliases. After public verification it retains only the two newest immutable version prefixes and removes older mirrored versions. GitHub remains the release source of truth and fallback.
 
-## State at Windows handoff
+The `downloads.kodydennon.com` custom domain is served by the private downloads-hub Worker. The root renders the multi-project directory, and `/PURSUE` is delegated through a Cloudflare Service Binding to a private PURSUE-specific Worker with no public route. Installer/manifest paths receive a same-zone redirect to the dedicated `releases.kodydennon.com` R2 custom domain, so large response bodies remain direct R2 traffic. The Workers have a D1 aggregate-count binding but no project release, R2 upload, or Tauri signing secrets.
+
+## Current production state (2026-07-19)
 
 - Repository: `KodyDennon/pursue`
-- Last pre-handoff release: `v0.10.1`
-- Expected first updater-enabled release: `v0.10.5` (confirm with `gh release list`)
-- R2 GitHub variables were not configured on the Windows machine.
-- The app currently has the GitHub updater endpoint only. Add the real R2 custom-domain endpoint only after public verification.
-- `v0.10.1` has five legacy manual installers but no seven-file signed updater set. It can be mirrored for manual downloads only with a release-specific override; do not expect an updater manifest from that backfill.
+- Standard R2 bucket: `pursue-releases` in WNAM.
+- Download center: `https://downloads.kodydennon.com/`, owned by the private downloads-hub Worker custom domain; PURSUE is at `/PURSUE`.
+- Direct R2 origin: `https://releases.kodydennon.com/`, with active ownership, active SSL, and TLS 1.2 minimum. The managed `r2.dev` origin remains disabled.
+- GitHub has the four required R2 variables, bucket-scoped encrypted S3 credentials, and `R2_MIRROR_ENABLED=true`. Credential values are intentionally not recorded here.
+- Manual releases `v0.10.0` and `v0.10.1` are mirrored. Stable aliases point to `v0.10.1`, and the retention pass permits only those two immutable version prefixes.
+- `v0.10.1` predates the signed seven-file updater set, so it has manual installers and `manifest.json` but no R2 `latest.json`. The application source now places the verified R2 updater endpoint before the GitHub fallback; the next updater-capable tag will populate it before the mirror job succeeds.
 
 ## 1. Audit authenticated CLIs
 
@@ -37,8 +42,10 @@ Select, do not guess, the Cloudflare account and an existing zone in that same a
 ```bash
 export R2_ACCOUNT_ID='32-character-id-from-wrangler'
 export R2_BUCKET_NAME='pursue-releases'
-export R2_PUBLIC_HOST='downloads.example.com'
+export R2_PUBLIC_HOST='downloads.kodydennon.com'
 export R2_PUBLIC_BASE_URL="https://$R2_PUBLIC_HOST"
+export R2_ORIGIN_HOST='releases.kodydennon.com'
+export R2_ORIGIN_BASE_URL="https://$R2_ORIGIN_HOST"
 ```
 
 ## 2. Create or reuse the bucket
@@ -101,7 +108,7 @@ List existing custom domains and attach only if absent:
 
 ```bash
 cf_api GET "/accounts/$R2_ACCOUNT_ID/r2/buckets/$R2_BUCKET_NAME/domains/custom" | jq .
-body="$(jq -nc --arg domain "$R2_PUBLIC_HOST" --arg zoneId "$R2_ZONE_ID" \
+body="$(jq -nc --arg domain "$R2_ORIGIN_HOST" --arg zoneId "$R2_ZONE_ID" \
   '{domain: $domain, zoneId: $zoneId, enabled: true}')"
 cf_api POST "/accounts/$R2_ACCOUNT_ID/r2/buckets/$R2_BUCKET_NAME/domains/custom" "$body" \
   | jq -e '.success == true'
@@ -111,13 +118,24 @@ Poll both ownership and SSL status until active:
 
 ```bash
 for attempt in $(seq 1 60); do
-  status="$(cf_api GET "/accounts/$R2_ACCOUNT_ID/r2/buckets/$R2_BUCKET_NAME/domains/custom/$R2_PUBLIC_HOST")"
+  status="$(cf_api GET "/accounts/$R2_ACCOUNT_ID/r2/buckets/$R2_BUCKET_NAME/domains/custom/$R2_ORIGIN_HOST")"
   if jq -e '.success == true and .result.enabled == true and .result.status.ownership == "active" and .result.status.ssl == "active"' <<<"$status" >/dev/null; then
     break
   fi
   sleep 10
 done
-curl --fail --silent --show-error --head "$R2_PUBLIC_BASE_URL/" || true
+curl --fail --silent --show-error --head "$R2_ORIGIN_BASE_URL/releases/latest/manifest.json"
+```
+
+Deploy the Workers from the private downloads-hub checkout only after the R2 origin is live. The deployment publishes the private PURSUE project Worker first and the public hub Worker second. Only the hub owns `downloads.kodydennon.com`; do not attach that hostname to the project Worker or R2 bucket.
+
+```bash
+cd /path/to/downloads-hub
+bun run check
+bun run deploy
+curl --fail --silent --show-error --head "$R2_PUBLIC_BASE_URL/"
+curl --fail --silent --show-error --head "$R2_PUBLIC_BASE_URL/PURSUE"
+curl --fail --location --silent --show-error "$R2_PUBLIC_BASE_URL/releases/latest/manifest.json" | jq .
 ```
 
 ## 4. Configure GitHub without exposing credentials
@@ -201,7 +219,7 @@ Add the verified R2 updater endpoint before GitHub in `src-tauri/tauri.conf.json
 
 ```json
 "endpoints": [
-  "https://downloads.example.com/latest.json",
+  "https://downloads.kodydennon.com/latest.json",
   "https://github.com/KodyDennon/pursue/releases/latest/download/latest.json"
 ]
 ```
@@ -210,14 +228,17 @@ Run the full validation suite, bump the patch version, and cut another release s
 
 ## Completion checklist
 
-- [ ] GitHub, Wrangler, AWS, and DNS/account identities verified by CLI.
-- [ ] Bucket exists and the custom domain reports active ownership and SSL.
-- [ ] Bucket-scoped S3 credentials are encrypted GitHub secrets.
-- [ ] `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and `R2_PUBLIC_BASE_URL` are GitHub variables.
-- [ ] `v0.10.1` manual installer backfill passes if requested.
+- [x] GitHub, Wrangler, R2, and DNS/account identities verified by CLI.
+- [x] Bucket exists and the R2 origin reports active ownership and SSL.
+- [x] Hub Worker owns the custom domain and delegates `/PURSUE` to the private PURSUE Worker through a Service Binding.
+- [x] Bucket-scoped S3 credentials are encrypted GitHub secrets.
+- [x] `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and `R2_PUBLIC_BASE_URL` are GitHub variables.
+- [x] `v0.10.0` and `v0.10.1` manual installer backfills pass.
 - [ ] New updater-enabled tag mirrors four installers and seven updater assets.
-- [ ] R2 contains no more than the current and previous immutable release prefixes after the workflow completes.
-- [ ] Public manual and updater manifests parse and point at immutable HTTPS objects.
+- [x] R2 contains no more than the current and previous immutable release prefixes after the workflow completes.
+- [x] Public manual manifest parses and points at immutable HTTPS objects.
+- [ ] Public updater manifest parses and points at immutable HTTPS objects after the next updater-enabled release.
 - [ ] Full CUDA installer download matches the manifest SHA-256.
-- [ ] `R2_MIRROR_ENABLED=true` only after verification.
-- [ ] Verified R2 endpoint is committed before GitHub fallback and released in a subsequent patch.
+- [x] `R2_MIRROR_ENABLED=true` only after public root, redirect, manifest, and installer checks passed.
+- [x] Verified R2 endpoint is committed before the GitHub fallback.
+- [ ] Release the R2-first updater endpoint in the next updater-capable tag.

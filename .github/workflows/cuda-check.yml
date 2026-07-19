@@ -14,6 +14,10 @@ env:
   CUDA_COMPUTE_CAP: '75'
   CMAKE_GENERATOR: Ninja
 
+concurrency:
+  group: cuda-check-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   rust-cuda-check:
     name: rust-cuda-check
@@ -41,7 +45,8 @@ jobs:
             librsvg2-dev \
             ninja-build \
             patchelf \
-            pkg-config
+            pkg-config \
+            zstd
 
       - name: Configure libclang for bindgen
         run: |
@@ -59,6 +64,11 @@ jobs:
         run: |
           curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --component rustfmt
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
 
       - name: Check CUDA toolchain
         run: |
