@@ -17,7 +17,7 @@ The mirror uploads immutable release objects first, verifies GitHub digests and 
 
 - Repository: `KodyDennon/pursue`
 - Last pre-handoff release: `v0.10.1`
-- Expected first updater-enabled release: `v0.10.2` (confirm with `gh release list`)
+- Expected first updater-enabled release: `v0.10.3` (confirm with `gh release list`)
 - R2 GitHub variables were not configured on the Windows machine.
 - The app currently has the GitHub updater endpoint only. Add the real R2 custom-domain endpoint only after public verification.
 - `v0.10.1` has five legacy manual installers but no seven-file signed updater set. It can be mirrored for manual downloads only with a release-specific override; do not expect an updater manifest from that backfill.

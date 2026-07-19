@@ -1321,10 +1321,6 @@ fn main() {
         // "fatal error: 'string' file not found" on macOS
         .clang_arg("-xc++")
         .clang_arg("-std=c++17")
-        // When cross-compiling, tell libclang/bindgen the target triple so
-        // that layout, pointer sizes, and type widths are computed for the
-        // *target* architecture rather than the host.
-        .clang_arg(format!("--target={}", target))
         // .raw_line("#![feature(unsafe_extern_blocks)]") // https://github.com/rust-lang/rust/issues/123743
         .clang_arg(format!("-I{}", llama_dst.join("include").display()))
         .clang_arg(format!("-I{}", llama_dst.join("ggml/include").display()))
@@ -1395,6 +1391,18 @@ fn main() {
         // .opaque_type("llama_context_deleter")
         // .blocklist_type("llama_model_deleter")
         .opaque_type("std::.*");
+
+    // A Cargo target triple is not always a valid native libclang driver
+    // target. In particular, forcing x86_64-pc-windows-msvc makes LLVM's
+    // bundled intrinsic headers lose the MSVC driver configuration, while
+    // forcing an Apple Cargo triple bypasses parts of Xcode's native SDK
+    // setup. Both fail while parsing otherwise-valid standard C++ headers.
+    // Native builds must let libclang select its host driver defaults. Only
+    // cross builds need an explicit target so bindgen computes target-correct
+    // layouts and pointer widths.
+    if is_cross {
+        builder = builder.clang_arg(format!("--target={}", target));
+    }
 
     // Add RPC support if feature is enabled
     if cfg!(feature = "rpc") {
