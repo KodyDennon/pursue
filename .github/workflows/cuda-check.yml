@@ -12,6 +12,7 @@ env:
   # Keep in sync with release.yml: PTX for sm_75 JITs forward to all newer GPUs; 86 broke
   # Turing (RTX 20xx/Quadro RTX) machines entirely.
   CUDA_COMPUTE_CAP: '75'
+  CMAKE_GENERATOR: Ninja
 
 jobs:
   rust-cuda-check:
@@ -27,6 +28,7 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
+            cmake \
             curl \
             git \
             libappindicator3-dev \
@@ -37,6 +39,7 @@ jobs:
             libsoup-3.0-dev \
             libwebkit2gtk-4.1-dev \
             librsvg2-dev \
+            ninja-build \
             patchelf \
             pkg-config
 
@@ -54,7 +57,7 @@ jobs:
 
       - name: Install Rust
         run: |
-          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --component rustfmt
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Check CUDA toolchain
