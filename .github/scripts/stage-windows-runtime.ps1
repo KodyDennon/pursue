@@ -1,5 +1,7 @@
 param(
-    [switch]$Cuda
+    [switch]$Cuda,
+    [ValidateSet('debug', 'release')]
+    [string]$Profile = 'debug'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,7 +43,8 @@ function Download-PinnedFile([string]$Url, [string]$Destination, [string]$Sha256
     }
 }
 
-$directMl = Join-Path $PSScriptRoot '..\..\src-tauri\target\debug\DirectML.dll'
+$targetRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\src-tauri\target\$Profile"))
+$directMl = Join-Path $targetRoot 'DirectML.dll'
 Copy-ResolvedFile $directMl $stageDir
 Download-PinnedFile `
     'https://raw.githubusercontent.com/microsoft/DirectML/8700779fe7a09ea7a007cf3d7ab4293c78e41017/LICENSE' `
@@ -62,10 +65,9 @@ Download-SignedMicrosoftFile `
 
 # ort's copy-dylibs feature may create symlinks into its user-level download cache. Those
 # links are fragile in sandboxes and on locked-down Windows installations, and the test
-# loader searches target\debug\deps before our application setup can configure DLL paths.
+# loader searches the selected target profile before our application setup can configure DLL paths.
 # Materialize the verified DLL beside both executables so tests exercise the same payload
 # that the installer will ship.
-$targetRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\src-tauri\target\debug'))
 foreach ($directory in @($targetRoot, (Join-Path $targetRoot 'deps'))) {
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
     $destination = Join-Path $directory 'DirectML.dll'
@@ -82,7 +84,7 @@ foreach ($directory in @($targetRoot, (Join-Path $targetRoot 'deps'))) {
 
 if ($Cuda) {
     foreach ($name in @('onnxruntime_providers_cuda.dll', 'onnxruntime_providers_shared.dll')) {
-        Copy-ResolvedFile (Join-Path $PSScriptRoot "..\..\src-tauri\target\debug\$name") $stageDir
+        Copy-ResolvedFile (Join-Path $targetRoot $name) $stageDir
     }
 
     if (-not $env:CUDA_PATH -or -not (Test-Path -LiteralPath $env:CUDA_PATH)) {

@@ -216,17 +216,21 @@ jobs:
       - name: Stage pinned PDFium runtime
         shell: bash
         run: bash .github/scripts/stage-pdfium.sh
-      - name: Compile selected native provider set
-        run: cargo check ${{ matrix.args }}
+      # Windows runtime DLLs must exist before Tauri snapshots bundle resources. Build the
+      # release profile once, stage from that exact output, then let Tauri reuse it instead
+      # of compiling CUDA/DirectML a second time from a debug `cargo check` profile.
+      - name: Prebuild Windows release provider set
+        if: startsWith(matrix.platform, 'windows-')
+        run: cargo build --release ${{ matrix.args }}
         working-directory: src-tauri
       - name: Stage Windows native provider runtime
         if: startsWith(matrix.platform, 'windows-')
         shell: pwsh
         run: |
           if ('${{ matrix.cuda }}' -eq 'true') {
-            .github/scripts/stage-windows-runtime.ps1 -Cuda
+            .github/scripts/stage-windows-runtime.ps1 -Cuda -Profile release
           } else {
-            .github/scripts/stage-windows-runtime.ps1
+            .github/scripts/stage-windows-runtime.ps1 -Profile release
           }
       - name: Validate staged PDFium resources
         shell: bash
