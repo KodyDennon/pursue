@@ -231,7 +231,7 @@ fi
 echo "Verifying public mirror URLs"
 curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
   "$public_base/releases/latest/manifest.json" -o "$working_directory/public-manifest.json"
-jq -e --arg tag "$tag" '.tag == $tag and (.artifacts | length == 5)' \
+jq -e --arg tag "$tag" '.tag == $tag and (.artifacts | length == 4)' \
   "$working_directory/public-manifest.json" >/dev/null || die "public manifest verification failed"
 
 for name in "${asset_names[@]}"; do
