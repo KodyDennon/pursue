@@ -38,7 +38,7 @@ Every relevant push or pull request runs:
 - installer compilation for Apple Silicon Metal, Windows DirectML, and Windows CUDA;
 - pinned PDFium and native-runtime staging checks.
 
-Tag builds additionally publish the four unsigned installers and mirror them to R2 when enabled. The mirror refuses missing, duplicate, partial, draft, or non-HTTPS release assets. After public verification, it prunes immutable release prefixes beyond the current and immediately previous versions.
+Tag builds additionally publish the four unsigned installers and mirror them to immutable R2 release objects when enabled. The mirror refuses missing, duplicate, partial, draft, or non-HTTPS release assets, then advances an uncached stable manifest that the downloads Worker resolves dynamically. After public verification, it prunes immutable release prefixes beyond the current and immediately previous versions.
 
 ## Published assets
 

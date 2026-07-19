@@ -13,7 +13,7 @@ Repository implementation already present:
 - canonical public PURSUE profile in `downloads/project.json`
 - unsigned four-installer release mirroring
 
-The mirror uploads immutable release objects first, verifies GitHub digests and R2 metadata, then advances stable aliases. After public verification it retains only the two newest immutable version prefixes and removes older mirrored versions. GitHub remains the release source of truth and fallback.
+The mirror uploads immutable release objects first, verifies GitHub digests and R2 metadata, then atomically advances the small stable manifest. The downloads Worker resolves stable installer paths from that uncached manifest and redirects to immutable R2 objects, so new versions require no portal deployment and no duplicate multi-gigabyte `latest` objects. After public verification the workflow retains only the two newest immutable version prefixes and removes older mirrored versions. GitHub remains the release source of truth and fallback.
 
 The `downloads.kodydennon.com` custom domain is served by the private downloads-hub Worker. The root renders the multi-project directory, and `/PURSUE` is delegated through a Cloudflare Service Binding to a private PURSUE-specific Worker with no public route. Installer/manifest paths receive a same-zone redirect to the dedicated `releases.kodydennon.com` R2 custom domain, so large response bodies remain direct R2 traffic. The Workers have a D1 aggregate-count binding but no project release, R2 upload, or Tauri signing secrets.
 
@@ -23,9 +23,8 @@ The `downloads.kodydennon.com` custom domain is served by the private downloads-
 - Standard R2 bucket: `pursue-releases` in WNAM.
 - Download center: `https://downloads.kodydennon.com/`, owned by the private downloads-hub Worker custom domain; PURSUE is at `/PURSUE`.
 - Direct R2 origin: `https://releases.kodydennon.com/`, with active ownership, active SSL, and TLS 1.2 minimum. The managed `r2.dev` origin remains disabled.
-- GitHub has the four required R2 variables, bucket-scoped encrypted S3 credentials, and `R2_MIRROR_ENABLED=true`. Credential values are intentionally not recorded here.
-- Manual releases `v0.10.0` and `v0.10.1` are mirrored. Stable aliases point to `v0.10.1`, and the retention pass permits only those two immutable version prefixes.
-- Expected first fully mirrored unsigned release: `v0.10.9` (confirm with `gh release list`).
+- GitHub has the required R2 variables, bucket-scoped encrypted S3 credentials, and `R2_MIRROR_ENABLED=true`. Credential values are intentionally not recorded here.
+- Confirm the live mirrored version from `releases/latest/manifest.json`; do not hard-code a release number in this runbook.
 - Automatic updater artifact generation and signing are disabled. Releases use manual installers only.
 - `v0.10.1` has five legacy manual installers. It can be mirrored for manual downloads only with a release-specific override.
 
@@ -168,6 +167,7 @@ Set non-secret variables only after validating their values:
 gh variable set R2_ACCOUNT_ID --repo KodyDennon/pursue --body "$R2_ACCOUNT_ID"
 gh variable set R2_BUCKET_NAME --repo KodyDennon/pursue --body "$R2_BUCKET_NAME"
 gh variable set R2_PUBLIC_BASE_URL --repo KodyDennon/pursue --body "$R2_PUBLIC_BASE_URL"
+gh variable set R2_ORIGIN_BASE_URL --repo KodyDennon/pursue --body "$R2_ORIGIN_BASE_URL"
 ```
 
 Do not store Tauri signing keys, Cloudflare tokens, or S3 secrets as GitHub variables.
@@ -192,10 +192,10 @@ gh run watch "$run_id" --repo KodyDennon/pursue --exit-status
 The workflow requires exactly four installers and publishes:
 
 - immutable bytes under `releases/$RELEASE_TAG/`;
-- four stable installer aliases under `releases/latest/`;
 - `release-manifest.json` and `releases/latest/manifest.json` for manual downloads;
+- stable public installer routes resolved dynamically by the downloads Worker to immutable version objects;
 
-The retention pass runs last. At steady state the bucket contains only the current and immediately previous immutable release prefixes. Publishing can briefly create a third prefix so the new release can be completely verified before the oldest known-good version is deleted. The `releases/latest/` installer aliases and top-level manifests are stable pointers, not additional retained versions.
+The retention pass runs last. At steady state the bucket contains only the current and immediately previous immutable release prefixes. Publishing can briefly create a third prefix so the new release can be completely verified before the oldest known-good version is deleted. The small top-level manifests are stable pointers; installers are not duplicated under `releases/latest/`.
 
 Verify public metadata and a complete large download:
 
@@ -223,7 +223,7 @@ No updater endpoint change is required while signed updater artifacts are disabl
 - [x] Bucket exists and the R2 origin reports active ownership and SSL.
 - [x] Hub Worker owns the custom domain and delegates `/PURSUE` to the private PURSUE Worker through a Service Binding.
 - [x] Bucket-scoped S3 credentials are encrypted GitHub secrets.
-- [x] `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and `R2_PUBLIC_BASE_URL` are GitHub variables.
+- [x] `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_PUBLIC_BASE_URL`, and `R2_ORIGIN_BASE_URL` are GitHub variables.
 - [x] `v0.10.0` and `v0.10.1` manual installer backfills pass.
 - [ ] New production tag mirrors exactly four installers.
 - [x] R2 contains no more than the current and previous immutable release prefixes after the workflow completes.

@@ -24,6 +24,7 @@ required_environment=(
   R2_SECRET_ACCESS_KEY
   R2_BUCKET_NAME
   R2_PUBLIC_BASE_URL
+  R2_ORIGIN_BASE_URL
 )
 for variable in "${required_environment[@]}"; do
   [[ -n "${!variable:-}" ]] || die "$variable is not configured"
@@ -33,8 +34,10 @@ done
 [[ "$R2_BUCKET_NAME" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]] ||
   die "R2_BUCKET_NAME must be 3-63 lowercase letters, numbers, or hyphens and cannot start or end with a hyphen"
 [[ "$R2_PUBLIC_BASE_URL" == https://* ]] || die "R2_PUBLIC_BASE_URL must use HTTPS"
+[[ "$R2_ORIGIN_BASE_URL" == https://* ]] || die "R2_ORIGIN_BASE_URL must use HTTPS"
 
 public_base="${R2_PUBLIC_BASE_URL%/}"
+origin_base="${R2_ORIGIN_BASE_URL%/}"
 endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 repository="${GITHUB_REPOSITORY:-KodyDennon/pursue}"
 release_retention_count=2
@@ -141,7 +144,7 @@ for name in "${asset_names[@]}"; do
       --arg alias "$alias_name" \
       --arg sha256 "$actual_sha256" \
       --argjson bytes "$actual_size" \
-      --arg mirror_url "$public_base/$versioned_key" \
+      --arg mirror_url "$origin_base/$versioned_key" \
       --arg stable_url "$public_base/releases/latest/$alias_name" \
       --arg github_url "$github_url" \
       '. + [{name: $name, alias: $alias, bytes: $bytes, sha256: $sha256, mirror_url: $mirror_url, stable_url: $stable_url, github_fallback_url: $github_url}]' \
@@ -168,32 +171,14 @@ aws s3 cp "$manifest" "s3://$R2_BUCKET_NAME/releases/$tag/manifest.json" \
   --cache-control 'public, max-age=31536000, immutable' \
   --metadata "sha256=$manifest_sha256,release=$tag,source=github-release"
 
-# Publish stable aliases only after every immutable object and its manifest has passed
-# integrity checks. This prevents clients from observing a partially mirrored release.
-for name in "${installer_names[@]}"; do
-  alias_name="${aliases[$name]}"
-  sha256="$(jq -r --arg name "$name" '.[] | select(.name == $name) | .sha256' <<< "$artifacts")"
-  case "$name" in
-    *.dmg) content_type="application/x-apple-diskimage" ;;
-    *.exe) content_type="application/vnd.microsoft.portable-executable" ;;
-    *.msi) content_type="application/x-msi" ;;
-  esac
-  aws s3api copy-object \
-    --endpoint-url "$endpoint" \
-    --bucket "$R2_BUCKET_NAME" \
-    --copy-source "$R2_BUCKET_NAME/releases/$tag/$name" \
-    --key "releases/latest/$alias_name" \
-    --metadata-directive REPLACE \
-    --metadata "sha256=$sha256,release=$tag,source=github-release" \
-    --content-type "$content_type" \
-    --cache-control 'public, max-age=300, must-revalidate' >/dev/null
-done
-
+# Publish only the small stable manifest after every immutable object has passed
+# integrity checks. The downloads Worker resolves stable installer paths from this
+# manifest and redirects to immutable R2 objects, avoiding duplicate multi-GB copies.
 for key in releases/latest/manifest.json release-manifest.json; do
   aws s3 cp "$manifest" "s3://$R2_BUCKET_NAME/$key" \
     --endpoint-url "$endpoint" --only-show-errors --no-progress \
     --content-type 'application/json; charset=utf-8' \
-    --cache-control 'public, max-age=300, must-revalidate' \
+    --cache-control 'no-cache, no-store, must-revalidate' \
     --metadata "sha256=$manifest_sha256,release=$tag,source=github-release"
 done
 
@@ -230,14 +215,38 @@ fi
 
 echo "Verifying public mirror URLs"
 curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
-  "$public_base/releases/latest/manifest.json" -o "$working_directory/public-manifest.json"
+  "$public_base/releases/latest/manifest.json?release=$tag&digest=$manifest_sha256" \
+  -o "$working_directory/public-manifest.json"
 jq -e --arg tag "$tag" '.tag == $tag and (.artifacts | length == 4)' \
   "$working_directory/public-manifest.json" >/dev/null || die "public manifest verification failed"
 
 for name in "${asset_names[@]}"; do
   versioned_key="releases/$tag/$name"
   curl --fail --silent --show-error --location --retry 5 --retry-all-errors --head \
-    "$public_base/$versioned_key" >/dev/null || die "public object is unavailable: $name"
+    "$origin_base/$versioned_key" >/dev/null || die "public object is unavailable: $name"
+done
+
+for name in "${installer_names[@]}"; do
+  alias_name="${aliases[$name]}"
+  expected_location="$(jq -r --arg alias "$alias_name" '.[] | select(.alias == $alias) | .mirror_url' <<< "$artifacts")"
+  actual_location="$(
+    curl --fail --silent --show-error --head --retry 5 --retry-all-errors \
+      "$public_base/releases/latest/$alias_name" |
+      tr -d '\r' |
+      awk 'tolower($1) == "location:" { print $2 }' |
+      tail -n 1
+  )"
+  [[ "$actual_location" == "$expected_location" ]] ||
+    die "stable download route did not resolve to the current immutable object: $alias_name"
+done
+
+# Remove legacy binary aliases. Stable installer URLs are resolved by the Worker,
+# so retaining these copies wastes storage and can serve stale bytes if bypassed.
+for alias_name in "${aliases[@]}"; do
+  aws s3api delete-object \
+    --endpoint-url "$endpoint" \
+    --bucket "$R2_BUCKET_NAME" \
+    --key "releases/latest/$alias_name" >/dev/null
 done
 
 # Keep only the current and immediately previous immutable release. Pruning happens

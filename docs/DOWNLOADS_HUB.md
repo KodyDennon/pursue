@@ -6,7 +6,7 @@ PURSUE is published through the private `KodyDennon/downloads-hub` portal reposi
 
 - `https://downloads.kodydennon.com/` — Kody Dennon multi-project download directory.
 - `https://downloads.kodydennon.com/PURSUE` — complete PURSUE download, installation, privacy, usage, integrity, and system-selection experience.
-- `https://downloads.kodydennon.com/releases/*` — stable public paths that the hub redirects to the direct `releases.kodydennon.com` R2 custom domain.
+- `https://downloads.kodydennon.com/releases/latest/<installer>` — stable public paths resolved from the fresh manifest and redirected to the current immutable object on the direct R2 custom domain.
 - `https://downloads.kodydennon.com/latest.json` — reserved updater path; it remains unavailable while updater artifacts and signing are disabled.
 
 ## Editing PURSUE content
@@ -46,6 +46,6 @@ The hub provides canonical metadata, Open Graph and Twitter previews, a sitemap,
 
 ## Responsibility boundary
 
-This integration intentionally does not use a git subtree or submodule. Project content is a versioned public data contract; portal implementation has a single private owner. Release building, digest verification, mirroring, two-version retention, and R2 credentials remain in PURSUE. Neither the hub nor project Worker has R2 upload or code-signing credentials. Automatic updater artifacts and signing are currently disabled.
+This integration intentionally does not use a git subtree or submodule. Project content is a versioned public data contract; portal implementation has a single private owner. Release building, digest verification, mirroring, dynamic stable-manifest publication, two-version retention, and R2 credentials remain in PURSUE. Neither the hub nor project Worker has R2 upload or code-signing credentials. Automatic updater artifacts and signing are currently disabled.
 
 See `downloads/README.md` for the editing contract and `docs/R2_MIRROR_HANDOFF.md` for release-mirror operations.
