@@ -1,6 +1,6 @@
 # Production Releases
 
-PURSUE releases are built, tested, signed for in-app updates, and published by GitHub Actions. GitHub Releases is the source of truth; an optional Cloudflare R2 mirror provides an independent large-file origin.
+PURSUE releases are built, tested, and published by GitHub Actions. GitHub Releases is the source of truth; an optional Cloudflare R2 mirror provides an independent large-file origin.
 
 ## Release lanes
 
@@ -12,7 +12,7 @@ There is no Intel or universal macOS artifact. Windows users do not need a CUDA 
 
 ## Update and persistence contract
 
-The application checks a signed `latest.json` manifest after startup and on demand. It requests only its exact acceleration lane, verifies the Tauri updater signature before installation, runs SQLite `quick_check`, checkpoints the WAL, installs, and relaunches.
+Updater bundle generation and signing are disabled. Users update by downloading and running the latest installer from GitHub Releases or the R2 mirror. The installer and application preserve user data across ordinary updates.
 
 An ordinary update, uninstall, or reinstall must preserve:
 
@@ -24,16 +24,7 @@ An ordinary update, uninstall, or reinstall must preserve:
 
 Destructive data removal is available only from the explicit Factory Reset flow inside the app.
 
-The updater signature is not Windows Authenticode signing or Apple Developer ID notarization. Those OS trust systems require separate certificates; until configured, SmartScreen or Gatekeeper can still warn even though the in-app update bundle is cryptographically verified.
-
-## Required GitHub configuration
-
-Encrypted repository secrets:
-
-- `TAURI_SIGNING_PRIVATE_KEY`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-
-The matching public key is committed at `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`. Never store the private key in a GitHub variable, repository file, workflow output, or release asset.
+Windows Authenticode and Apple Developer ID notarization are also disabled, so SmartScreen or Gatekeeper can warn. No paid code-signing certificate or updater-signing secret is required by the release workflow.
 
 Optional R2 variables and secrets are documented in `docs/R2_MIRROR_HANDOFF.md`.
 
@@ -47,19 +38,15 @@ Every relevant push or pull request runs:
 - installer compilation for Apple Silicon Metal, Windows DirectML, and Windows CUDA;
 - pinned PDFium and native-runtime staging checks.
 
-Tag builds additionally require the signing secrets, produce Tauri updater artifacts, publish installers and signatures, generate a strict three-lane `latest.json`, and mirror to R2 when enabled. The manifest job refuses missing, duplicate, partial, draft, or non-HTTPS release assets. After public verification, the mirror prunes immutable release prefixes beyond the current and immediately previous versions.
+Tag builds additionally publish the four unsigned installers and mirror them to R2 when enabled. The mirror refuses missing, duplicate, partial, draft, or non-HTTPS release assets. After public verification, it prunes immutable release prefixes beyond the current and immediately previous versions.
 
 ## Published assets
 
 A production tag is complete only when GitHub contains:
 
 - one Apple Silicon DMG;
-- one Windows CUDA setup EXE and MSI;
-- one Windows DirectML setup EXE and MSI;
-- one Apple Silicon `.app.tar.gz` updater and `.sig`;
-- one CUDA `.msi.zip` updater and `.sig` (the self-contained CUDA payload exceeds NSIS's 2 GiB compiler limit);
-- one DirectML `.nsis.zip` updater and `.sig`;
-- `latest.json` containing exactly the three release lanes.
+- one Windows CUDA MSI (the self-contained CUDA payload exceeds NSIS's 2 GiB compiler limit);
+- one Windows DirectML setup EXE and MSI.
 
 ## Publishing
 
@@ -72,4 +59,4 @@ The `Auto Version and Release` workflow accepts commit subjects beginning with:
 
 It synchronizes `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, then creates the matching `v*` tag. A manually created tag is also supported, but all four version sources must already agree.
 
-After pushing, monitor both `Auto Version and Release` and `build-installers` to completion. Do not announce production deployment until the tag exists, all required jobs are green, the GitHub asset inventory is complete, updater signatures match their manifests, and any enabled R2 mirror has passed public URL/digest verification.
+After pushing, monitor both `Auto Version and Release` and `build-installers` to completion. Do not announce production deployment until the tag exists, all required jobs are green, the four-file GitHub asset inventory is complete, and any enabled R2 mirror has passed public URL/digest verification.

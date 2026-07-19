@@ -9,9 +9,9 @@ Repository implementation already present:
 - `.github/scripts/mirror-release-to-r2.sh`
 - `.github/workflows/mirror-release.yml`
 - `mirror-r2` in `.github/workflows/release.yml`
-- signed three-lane updater generation in `scripts/generate-updater-manifest.mjs`
 - machine-aware portal/detail UI in the private `KodyDennon/downloads-hub` repository
 - canonical public PURSUE profile in `downloads/project.json`
+- unsigned four-installer release mirroring
 
 The mirror uploads immutable release objects first, verifies GitHub digests and R2 metadata, then advances stable aliases. After public verification it retains only the two newest immutable version prefixes and removes older mirrored versions. GitHub remains the release source of truth and fallback.
 
@@ -25,7 +25,9 @@ The `downloads.kodydennon.com` custom domain is served by the private downloads-
 - Direct R2 origin: `https://releases.kodydennon.com/`, with active ownership, active SSL, and TLS 1.2 minimum. The managed `r2.dev` origin remains disabled.
 - GitHub has the four required R2 variables, bucket-scoped encrypted S3 credentials, and `R2_MIRROR_ENABLED=true`. Credential values are intentionally not recorded here.
 - Manual releases `v0.10.0` and `v0.10.1` are mirrored. Stable aliases point to `v0.10.1`, and the retention pass permits only those two immutable version prefixes.
-- `v0.10.1` predates the signed seven-file updater set, so it has manual installers and `manifest.json` but no R2 `latest.json`. The application source now places the verified R2 updater endpoint before the GitHub fallback; the next updater-capable tag will populate it before the mirror job succeeds.
+- Expected first fully mirrored unsigned release: `v0.10.7` (confirm with `gh release list`).
+- Automatic updater artifact generation and signing are disabled. Releases use manual installers only.
+- `v0.10.1` has five legacy manual installers. It can be mirrored for manual downloads only with a release-specific override.
 
 ## 1. Audit authenticated CLIs
 
@@ -178,7 +180,7 @@ Backfill `v0.10.1` for manual installer aliases if desired:
 gh workflow run mirror-release.yml --repo KodyDennon/pursue -f tag=v0.10.1
 ```
 
-Then mirror the newest updater-enabled tag (replace after checking the actual release list):
+Then mirror the newest production tag (replace after checking the actual release list):
 
 ```bash
 export RELEASE_TAG="$(gh release list --repo KodyDennon/pursue --limit 1 --json tagName --jq '.[0].tagName')"
@@ -187,12 +189,11 @@ run_id="$(gh run list --repo KodyDennon/pursue --workflow mirror-release.yml --l
 gh run watch "$run_id" --repo KodyDennon/pursue --exit-status
 ```
 
-For the updater-enabled tag, the workflow requires exactly four installers plus these seven updater assets: three bundles, three `.sig` files, and `latest.json`. It publishes:
+The workflow requires exactly four installers and publishes:
 
 - immutable bytes under `releases/$RELEASE_TAG/`;
 - four stable installer aliases under `releases/latest/`;
 - `release-manifest.json` and `releases/latest/manifest.json` for manual downloads;
-- `releases/$RELEASE_TAG/updater.json`, `releases/latest/updater.json`, and top-level `latest.json` for signed updates.
 
 The retention pass runs last. At steady state the bucket contains only the current and immediately previous immutable release prefixes. Publishing can briefly create a third prefix so the new release can be completely verified before the oldest known-good version is deleted. The `releases/latest/` installer aliases and top-level manifests are stable pointers, not additional retained versions.
 
@@ -200,14 +201,13 @@ Verify public metadata and a complete large download:
 
 ```bash
 curl --fail --location --silent --show-error "$R2_PUBLIC_BASE_URL/releases/latest/manifest.json" | jq .
-curl --fail --location --silent --show-error "$R2_PUBLIC_BASE_URL/latest.json" | jq .
 curl --fail --location --remote-name "$R2_PUBLIC_BASE_URL/releases/latest/windows-cuda.msi"
 expected="$(curl --fail --silent "$R2_PUBLIC_BASE_URL/releases/latest/manifest.json" \
   | jq -r '.artifacts[] | select(.alias == "windows-cuda.msi") | .sha256')"
 printf '%s  %s\n' "$expected" windows-cuda.msi | shasum -a 256 --check
 ```
 
-## 6. Enable automatic mirroring and wire the updater endpoint
+## 6. Enable automatic installer mirroring
 
 Only after the public checks pass:
 
@@ -215,16 +215,7 @@ Only after the public checks pass:
 gh variable set R2_MIRROR_ENABLED --repo KodyDennon/pursue --body true
 ```
 
-Add the verified R2 updater endpoint before GitHub in `src-tauri/tauri.conf.json`, retaining GitHub as fallback:
-
-```json
-"endpoints": [
-  "https://downloads.kodydennon.com/latest.json",
-  "https://github.com/KodyDennon/pursue/releases/latest/download/latest.json"
-]
-```
-
-Run the full validation suite, bump the patch version, and cut another release so installed clients actually receive the R2-first endpoint. Never commit a guessed hostname.
+No updater endpoint change is required while signed updater artifacts are disabled.
 
 ## Completion checklist
 
@@ -234,11 +225,8 @@ Run the full validation suite, bump the patch version, and cut another release s
 - [x] Bucket-scoped S3 credentials are encrypted GitHub secrets.
 - [x] `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and `R2_PUBLIC_BASE_URL` are GitHub variables.
 - [x] `v0.10.0` and `v0.10.1` manual installer backfills pass.
-- [ ] New updater-enabled tag mirrors four installers and seven updater assets.
+- [ ] New production tag mirrors exactly four installers.
 - [x] R2 contains no more than the current and previous immutable release prefixes after the workflow completes.
 - [x] Public manual manifest parses and points at immutable HTTPS objects.
-- [ ] Public updater manifest parses and points at immutable HTTPS objects after the next updater-enabled release.
 - [ ] Full CUDA installer download matches the manifest SHA-256.
 - [x] `R2_MIRROR_ENABLED=true` only after public root, redirect, manifest, and installer checks passed.
-- [x] Verified R2 endpoint is committed before the GitHub fallback.
-- [ ] Release the R2-first updater endpoint in the next updater-capable tag.

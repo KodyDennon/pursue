@@ -120,9 +120,9 @@ More details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Releases
 
-The release workflow verifies the frontend and Rust backend, then builds installers for macOS 26+ Apple Silicon, Windows DirectML, and Windows CUDA. Tags matching `v*` publish non-draft GitHub Releases with downloadable installer assets.
+The release workflow verifies the frontend and Rust backend, then builds unsigned installers for macOS 26+ Apple Silicon, Windows DirectML, and Windows CUDA. Tags matching `v*` publish non-draft GitHub Releases with downloadable installer assets.
 
-Each production tag must publish four installers, three signed updater bundles with matching signatures, and `latest.json`. If R2 mirroring is enabled, those exact bytes and digests are copied to immutable R2 keys before stable aliases are advanced. Once the new mirror is publicly verified, R2 keeps only the current and immediately previous immutable release prefixes.
+Each production tag publishes four installer files. Paid OS code signing and Tauri updater signing are disabled; users update by downloading the new installer. If R2 mirroring is enabled, the exact installer bytes and digests are copied to immutable R2 keys before stable aliases are advanced. Once the new mirror is publicly verified, R2 keeps only the current and immediately previous immutable release prefixes.
 
 Release documentation is in [docs/RELEASES.md](docs/RELEASES.md).
 

@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { Download, ExternalLink, RefreshCcw } from 'lucide-svelte';
+	import { Download, ExternalLink } from 'lucide-svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
-	import { updateStore } from '$lib/stores/updateStore.svelte';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 </script>
 
@@ -16,45 +15,20 @@
 			<span class="d-val">v{settingsStore.appVersion}</span>
 		</div>
 		<div class="data-item">
-			<span class="d-label">Signed Update Lane</span>
-			<span class="d-val">{updateStore.target}</span>
+			<span class="d-label">Update Method</span>
+			<span class="d-val">Manual unsigned installer</span>
 		</div>
-		{#if updateStore.phase === 'available'}
-			<p class="section-desc update-ready">
-				Signed update v{updateStore.availableVersion} is ready to download.
-			</p>
-		{:else if updateStore.phase === 'downloading'}
-			<p class="section-desc">Downloading and verifying: {updateStore.progressPercent}%</p>
-		{:else if updateStore.phase === 'installing'}
-			<p class="section-desc">Installing the verified update. PURSUE will restart shortly.</p>
-		{:else if updateStore.phase === 'current'}
-			<p class="section-desc">This signed release lane is current.</p>
-		{:else if updateStore.phase === 'error'}
-			<p class="section-desc update-error">Update check failed safely: {updateStore.error}</p>
-		{:else}
-			<p class="section-desc">
-				Updates are signature-verified and remain on the same GPU provider lane.
-			</p>
-		{/if}
+		<p class="section-desc">
+			Automatic updater signing is disabled. Download the latest installer and choose the CUDA or
+			DirectML Windows build that matches your GPU; ordinary reinstalls preserve application data.
+		</p>
 	</div>
 	<footer class="s-footer">
-		{#if updateStore.phase === 'available'}
-			<button class="s-btn primary" onclick={() => updateStore.downloadAndInstall()}>
-				<Download size={14} />
-				Download and Install v{updateStore.availableVersion}
-			</button>
-		{:else}
-			<button
-				class="s-btn primary"
-				disabled={updateStore.phase === 'checking' || updateStore.phase === 'downloading' || updateStore.phase === 'installing'}
-				onclick={() => updateStore.checkForUpdate()}
-			>
-				<RefreshCcw size={14} />
-				{updateStore.phase === 'checking' ? 'Checking...' : 'Check for Updates'}
-			</button>
-		{/if}
-		<button class="s-btn secondary" onclick={() => openUrl('https://github.com/KodyDennon/pursue/releases')}>
-			<ExternalLink size={14} /> Manual Download
+		<button class="s-btn primary" onclick={() => openUrl('https://github.com/KodyDennon/pursue/releases/latest')}>
+			<Download size={14} /> Download Latest Release
+		</button>
+		<button class="s-btn secondary" onclick={() => openUrl('https://downloads.kodydennon.com/releases/latest/manifest.json')}>
+			<ExternalLink size={14} /> R2 Mirror Manifest
 		</button>
 	</footer>
 </section>
@@ -158,14 +132,6 @@
 		background: transparent;
 		border-color: var(--color-border-subtle);
 		color: var(--color-text-primary);
-	}
-
-	.update-ready {
-		color: var(--color-accent-primary);
-	}
-
-	.update-error {
-		color: var(--color-status-error, #ff6b6b);
 	}
 
 	:global(.accent-icon) {
