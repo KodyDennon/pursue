@@ -37,6 +37,7 @@ done
 public_base="${R2_PUBLIC_BASE_URL%/}"
 endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 repository="${GITHUB_REPOSITORY:-KodyDennon/pursue}"
+release_retention_count=2
 export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
 export AWS_DEFAULT_REGION=auto
@@ -55,6 +56,7 @@ gh release view "$tag" --repo "$repository" \
 
 [[ "$(jq -r .tagName "$release_json")" == "$tag" ]] || die "GitHub returned a different release tag"
 [[ "$(jq -r .isDraft "$release_json")" == false ]] || die "refusing to mirror draft release $tag"
+[[ "$(jq -r .isPrerelease "$release_json")" == false ]] || die "refusing to mirror prerelease $tag"
 
 mapfile -t installer_names < <(
   jq -r '.assets[].name' "$release_json" |
@@ -237,5 +239,41 @@ for name in "${asset_names[@]}"; do
   curl --fail --silent --show-error --location --retry 5 --retry-all-errors --head \
     "$public_base/$versioned_key" >/dev/null || die "public object is unavailable: $name"
 done
+
+# Keep only the current and immediately previous immutable release. Pruning happens
+# after the new release and stable aliases are publicly verified, so a failed upload
+# never destroys the last known-good rollback pair. Stable aliases and top-level
+# manifests are not version prefixes and are intentionally excluded.
+list_mirrored_release_tags() {
+  aws s3api list-objects-v2 \
+    --endpoint-url "$endpoint" \
+    --bucket "$R2_BUCKET_NAME" \
+    --prefix 'releases/' \
+    --delimiter '/' \
+    --output json |
+    jq -r '
+      .CommonPrefixes[]?.Prefix
+      | select(test("^releases/v[0-9]+\\.[0-9]+\\.[0-9]+/$"))
+      | sub("^releases/"; "")
+      | sub("/$"; "")
+    ' |
+    sort -Vr
+}
+
+mapfile -t mirrored_release_tags < <(list_mirrored_release_tags)
+if (( ${#mirrored_release_tags[@]} > release_retention_count )); then
+  for expired_tag in "${mirrored_release_tags[@]:release_retention_count}"; do
+    echo "Pruning expired R2 release $expired_tag"
+    aws s3 rm "s3://$R2_BUCKET_NAME/releases/$expired_tag/" \
+      --endpoint-url "$endpoint" \
+      --recursive \
+      --only-show-errors
+  done
+fi
+
+mapfile -t retained_release_tags < <(list_mirrored_release_tags)
+(( ${#retained_release_tags[@]} <= release_retention_count )) ||
+  die "R2 retention verification failed; found ${#retained_release_tags[@]} immutable releases"
+printf 'Retained R2 releases: %s\n' "${retained_release_tags[*]}"
 
 echo "R2 mirror complete: $public_base/releases/latest/manifest.json"

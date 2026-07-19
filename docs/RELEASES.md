@@ -47,7 +47,7 @@ Every relevant push or pull request runs:
 - installer compilation for Apple Silicon Metal, Windows DirectML, and Windows CUDA;
 - pinned PDFium and native-runtime staging checks.
 
-Tag builds additionally require the signing secrets, produce Tauri updater artifacts, publish installers and signatures, generate a strict three-lane `latest.json`, and mirror to R2 when enabled. The manifest job refuses missing, duplicate, partial, draft, or non-HTTPS release assets.
+Tag builds additionally require the signing secrets, produce Tauri updater artifacts, publish installers and signatures, generate a strict three-lane `latest.json`, and mirror to R2 when enabled. The manifest job refuses missing, duplicate, partial, draft, or non-HTTPS release assets. After public verification, the mirror prunes immutable release prefixes beyond the current and immediately previous versions.
 
 ## Published assets
 

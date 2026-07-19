@@ -11,7 +11,7 @@ Repository implementation already present:
 - `mirror-r2` in `.github/workflows/release.yml`
 - signed three-lane updater generation in `scripts/generate-updater-manifest.mjs`
 
-The mirror uploads immutable release objects first, verifies GitHub digests and R2 metadata, then advances stable aliases. GitHub remains the release source of truth and fallback.
+The mirror uploads immutable release objects first, verifies GitHub digests and R2 metadata, then advances stable aliases. After public verification it retains only the two newest immutable version prefixes and removes older mirrored versions. GitHub remains the release source of truth and fallback.
 
 ## State at Windows handoff
 
@@ -176,6 +176,8 @@ For the updater-enabled tag, the workflow requires exactly four installers plus 
 - `release-manifest.json` and `releases/latest/manifest.json` for manual downloads;
 - `releases/$RELEASE_TAG/updater.json`, `releases/latest/updater.json`, and top-level `latest.json` for signed updates.
 
+The retention pass runs last. At steady state the bucket contains only the current and immediately previous immutable release prefixes. Publishing can briefly create a third prefix so the new release can be completely verified before the oldest known-good version is deleted. The `releases/latest/` installer aliases and top-level manifests are stable pointers, not additional retained versions.
+
 Verify public metadata and a complete large download:
 
 ```bash
@@ -214,6 +216,7 @@ Run the full validation suite, bump the patch version, and cut another release s
 - [ ] `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and `R2_PUBLIC_BASE_URL` are GitHub variables.
 - [ ] `v0.10.1` manual installer backfill passes if requested.
 - [ ] New updater-enabled tag mirrors four installers and seven updater assets.
+- [ ] R2 contains no more than the current and previous immutable release prefixes after the workflow completes.
 - [ ] Public manual and updater manifests parse and point at immutable HTTPS objects.
 - [ ] Full CUDA installer download matches the manifest SHA-256.
 - [ ] `R2_MIRROR_ENABLED=true` only after verification.
