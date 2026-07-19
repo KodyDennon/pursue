@@ -103,7 +103,7 @@ jobs:
         run: cargo check
         working-directory: src-tauri
         env:
-          MACOSX_DEPLOYMENT_TARGET: '14.0'
+          MACOSX_DEPLOYMENT_TARGET: '26.0'
 
       - name: Commit and Push Tag
         run: |

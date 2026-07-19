@@ -42,6 +42,9 @@
     "createUpdaterArtifacts": true,
     "licenseFile": "../src-tauri/license.txt",
     "targets": "all",
+    "macOS": {
+      "minimumSystemVersion": "26.0"
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

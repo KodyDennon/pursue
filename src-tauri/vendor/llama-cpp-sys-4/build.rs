@@ -1453,6 +1453,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LLAMA_PATCH_ENGINE");
     println!("cargo:rerun-if-env-changed=LLAMA_PATCH");
     println!("cargo:rerun-if-env-changed=PATCH");
+    println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
 
     // Rerun if prebuilt feature is toggled
     #[cfg(feature = "prebuilt")]
@@ -1832,6 +1833,21 @@ fn main() {
         };
         config.define("CMAKE_OSX_ARCHITECTURES", osx_arch);
         debug_log!("Apple native: CMAKE_OSX_ARCHITECTURES={osx_arch}");
+    }
+
+    // The cmake crate derives C/C++ flags from Rust's target specification and can
+    // otherwise inject its legacy `-mmacosx-version-min=10.13` default even when
+    // Cargo received MACOSX_DEPLOYMENT_TARGET.  That is both inconsistent with the
+    // Rust half of the application and too old for llama.cpp's std::filesystem use.
+    // Propagate the product's deployment floor explicitly to every native target.
+    if target.contains("apple") {
+        if let Ok(deployment_target) = env::var("MACOSX_DEPLOYMENT_TARGET") {
+            config.define("CMAKE_OSX_DEPLOYMENT_TARGET", &deployment_target);
+            config.define("GGML_METAL_MACOSX_VERSION_MIN", &deployment_target);
+            debug_log!(
+                "Apple deployment target: CMAKE_OSX_DEPLOYMENT_TARGET={deployment_target}"
+            );
+        }
     }
 
     // ── GGML_NATIVE ──────────────────────────────────────────────────────────
