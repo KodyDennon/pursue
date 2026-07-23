@@ -159,7 +159,13 @@ async fn create_versioned_backup(
         chrono::Utc::now().format("%Y%m%d%H%M%S")
     ));
     fs::copy(db_path, &backup_path)?;
-    let backup_file = fs::File::open(&backup_path)?;
+    // Flush the backup to stable storage before we rely on it. The handle must be
+    // opened for writing: on Windows `sync_all()` calls `FlushFileBuffers`, which
+    // requires write access and fails with `ERROR_ACCESS_DENIED` (os error 5) on a
+    // read-only handle from `File::open`. That surfaced as a deterministic
+    // startup crash on Windows because CI only exercises this path on macOS, where
+    // `fsync` on a read-only descriptor is permitted.
+    let backup_file = fs::OpenOptions::new().write(true).open(&backup_path)?;
     backup_file.sync_all()?;
     verify_backup_database(&backup_path).await?;
 
