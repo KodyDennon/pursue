@@ -192,6 +192,12 @@ Step 'Configure MSVC + CUDA + llama toolchain env' {
     # Mirror the CI environment (.github/workflows/release.yml windows-cuda job).
     $env:LIBCLANG_PATH            = $llvm
     $env:CUDA_PATH                = $CudaPath
+    $env:CUDA_HOME                = $CudaPath
+    # cudaforge resolves nvcc as: $NVCC -> `which nvcc` (PATH) -> CUDA_HOME -> CUDA_PATH.
+    # A different CUDA on PATH (e.g. an old 12.0) would win the PATH lookup, so pin NVCC
+    # explicitly and put this toolkit's bin first.
+    $env:NVCC                     = Join-Path $CudaPath 'bin\nvcc.exe'
+    $env:PATH                     = (Join-Path $CudaPath 'bin') + ';' + $env:PATH
     $env:CUDA_COMPUTE_CAP         = '75'      # Turing/RTX 20xx floor; PTX JITs forward
     $env:CMAKE_GENERATOR          = 'Ninja'
     $env:NVCC_CCBIN               = $cl.Source
