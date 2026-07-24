@@ -217,11 +217,12 @@ impl IntelligenceExtractor {
         // 4. Inference Orchestration (spawn_blocking)
         debug!("[Extraction] Spawning text/manifest synthesis task...");
         let active_device = ctx.device_label.clone();
+        let had_images = !images.is_empty();
         let first_handle = handle.clone();
         let first_rid = rid_clone.clone();
         let first_text = processed_text.clone();
         let first_context = related_context.clone();
-        let first_images = images.clone();
+        let first_images = images;
         let mut result = tokio::task::spawn_blocking(move || {
             Self::run_inference(
                 first_handle,
@@ -234,16 +235,21 @@ impl IntelligenceExtractor {
         })
         .await?;
 
-        if result.is_err() && !force_cpu && !active_device.contains("CPU") {
-            let gpu_error = result
+        // Never let a vision or accelerator failure break synthesis: on error, retry once as a
+        // TEXT-ONLY pass (dropping to CPU if an accelerator failed). Worst case we lose image
+        // grounding for this record and produce the same result the text path would have.
+        let accelerator_failed = !force_cpu && !active_device.contains("CPU");
+        if result.is_err() && (had_images || accelerator_failed) {
+            let prior_error = result
                 .as_ref()
                 .err()
                 .map(ToString::to_string)
                 .unwrap_or_default();
             tauri_plugin_log::log::error!(
-                "[Extraction] Intelligence inference failed on {}; retrying once on CPU: {}",
+                "[Extraction] Intelligence inference failed on {}; retrying text-only{}: {}",
                 active_device,
-                gpu_error
+                if accelerator_failed { " on CPU" } else { "" },
+                prior_error
             );
             crate::analysis::hardware::clear_active_inference_backend("Intelligence model");
             let _ = handle.emit(
@@ -251,18 +257,18 @@ impl IntelligenceExtractor {
                 json!({
                     "status": "loading-model",
                     "record_id": rid,
-                    "msg": format!("GPU inference failed on {active_device}; retrying on CPU fallback")
+                    "msg": format!("Synthesis failed on {active_device}; retrying text-only fallback")
                 }),
             );
-            let cpu_context = Self::load_context(&repo_path, true)?;
+            let retry_context = Self::load_context(&repo_path, force_cpu || accelerator_failed)?;
             result = tokio::task::spawn_blocking(move || {
                 Self::run_inference(
                     handle,
                     rid_clone,
-                    cpu_context,
+                    retry_context,
                     processed_text,
                     related_context,
-                    images,
+                    Vec::new(),
                 )
             })
             .await?;
