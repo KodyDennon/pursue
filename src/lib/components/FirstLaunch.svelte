@@ -300,10 +300,16 @@
 					await new Promise((r) => setTimeout(r, 1000));
 				}
 			} catch (e) {
-				console.error('Failed to provision neural runtime', e);
-				statusText = `[${totalModels}/${totalModels}] Neural Runtime provisioning failed`;
-				provisioningError = errorMessage(e);
-				return;
+				// The Python vision sidecar is an optional Elite-tier enhancement; the
+				// embedded Rust runtimes (OCR/PDF/native models) work without it, so a
+				// provisioning failure must NEVER block setup. Warn and continue — it can
+				// be retried later from Settings.
+				console.error('Vision runtime provisioning failed; continuing with embedded runtimes', e);
+				statusText =
+					'Vision runtime unavailable — continuing with the embedded runtimes. You can enable it later in Settings.';
+				modelsCompleted = totalModels;
+				overallProgress = 100;
+				await new Promise((r) => setTimeout(r, 1800));
 			}
 		}
 

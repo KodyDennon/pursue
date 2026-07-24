@@ -165,7 +165,14 @@ impl VisionRuntime {
         let python = find_python_executable();
         let venv_python = self.venv_python();
 
-        if !venv_python.exists() {
+        // A venv is only usable if it has both a runnable interpreter AND its pyvenv.cfg.
+        // A partially-created venv (python.exe present, pyvenv.cfg missing) is broken and
+        // every later `pip` call fails with "failed to locate pyvenv.cfg". Rebuild it.
+        let venv_valid = venv_python.exists() && self.venv_dir().join("pyvenv.cfg").exists();
+        if !venv_valid {
+            if self.venv_dir().exists() {
+                let _ = tokio::fs::remove_dir_all(self.venv_dir()).await;
+            }
             let _ = app.emit(
                 "analysis-progress",
                 json!({
@@ -174,18 +181,19 @@ impl VisionRuntime {
                 }),
             );
             let mut command = Command::new(&python);
-            command
-                .arg("-m")
-                .arg("venv")
-                .arg(self.venv_dir())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            let status = crate::common::hide_console(&mut command)
-                .status()
+            command.arg("-m").arg("venv").arg(self.venv_dir());
+            let output = crate::common::hide_console(&mut command)
+                .output()
                 .await
-                .context("failed to create Python vision runtime environment")?;
-            if !status.success() {
-                return Err(anyhow!("Python venv creation failed for vision runtime"));
+                .context(
+                    "failed to launch Python to create the vision runtime environment \
+                     (a Python 3 interpreter must be available)",
+                )?;
+            if !output.status.success() {
+                return Err(anyhow!(
+                    "Python venv creation failed for vision runtime: {}",
+                    truncate_stderr(&output.stderr)
+                ));
             }
         }
 
@@ -198,7 +206,7 @@ impl VisionRuntime {
                     "msg": "Installing local vision runtime dependencies..."
                 }),
             );
-            let mut command = Command::new(venv_python);
+            let mut command = Command::new(self.venv_python());
             command
                 .arg("-m")
                 .arg("pip")
@@ -206,15 +214,16 @@ impl VisionRuntime {
                 .arg("--upgrade")
                 .arg("pip")
                 .arg("-r")
-                .arg(self.requirements_path())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            let status = crate::common::hide_console(&mut command)
-                .status()
+                .arg(self.requirements_path());
+            let output = crate::common::hide_console(&mut command)
+                .output()
                 .await
                 .context("failed to install vision runtime dependencies")?;
-            if !status.success() {
-                return Err(anyhow!("vision runtime dependency installation failed"));
+            if !output.status.success() {
+                return Err(anyhow!(
+                    "vision runtime dependency installation failed: {}",
+                    truncate_stderr(&output.stderr)
+                ));
             }
             tokio::fs::write(sentinel, now()).await?;
         }
@@ -423,6 +432,22 @@ fn resolve_sidecar_resource(app: &AppHandle, filename: &str) -> Result<PathBuf> 
     }
 
     Err(anyhow!("vision runtime resource not found: {}", filename))
+}
+
+/// Last ~800 chars of a child process's stderr, for surfacing the real failure
+/// (e.g. "No matching distribution found for torch") instead of a generic message.
+fn truncate_stderr(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return "(no error output captured)".to_string();
+    }
+    let tail: String = trimmed.chars().rev().take(800).collect::<Vec<_>>().into_iter().rev().collect();
+    if trimmed.chars().count() > 800 {
+        format!("…{tail}")
+    } else {
+        tail
+    }
 }
 
 fn find_python_executable() -> String {
