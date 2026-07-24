@@ -10,7 +10,7 @@ $stageDir = [System.IO.Path]::GetFullPath($stageDir)
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 
 function Download-SignedMicrosoftFile([string]$Url, [string]$Destination) {
-    & curl.exe --fail --location --retry 5 --retry-all-errors $Url --output $Destination
+    & curl.exe --fail --silent --show-error --location --retry 5 --retry-all-errors $Url --output $Destination
     if ($LASTEXITCODE -ne 0) { throw "Download failed: $Url" }
     $signature = Get-AuthenticodeSignature -LiteralPath $Destination
     if ($signature.Status -ne 'Valid' -or
@@ -35,7 +35,7 @@ function Copy-ResolvedFile([string]$Source, [string]$DestinationDirectory) {
 }
 
 function Download-PinnedFile([string]$Url, [string]$Destination, [string]$Sha256) {
-    & curl.exe --fail --location --retry 5 --retry-all-errors $Url --output $Destination
+    & curl.exe --fail --silent --show-error --location --retry 5 --retry-all-errors $Url --output $Destination
     if ($LASTEXITCODE -ne 0) { throw "Download failed: $Url" }
     $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Destination).Hash.ToLowerInvariant()
     if ($actual -ne $Sha256) {
@@ -114,7 +114,7 @@ if ($Cuda) {
         throw "Unsafe cuDNN temporary path: $workDir"
     }
     New-Item -ItemType Directory -Force -Path $workDir | Out-Null
-    & curl.exe --fail --location --retry 5 --retry-all-errors `
+    & curl.exe --fail --silent --show-error --location --retry 5 --retry-all-errors `
         "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/$cudnnArchive" `
         --output $archivePath
     if ($LASTEXITCODE -ne 0) { throw 'cuDNN download failed.' }
