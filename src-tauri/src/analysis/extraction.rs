@@ -17,7 +17,14 @@ use llama_cpp_4::prelude::{
     fit_params, AddBos, FitParams, LlamaBackend, LlamaBatch, LlamaChatMessage, LlamaContextParams,
     LlamaFlashAttnType, LlamaModel, LlamaModelParams, LlamaSampler, Special,
 };
+// Native Gemma 4 multimodal (image understanding) via llama.cpp mtmd. This reuses the SAME
+// resident GGUF model as text synthesis (only one llama.cpp backend is allowed per process),
+// and is distinct from the OCR model, which merely extracts text from images.
+use llama_cpp_4::mtmd::{MtmdBitmap, MtmdContext, MtmdContextParams, MtmdInputChunks, MtmdInputText};
 use std::num::NonZeroU32;
+
+/// File name of the Gemma 4 multimodal projector, provisioned next to the text GGUF.
+pub const GEMMA4_MMPROJ_FILENAME: &str = "gemma-4-E4B-it-mmproj.gguf";
 
 const JSON_GBNF: &str = r#"
 root ::= object
@@ -99,7 +106,7 @@ impl IntelligenceExtractor {
         repo_path: PathBuf,
         force_cpu: bool,
         text: &str,
-        _images: Vec<PathBuf>,
+        images: Vec<PathBuf>,
     ) -> Result<Value> {
         debug!(
             "[Extraction] Starting metadata extraction for record: {}",
@@ -214,6 +221,7 @@ impl IntelligenceExtractor {
         let first_rid = rid_clone.clone();
         let first_text = processed_text.clone();
         let first_context = related_context.clone();
+        let first_images = images.clone();
         let mut result = tokio::task::spawn_blocking(move || {
             Self::run_inference(
                 first_handle,
@@ -221,7 +229,7 @@ impl IntelligenceExtractor {
                 ctx,
                 first_text,
                 first_context,
-                Vec::new(),
+                first_images,
             )
         })
         .await?;
@@ -254,7 +262,7 @@ impl IntelligenceExtractor {
                     cpu_context,
                     processed_text,
                     related_context,
-                    Vec::new(),
+                    images,
                 )
             })
             .await?;
@@ -336,10 +344,22 @@ impl IntelligenceExtractor {
         mut ctx: GemmaContext,
         text: String,
         related_context: String,
-        _images: Vec<PathBuf>,
+        images: Vec<PathBuf>,
     ) -> Result<InferenceOutput> {
         let system_prompt = build_text_system_prompt(&related_context);
         let user_prompt = build_text_user_prompt(&text);
+
+        // Gemma analyzes evidence images (and can correct the OCR'd text using them) only when
+        // this on-demand synthesis runs on a record that HAS images AND the multimodal projector
+        // is present next to the GGUF model. It reuses the one resident model and never
+        // auto-cascades from OCR.
+        let mmproj_path = ctx
+            .repo_path
+            .parent()
+            .map(|parent| parent.join(GEMMA4_MMPROJ_FILENAME));
+        let use_multimodal = !images.is_empty()
+            && matches!(ctx.runtime, GemmaRuntime::Gguf { .. })
+            && mmproj_path.as_ref().is_some_and(|path| path.exists());
 
         let (generated_text, runtime_context) = match ctx.runtime {
             GemmaRuntime::Native { model, tokenizer } => Self::run_native_inference(
@@ -350,6 +370,24 @@ impl IntelligenceExtractor {
                 &system_prompt,
                 &user_prompt,
                 &ctx.device_label,
+            )?,
+            GemmaRuntime::Gguf {
+                backend,
+                model,
+                context_size,
+                gpu_layers,
+            } if use_multimodal => Self::run_gguf_multimodal_inference(
+                &handle,
+                &rid,
+                backend,
+                model,
+                context_size,
+                gpu_layers,
+                &system_prompt,
+                &user_prompt,
+                &ctx.device_label,
+                mmproj_path.as_ref().expect("mmproj path present when use_multimodal"),
+                &images,
             )?,
             GemmaRuntime::Gguf {
                 backend,
@@ -581,6 +619,157 @@ impl IntelligenceExtractor {
         let generated_text = String::from_utf8(generated)
             .map_err(|error| anyhow!("Gemma 4 returned invalid UTF-8: {error}"))?;
         drop(llama_context);
+        Ok((
+            generated_text,
+            GemmaRuntime::Gguf {
+                backend,
+                model,
+                context_size,
+                gpu_layers,
+            },
+        ))
+    }
+
+    /// Multimodal synthesis: Gemma 4 analyzes the evidence images together with the (OCR'd)
+    /// text and can correct that text using what it sees. Reuses the SAME resident GGUF model
+    /// as the text path (one llama.cpp backend per process) by attaching an mtmd projector.
+    #[allow(clippy::too_many_arguments)]
+    fn run_gguf_multimodal_inference(
+        handle: &AppHandle,
+        rid: &str,
+        backend: LlamaBackend,
+        model: LlamaModel,
+        context_size: u32,
+        gpu_layers: i32,
+        system_prompt: &str,
+        user_prompt: &str,
+        device_label: &str,
+        mmproj_path: &Path,
+        image_paths: &[PathBuf],
+    ) -> Result<(String, GemmaRuntime)> {
+        let threads = crate::analysis::hardware::cpu_inference_threads() as i32;
+        // Scope all borrows of `model`/`backend` so they end before we move them into the
+        // returned runtime.
+        let generated_text = {
+            let mtmd = MtmdContext::init_from_file(
+                mmproj_path,
+                &model,
+                MtmdContextParams::default().use_gpu(gpu_layers > 0),
+            )
+            .map_err(|e| {
+                anyhow!(
+                    "failed to load Gemma 4 vision projector {}: {e}",
+                    mmproj_path.display()
+                )
+            })?;
+            if !mtmd.supports_vision() {
+                return Err(anyhow!("Gemma 4 projector does not report vision support"));
+            }
+
+            let bitmaps: Vec<MtmdBitmap> = image_paths
+                .iter()
+                .map(|p| {
+                    MtmdBitmap::from_file(&mtmd, p)
+                        .map_err(|e| anyhow!("failed to load evidence image {}: {e}", p.display()))
+                })
+                .collect::<Result<_>>()?;
+            let bitmap_refs: Vec<&MtmdBitmap> = bitmaps.iter().collect();
+
+            // One media marker per image, inside the user turn, then the chat template.
+            let marker = MtmdContext::default_marker();
+            let markers = std::iter::repeat(marker)
+                .take(image_paths.len())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let multimodal_user = format!(
+                "{markers}\nThe attached image(s) are the primary visual evidence for this record. \
+                 Read them directly, use them to verify and correct any OCR/transcription errors in \
+                 the text below, and ground every visual claim in what is actually visible.\n\n{user_prompt}"
+            );
+            let messages = [
+                LlamaChatMessage::new("system".to_string(), system_prompt.to_string())?,
+                LlamaChatMessage::new("user".to_string(), multimodal_user)?,
+            ];
+            let templated = model.apply_chat_template(None, &messages, true)?;
+
+            // add_special=false: the chat template already carries BOS/special tokens.
+            let input_text = MtmdInputText::new(&templated, false, true);
+            let mut chunks = MtmdInputChunks::new();
+            mtmd.tokenize(&input_text, &bitmap_refs, &mut chunks)
+                .map_err(|e| anyhow!("Gemma 4 mtmd tokenize failed: {e}"))?;
+
+            let n_batch = context_size.min(1024);
+            let ctx_params = LlamaContextParams::default()
+                .with_n_ctx(NonZeroU32::new(context_size))
+                .with_n_batch(n_batch)
+                .with_n_threads(threads)
+                .with_n_threads_batch(threads)
+                .with_flash_attn_type(LlamaFlashAttnType::Auto);
+            let mut llama_context = model.new_context(&backend, ctx_params)?;
+
+            let mut n_past: i32 = 0;
+            mtmd.eval_chunks(
+                llama_context.as_ptr(),
+                &chunks,
+                0,
+                0,
+                n_batch as i32,
+                true,
+                &mut n_past,
+            )
+            .map_err(|e| anyhow!("Gemma 4 mtmd eval_chunks failed: {e}"))?;
+
+            let generation_limit = 2048usize;
+            if (n_past as usize).saturating_add(generation_limit) > context_size as usize {
+                return Err(anyhow!(
+                    "Gemma 4 vision prompt used {n_past} tokens, exceeding the fitted {context_size}-token context; reduce record context or free accelerator memory"
+                ));
+            }
+
+            let sampler = LlamaSampler::chain_simple([
+                LlamaSampler::grammar(&model, JSON_GBNF, "root"),
+                LlamaSampler::greedy(),
+            ]);
+            let _ = handle.emit(
+                "analysis-progress",
+                json!({"status": "synthesizing-start", "record_id": rid}),
+            );
+
+            let mut generated: Vec<u8> = Vec::new();
+            let mut batch = LlamaBatch::new(n_batch as usize, 1);
+            for (position, index) in (n_past..).zip(0..generation_limit) {
+                let token = sampler.sample(&llama_context, -1);
+                if model.is_eog_token(token) {
+                    break;
+                }
+                generated.extend_from_slice(&model.token_to_bytes(token, Special::Plaintext)?);
+                if index % 5 == 0 {
+                    let _ = handle.emit(
+                        "analysis-progress",
+                        json!({
+                            "status": "synthesizing",
+                            "record_id": rid,
+                            "token_index": index,
+                            "token_limit": generation_limit,
+                            "telemetry": {
+                                "kv_cache": "managed by llama.cpp Gemma 4 mtmd",
+                                "device": device_label,
+                                "gpu_layers": gpu_layers,
+                                "context_size": context_size,
+                                "visual_asset_count": image_paths.len()
+                            }
+                        }),
+                    );
+                }
+                batch.clear();
+                batch.add(token, position, &[0], true)?;
+                llama_context.decode(&mut batch)?;
+            }
+
+            String::from_utf8(generated)
+                .map_err(|e| anyhow!("Gemma 4 vision returned invalid UTF-8: {e}"))?
+        };
+
         Ok((
             generated_text,
             GemmaRuntime::Gguf {

@@ -54,6 +54,8 @@ Download one Windows installer from the release:
 - `PURSUE.Data.Analyzer_<version>_x64-cuda_en-US.msi`: self-contained NVIDIA CUDA installer; preferred for supported NVIDIA GPUs. CUDA is MSI-only because its bundled runtime payload exceeds NSIS's 2 GiB compiler limit.
 - `PURSUE.Data.Analyzer_<version>_x64-setup.exe` and matching `.msi`: DirectML installers for other Windows GPUs.
 
+> **Note:** the Windows **CUDA** installer becomes available a little later than the macOS and DirectML installers for the same version. Its large self-contained NVIDIA runtime is built and uploaded separately, so if the CUDA `.msi` isn't on a fresh release yet, check back shortly or use the DirectML installer in the meantime.
+
 Windows may show a Microsoft Defender SmartScreen warning until Windows code signing is configured. Choose More info, then Run anyway only for an official release.
 
 The installer preserves the database, evidence vault, model cache, exports, resumable downloads, and custom-storage pointer across updates/uninstall/reinstall. It bundles Microsoft's signed Visual C++ redistributable and can bootstrap WebView2 when missing. CUDA builds ship the required CUDA/cuDNN/ONNX runtime DLLs; users do not need a CUDA toolkit.

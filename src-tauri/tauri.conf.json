@@ -70,7 +70,6 @@
     ],
     "resources": [
       "assets/models/**/*",
-      "assets/vision_runtime/**/*",
       "assets/pdfium/**/*",
       "assets/native_runtime/**/*"
     ]

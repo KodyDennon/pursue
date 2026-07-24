@@ -12,7 +12,6 @@ pub mod persistence;
 pub mod registry;
 pub mod thumbnails;
 pub mod verifier;
-pub mod vision_runtime;
 
 use anyhow::{anyhow, Context, Result};
 use sqlx::{Row, SqlitePool};
@@ -28,8 +27,6 @@ use crate::analysis::extraction::{ExtractionConfig, IntelligenceExtractor};
 use crate::analysis::indexer::TextExtractor;
 use crate::analysis::model_manager::ModelManager;
 use crate::analysis::persistence::PersistenceManager;
-use crate::analysis::vision_runtime::VisionRuntime;
-use crate::common::now;
 use crate::db::analysis_repo::AnalysisRepository;
 use crate::db::records;
 use crate::library::LibraryManager;
@@ -77,7 +74,6 @@ pub struct AnalysisManager {
     persistence: PersistenceManager,
     extractor: IntelligenceExtractor,
     models: ModelManager,
-    vision: VisionRuntime,
     thumbnails: ThumbnailManager,
     is_analyzing: Arc<AtomicBool>,
     cancel_token: Arc<std::sync::Mutex<CancellationToken>>,
@@ -101,7 +97,6 @@ impl AnalysisManager {
             persistence: PersistenceManager::new(db.clone()),
             extractor: IntelligenceExtractor::new().expect("failed to init Gemma backend"),
             models: ModelManager::new(&library).with_db(db.clone()),
-            vision: VisionRuntime::new(&library),
             thumbnails: ThumbnailManager::new(),
             is_analyzing: Arc::new(AtomicBool::new(false)),
             cancel_token: Arc::new(std::sync::Mutex::new(CancellationToken::new())),
@@ -459,6 +454,10 @@ impl AnalysisManager {
 
         let bf16_path = self.models.models_dir().join("gemma-4-e4b");
         let q4_path = self.models.models_dir().join("gemma-4-E4B_q4_0-it.gguf");
+        let mmproj_path = self
+            .models
+            .models_dir()
+            .join(crate::analysis::extraction::GEMMA4_MMPROJ_FILENAME);
         let bf16_ready = gemma4_bf16_repository_ready(&bf16_path);
         let bf16_accelerator_suitable =
             bf16_ready && crate::analysis::hardware::gemma4_bf16_accelerator_suitable().await;
@@ -468,7 +467,27 @@ impl AnalysisManager {
                 .unwrap_or(false)
             && !crate::analysis::verifier::is_model_corrupted(&q4_path, "gemma-4-E4B_q4_0-it.gguf")
                 .await;
-        let model_path = if bf16_accelerator_suitable {
+
+        let mut image_paths = Vec::new();
+        for asset in assets.iter().filter(|a| a.asset_type == "image") {
+            image_paths.push(
+                self.library
+                    .get_readable_artifact_path(&asset.local_path)
+                    .await?,
+            );
+        }
+
+        // Native Gemma 4 image understanding (llama.cpp mtmd) needs the GGUF text model AND the
+        // multimodal projector. When a record has images and both are present, run text synthesis
+        // AND image analysis on the single shared Q4 GGUF (one resident llama.cpp model). This is
+        // distinct from OCR — which only transcribes text — and never auto-cascades: it runs only
+        // when this on-demand synthesis is invoked on an image-bearing record.
+        let native_vision = !image_paths.is_empty() && q4_ready && mmproj_path.exists();
+
+        let model_path = if native_vision {
+            info!("[Analysis] Gemma 4 multimodal via native llama.cpp mtmd on the shared Q4 GGUF");
+            q4_path
+        } else if bf16_accelerator_suitable {
             info!(
                 "[Analysis] Using existing full-precision Gemma 4 E4B on a high-memory accelerator"
             );
@@ -486,52 +505,22 @@ impl AnalysisManager {
             ));
         };
 
-        let mut image_paths = Vec::new();
-        for asset in assets.iter().filter(|a| a.asset_type == "image") {
-            image_paths.push(
-                self.library
-                    .get_readable_artifact_path(&asset.local_path)
-                    .await?,
-            );
-        }
-
-        let vision_runtime_ready = if !image_paths.is_empty() && bf16_accelerator_suitable {
-            match self.vision.status().await {
-                Ok(ready) => ready,
-                Err(error) => {
-                    log::warn!(
-                        "[Analysis] Elite vision runtime probe failed; using embedded Gemma 4 text path: {error}"
-                    );
-                    false
-                }
-            }
-        } else {
-            false
-        };
-
-        let intelligence_json = if !vision_runtime_ready {
-            self.extractor
-                .extract_forensics(
-                    app,
-                    record_id,
-                    ExtractionConfig {
-                        preferred_model_path: Some(model_path),
-                        fallback_model_path: None,
-                        force_cpu: false,
-                    },
-                    &text,
-                    Vec::new(),
-                )
-                .await?
-        } else {
-            let value = self
-                .vision
-                .audit(app, record_id, &bf16_path, &text, &image_paths)
-                .await?;
-            self.persist_vision_intelligence_log(record_id, &value)
-                .await?;
-            value
-        };
+        // One unified path: the extractor runs Gemma 4 text synthesis, and — when images are
+        // present with the projector — the native mtmd multimodal synthesis on the same model.
+        let intelligence_json = self
+            .extractor
+            .extract_forensics(
+                app,
+                record_id,
+                ExtractionConfig {
+                    preferred_model_path: Some(model_path),
+                    fallback_model_path: None,
+                    force_cpu: false,
+                },
+                &text,
+                image_paths,
+            )
+            .await?;
 
         let intel_str = serde_json::to_string(&intelligence_json)?;
         let _permit = self.write_semaphore.acquire().await?;
@@ -618,31 +607,39 @@ impl AnalysisManager {
         Ok((max_score, discoveries))
     }
 
+    /// Native Gemma 4 image understanding is ready when both the Q4 GGUF text model and its
+    /// multimodal projector are present. No Python/torch runtime is involved — the projector is
+    /// loaded via llama.cpp mtmd onto the same resident model used for text synthesis.
     pub async fn check_neural_runtime_status(&self) -> Result<bool> {
-        self.vision.status().await
+        let models_dir = self.models.models_dir();
+        let q4_ready = models_dir.join("gemma-4-E4B_q4_0-it.gguf").exists();
+        let mmproj_ready = models_dir
+            .join(crate::analysis::extraction::GEMMA4_MMPROJ_FILENAME)
+            .exists();
+        Ok(q4_ready && mmproj_ready)
     }
 
+    /// Ensure the Gemma 4 multimodal projector is downloaded (it pairs with the text GGUF).
     pub async fn provision_neural_runtime(&self, app: &tauri::AppHandle) -> Result<()> {
-        self.vision.provision(app).await
-    }
-
-    async fn persist_vision_intelligence_log(
-        &self,
-        record_id: &str,
-        value: &serde_json::Value,
-    ) -> Result<()> {
-        sqlx::query("INSERT INTO intelligence_logs (id, record_id, system_prompt, user_prompt, thought_block, response_json, model_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-            .bind(Uuid::new_v4().to_string())
-            .bind(record_id)
-            .bind("PURSUE local vision evidence synthesis schema")
-            .bind("Generate analyst-grade evidence synthesis JSON from text and attached images.")
-            .bind(Option::<String>::None)
-            .bind(serde_json::to_string(value)?)
-            .bind(value.get("model_id").and_then(|v| v.as_str()).unwrap_or("vision-runtime"))
-            .bind(now())
-            .execute(&self.db)
-            .await?;
-        Ok(())
+        let mmproj = registry::get_model_registry()
+            .into_iter()
+            .find(|model| model.id == "gemma-4-e4b-mmproj")
+            .ok_or_else(|| anyhow!("Gemma 4 vision projector is missing from the model registry"))?;
+        let url = mmproj
+            .download_url()
+            .ok_or_else(|| anyhow!("Gemma 4 vision projector has no resolvable download URL"))?;
+        self.models
+            .ensure_model(
+                app,
+                &mmproj.id,
+                mmproj.filename.as_deref().unwrap_or(&mmproj.id),
+                &url,
+                mmproj.expected_bytes,
+                mmproj.expected_sha256.as_deref(),
+            )
+            .await
+            .map(|_| ())
+            .context("failed to provision the Gemma 4 vision projector")
     }
 
     pub async fn analyze_record(

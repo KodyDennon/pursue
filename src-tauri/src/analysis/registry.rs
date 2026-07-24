@@ -86,6 +86,27 @@ pub fn get_model_registry() -> Vec<ModelDefinition> {
             description: "Google's official Gemma 4 E4B QAT Q4_0 checkpoint. The runtime offloads as much as possible to CUDA or Metal and uses CPU only after accelerator paths are unavailable."
                 .to_string(),
         },
+        ModelDefinition {
+            id: "gemma-4-e4b-mmproj".to_string(),
+            name: "Gemma 4 E4B Vision Projector (mmproj)".to_string(),
+            model_type: ModelType::Vision,
+            size_label: "946 MB".to_string(),
+            repo_id: "google/gemma-4-E4B-it-qat-q4_0-gguf".to_string(),
+            filename: Some("gemma-4-E4B-it-mmproj.gguf".to_string()),
+            repo_file: Some("gemma-4-E4B-it-mmproj.gguf".to_string()),
+            // The mmproj was published after the text checkpoint's pinned revision, so it
+            // carries its own revision. Content is verified by SHA-256 regardless of ref.
+            revision: "4b4a2c1d584be7264f87aac328a1bc739ce81b6c".to_string(),
+            expected_bytes: Some(991_552_256),
+            expected_sha256: Some(
+                "7498a37cb619e55f2fcf87eb931f56e99389ed6d432e4c5c66110694c0d65578"
+                    .to_string(),
+            ),
+            description: "Gemma 4 E4B multimodal projector (pairs with the Q4_0 text model). \
+                Loaded natively via llama.cpp mtmd so Gemma 4 analyzes evidence images with no \
+                Python/torch dependency. Distinct from the OCR model, which only extracts text."
+                .to_string(),
+        },
     ]
 }
 
