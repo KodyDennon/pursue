@@ -105,6 +105,18 @@ Step 'Preflight' {
     Write-Host "Free space on ${drive}: $free GB"
     if ($free -lt 12) { Die "Only $free GB free on ${drive}: - free up space before building (>=12 GB recommended)." }
 
+    # WiX's ~2 GB cabinet and the pinned cuDNN download both use %TEMP% (usually C:). If that
+    # drive is low, staging or the MSI bundle fail with a disk-full error (curl 23 / light.exe).
+    # Route build temp to the target drive (which we just verified has headroom).
+    $tempDrive = (Get-Item ([System.IO.Path]::GetTempPath())).PSDrive.Name
+    $tempFree = [math]::Round((Get-PSDrive $tempDrive).Free / 1GB, 1)
+    if ($tempDrive -ne $drive -and $tempFree -lt 15) {
+        $buildTemp = Join-Path "${drive}:\" 'pursue-build-temp'
+        New-Item -ItemType Directory -Force -Path $buildTemp | Out-Null
+        $env:TEMP = $buildTemp; $env:TMP = $buildTemp; $env:RUNNER_TEMP = $buildTemp
+        Write-Host "Temp drive ${tempDrive}: has only $tempFree GB free; routing build temp to $buildTemp"
+    }
+
     if (-not $SkipUpload) {
         # The mirror needs all four installers; confirm CI already published the other three.
         $assets = (& gh release view $Tag --json assets --jq '.assets[].name' 2>$null)
