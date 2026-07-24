@@ -81,7 +81,10 @@ fn release_workflow_publishes_unsigned_installers_without_secrets() {
     assert!(workflow.contains("bundle/dmg/*.dmg"));
     assert!(workflow.contains("bundle/msi/*.msi"));
     assert!(workflow.contains("bundle/nsis/*.exe"));
-    assert!(workflow.contains("needs: installers"));
+    // The R2 downloads-portal mirror is no longer an auto job here (it needs all four
+    // installers, and the Windows CUDA MSI is built + uploaded out-of-band); it is dispatched
+    // via mirror-release.yml after the CUDA upload. See RELEASING.md.
+    assert!(!workflow.contains("mirror-release-to-r2.sh"));
     assert!(!workflow.contains("TAURI_SIGNING"));
     assert!(!workflow.contains(".sig"));
     assert!(!workflow.contains("publish-updater"));
