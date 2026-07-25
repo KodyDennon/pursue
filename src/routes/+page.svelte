@@ -246,6 +246,14 @@
 
 				if (allPresent) {
 					isProvisioned = true;
+					// The vision projector can arrive in the registry via an app update, long
+					// after this install finished onboarding — and nothing re-runs first-launch
+					// provisioning. Without this, an upgraded Elite install sits with a missing
+					// projector (no image understanding) until someone notices the download
+					// button in the Intelligence Center. Fire and forget: it must not gate boot.
+					if (tier === 'Elite' && !intelligenceStore.runtimeProvisioned) {
+						void intelligenceStore.provisionRuntime();
+					}
 					// Resume any interrupted download job at app level. This used to live only in
 					// DownloadAgent's onMount, so interrupted jobs stayed dormant until the user
 					// happened to open the Agent view (and stopped again when they left it).

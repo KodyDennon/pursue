@@ -5753,6 +5753,7 @@ dependencies = [
  "keyring",
  "lazy_static",
  "llama-cpp-4",
+ "llama-cpp-sys-4",
  "log",
  "lopdf",
  "miniz_oxide 0.9.1",

@@ -8,7 +8,6 @@
 		size: string;
 		status: string;
 		progress: number;
-		url: string;
 		filename: string;
 		speedMbps: number | null;
 		etaSeconds: number | null;

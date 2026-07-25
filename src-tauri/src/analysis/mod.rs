@@ -453,7 +453,10 @@ impl AnalysisManager {
                 .await?;
 
         let bf16_path = self.models.models_dir().join("gemma-4-e4b");
-        let q4_path = self.models.models_dir().join("gemma-4-E4B_q4_0-it.gguf");
+        let q4_path = self
+            .models
+            .models_dir()
+            .join(crate::analysis::extraction::GEMMA4_Q4_FILENAME);
         let mmproj_path = self
             .models
             .models_dir()
@@ -461,12 +464,16 @@ impl AnalysisManager {
         let bf16_ready = gemma4_bf16_repository_ready(&bf16_path);
         let bf16_accelerator_suitable =
             bf16_ready && crate::analysis::hardware::gemma4_bf16_accelerator_suitable().await;
-        let q4_ready = q4_path.exists()
-            && std::fs::metadata(&q4_path)
-                .map(|metadata| metadata.len() == 5_154_939_136)
-                .unwrap_or(false)
-            && !crate::analysis::verifier::is_model_corrupted(&q4_path, "gemma-4-E4B_q4_0-it.gguf")
-                .await;
+        let q4_ready = std::fs::metadata(&q4_path)
+            .map(|metadata| {
+                metadata.is_file() && metadata.len() == crate::analysis::extraction::GEMMA4_Q4_BYTES
+            })
+            .unwrap_or(false)
+            && !crate::analysis::verifier::is_model_corrupted(
+                &q4_path,
+                crate::analysis::extraction::GEMMA4_Q4_FILENAME,
+            )
+            .await;
 
         let mut image_paths = Vec::new();
         for asset in assets.iter().filter(|a| a.asset_type == "image") {
@@ -482,7 +489,9 @@ impl AnalysisManager {
         // AND image analysis on the single shared Q4 GGUF (one resident llama.cpp model). This is
         // distinct from OCR — which only transcribes text — and never auto-cascades: it runs only
         // when this on-demand synthesis is invoked on an image-bearing record.
-        let native_vision = !image_paths.is_empty() && q4_ready && mmproj_path.exists();
+        let native_vision = !image_paths.is_empty()
+            && q4_ready
+            && crate::analysis::extraction::gemma4_mmproj_ready(&mmproj_path);
 
         let model_path = if native_vision {
             info!("[Analysis] Gemma 4 multimodal via native llama.cpp mtmd on the shared Q4 GGUF");
@@ -612,10 +621,15 @@ impl AnalysisManager {
     /// loaded via llama.cpp mtmd onto the same resident model used for text synthesis.
     pub async fn check_neural_runtime_status(&self) -> Result<bool> {
         let models_dir = self.models.models_dir();
-        let q4_ready = models_dir.join("gemma-4-E4B_q4_0-it.gguf").exists();
-        let mmproj_ready = models_dir
-            .join(crate::analysis::extraction::GEMMA4_MMPROJ_FILENAME)
+        // Report readiness on the same completeness test the synthesis path uses, so the UI
+        // cannot advertise vision as ready while a half-downloaded projector makes it fall
+        // back to text-only.
+        let q4_ready = models_dir
+            .join(crate::analysis::extraction::GEMMA4_Q4_FILENAME)
             .exists();
+        let mmproj_ready = crate::analysis::extraction::gemma4_mmproj_ready(
+            &models_dir.join(crate::analysis::extraction::GEMMA4_MMPROJ_FILENAME),
+        );
         Ok(q4_ready && mmproj_ready)
     }
 

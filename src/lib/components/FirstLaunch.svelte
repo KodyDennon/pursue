@@ -232,11 +232,7 @@
 			modelProgress = 0;
 
 			try {
-				await invoke('provision_model', {
-					id: model.id,
-					url: model.url,
-					name: model.filename
-				});
+				await invoke('provision_model', { id: model.id });
 				modelProgress = 100;
 				speedMbps = null;
 				etaSeconds = null;
@@ -251,11 +247,7 @@
 
 				try {
 					modelProgress = 0;
-					await invoke('provision_model', {
-						id: model.id,
-						url: model.url,
-						name: model.filename
-					});
+					await invoke('provision_model', { id: model.id });
 					modelProgress = 100;
 					speedMbps = null;
 					etaSeconds = null;

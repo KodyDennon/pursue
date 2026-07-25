@@ -300,11 +300,13 @@ pub async fn check_model_status(
     Ok(status)
 }
 
+/// The registry is the single source of truth for where a model comes from: it carries the
+/// pinned revision plus the byte/SHA-256 checks that must match the file being fetched. Callers
+/// pass an id only — a caller-supplied URL or filename could disagree with the integrity data
+/// and, if it were a bare repo id, would send a single-file GGUF down the repository-tree path.
 #[tauri::command]
 pub async fn provision_model(
     id: String,
-    url: Option<String>,
-    name: Option<String>,
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
@@ -327,8 +329,8 @@ pub async fn provision_model(
         .ensure_model(
             &app_handle,
             &id,
-            name.as_deref().unwrap_or(&model_name),
-            url.as_deref().unwrap_or(&source_url),
+            &model_name,
+            &source_url,
             definition.expected_bytes,
             definition.expected_sha256.as_deref(),
         )

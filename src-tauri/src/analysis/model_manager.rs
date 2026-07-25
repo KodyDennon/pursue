@@ -246,7 +246,6 @@ impl ModelManager {
         repo_id: &str,
     ) -> Result<PathBuf> {
         let repo_dir = self.models_dir.join(model_id);
-        fs::create_dir_all(&repo_dir).await?;
 
         info!(
             "Downloading repository {} via HTTP to {}",
@@ -277,7 +276,6 @@ impl ModelManager {
         repo_id: &str,
     ) -> Result<PathBuf> {
         let repo_dir = self.models_dir.join(model_id);
-        fs::create_dir_all(&repo_dir).await?;
 
         // 1. Fetch file list from HF API
         let hf_token = self.get_hf_token().await;
@@ -293,7 +291,7 @@ impl ModelManager {
         let files: Vec<serde_json::Value> = response.json().await?;
 
         // 2. Identify required files
-        let required_patterns = [".json", ".safetensors", ".txt", ".model"];
+        let required_patterns = [".json", ".safetensors", ".txt", ".model", ".gguf", ".onnx"];
         let mut files_to_download = Vec::new();
         for file in files {
             if let Some(path) = file["path"].as_str() {
@@ -306,6 +304,10 @@ impl ModelManager {
         if files_to_download.is_empty() {
             return Err(anyhow!("No model files found in repository {}", repo_id));
         }
+
+        // Only now that there is something to put in it — a directory created before the
+        // file list was resolved outlives every failed attempt as empty litter.
+        fs::create_dir_all(&repo_dir).await?;
 
         // 3. Download each file
         for (i, file_path) in files_to_download.iter().enumerate() {

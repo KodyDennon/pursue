@@ -30,7 +30,6 @@ export interface IntelligenceModel {
 	size: string;
 	status: string;
 	progress: number;
-	url: string;
 	filename: string;
 	speedMbps: number | null;
 	etaSeconds: number | null;
@@ -170,7 +169,6 @@ class IntelligenceStore {
 					size: m.size_label,
 					status: 'pending',
 					progress: 0,
-					url: m.repo_id,
 					speedMbps: null,
 					etaSeconds: null
 				}));
@@ -211,7 +209,7 @@ class IntelligenceStore {
 
 		try {
 			addToast({ type: 'info', message: `Provisioning ${model.name}...`, duration: 3000 });
-			await invoke('provision_model', { id: model.id, url: model.url, name: model.filename });
+			await invoke('provision_model', { id: model.id });
 			await this.loadStatus();
 			addToast({ type: 'success', message: `${model.name} is ready.`, duration: 3000 });
 		} catch (e) {

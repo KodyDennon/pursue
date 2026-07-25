@@ -75,6 +75,10 @@ candle-transformers = "0.11.0"
 # compile/link that common library on every platform; without it, 0.4.2 passes
 # `cargo check` but fails during the final Windows link with unresolved symbols.
 llama-cpp-4 = { version = "0.4.2", default-features = false, features = ["mtmd"] }
+# Needed only for the ggml log-callback signature, so llama.cpp's fatal diagnostics can be
+# forwarded into the app log instead of being discarded. Already built as a transitive
+# dependency (and patched below), so this adds no compilation work.
+llama-cpp-sys-4 = "0.4.2"
 tokenizers = "0.23"
 ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
 num_cpus = "1.17.0"

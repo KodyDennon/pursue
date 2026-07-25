@@ -13,6 +13,7 @@ use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 use tokenizers::Tokenizer;
 
+use llama_cpp_4::fit::{get_device_memory_data, FitParamsResult};
 use llama_cpp_4::prelude::{
     fit_params, AddBos, FitParams, LlamaBackend, LlamaBatch, LlamaChatMessage, LlamaContextParams,
     LlamaFlashAttnType, LlamaModel, LlamaModelParams, LlamaSampler, Special,
@@ -25,6 +26,194 @@ use std::num::NonZeroU32;
 
 /// File name of the Gemma 4 multimodal projector, provisioned next to the text GGUF.
 pub const GEMMA4_MMPROJ_FILENAME: &str = "gemma-4-E4B-it-mmproj.gguf";
+
+/// Exact on-disk size of the pinned Gemma 4 projector (see the registry entry). A file of any
+/// other length is a partial or tampered download; llama.cpp parses mmproj GGUFs in native code
+/// where a malformed file faults the process instead of returning an error we could handle.
+pub const GEMMA4_MMPROJ_BYTES: u64 = 991_552_256;
+
+/// File name of the pinned Gemma 4 Q4_0 text model.
+pub const GEMMA4_Q4_FILENAME: &str = "gemma-4-E4B_q4_0-it.gguf";
+
+/// Exact on-disk size of the pinned Gemma 4 Q4_0 text model, for the same reason as the
+/// projector: a short GGUF is parsed by native code that cannot report the problem back.
+pub const GEMMA4_Q4_BYTES: u64 = 5_154_939_136;
+
+/// Upper bound on evidence images handed to the projector in one synthesis pass. Each image
+/// costs a few hundred context tokens, and the prompt plus the 2048-token generation budget
+/// must still fit the fitted context window. Records with more images keep the first few and
+/// the rest are reported as skipped rather than silently overflowing the context.
+const MAX_VISION_IMAGES: usize = 4;
+
+/// Largest evidence image we will decode. Bitmap decoding happens in native code and allocates
+/// width * height * channels; a pathological file would exhaust memory before any Rust error.
+const MAX_VISION_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Process-wide llama.cpp backend.
+///
+/// llama.cpp permits exactly one initialized backend per process, and `LlamaBackend`'s `Drop`
+/// tears it down while a second live handle would make that `Drop` hit an `unreachable!()`.
+/// Tying the backend's lifetime to a model that gets loaded, dropped and reloaded therefore
+/// invites both permanent "already initialized" failures and panics. Initializing once and
+/// leaking it for the process lifetime removes that entire class of failure; the backend is a
+/// zero-sized handle and llama.cpp's global teardown is only ever needed at exit anyway.
+fn llama_backend() -> Result<&'static LlamaBackend> {
+    static BACKEND: std::sync::OnceLock<std::result::Result<LlamaBackend, String>> =
+        std::sync::OnceLock::new();
+
+    match BACKEND.get_or_init(|| {
+        LlamaBackend::init()
+            .inspect(|_| {
+                // SAFETY: the callback is a plain `extern "C"` function with no captured state
+                // and no user data, so it stays valid for the whole process lifetime.
+                unsafe { llama_cpp_4::log_set(Some(forward_llama_log), std::ptr::null_mut()) };
+            })
+            .map_err(|error| error.to_string())
+    }) {
+        Ok(backend) => Ok(backend),
+        Err(error) => Err(anyhow!("llama.cpp backend is unavailable: {error}")),
+    }
+}
+
+/// Fitting attempts, most generous first, as `(context tokens, per-device margin)`.
+///
+/// The context is **pinned**, not left for the fitter to choose. Given a free hand,
+/// `fit_params` maximizes `n_ctx` to fill the card — on this 8 GiB GPU it picked 47104 tokens.
+/// The resulting KV cache pushed real allocation past what its own estimate predicted, ggml hit
+/// a CUDA failure, and called `ggml_abort`, which terminates the process outright: no Rust
+/// error, no fallback, no retry. Synthesis never needs that much anyway — the evidence context
+/// is bounded to 12k characters, the record excerpt to 5k, and generation to 2048 tokens, so
+/// roughly 7k tokens total. Ask for a context we will actually use and leave the rest of the
+/// card as headroom.
+///
+/// Each step degrades the ask so a smaller card still gets GPU offload rather than silently
+/// dropping to the CPU, which is a ~20x slowdown.
+const GPU_FIT_ATTEMPTS: [(u32, usize); 4] = [
+    (16384, 1024 * 1024 * 1024),
+    (8192, 1024 * 1024 * 1024),
+    (8192, 512 * 1024 * 1024),
+    (4096, 512 * 1024 * 1024),
+];
+
+/// Forward llama.cpp/ggml diagnostics into the app log.
+///
+/// The backend used to void these entirely. That is why, when ggml hit a fatal CUDA error and
+/// called `ggml_abort`, the reason never reached the log and the process simply vanished
+/// mid-synthesis. A fatal abort cannot be caught from Rust, so this message is the only
+/// evidence there will ever be — but llama.cpp is extremely chatty at info level during a
+/// model load, so only warnings and errors are promoted; the rest stays at trace.
+unsafe extern "C" fn forward_llama_log(
+    level: llama_cpp_sys_4::ggml_log_level,
+    text: *const std::os::raw::c_char,
+    _user_data: *mut std::os::raw::c_void,
+) {
+    if text.is_null() {
+        return;
+    }
+    let message = unsafe { std::ffi::CStr::from_ptr(text) }.to_string_lossy();
+    let message = message.trim_end();
+    if message.is_empty() {
+        return;
+    }
+    match level {
+        llama_cpp_sys_4::GGML_LOG_LEVEL_ERROR => {
+            tauri_plugin_log::log::error!("[llama.cpp] {message}")
+        }
+        llama_cpp_sys_4::GGML_LOG_LEVEL_WARN => {
+            tauri_plugin_log::log::warn!("[llama.cpp] {message}")
+        }
+        _ => tauri_plugin_log::log::trace!("[llama.cpp] {message}"),
+    }
+}
+
+/// Whether a fitted `n_gpu_layers` means the model is running on an accelerator.
+///
+/// llama.cpp encodes "offload every layer" as a **negative** count (`llama.h`: "number of layers
+/// to store in VRAM, a negative value means all layers"; `llama_model::n_gpu_layers()` maps a
+/// negative value to `n_layer_all + 1`), and that is exactly what a successful fit on a card
+/// with room returns — llama.cpp's own default is `-1`. Testing `> 0` therefore reports a fully
+/// offloaded model as a CPU fallback, and turns the GPU off for the vision encoder.
+fn offloads_to_accelerator(gpu_layers: i32) -> bool {
+    gpu_layers != 0
+}
+
+/// Human-readable layer count for the device label, where negative means "all".
+fn gpu_layer_description(gpu_layers: i32) -> String {
+    if gpu_layers < 0 {
+        "all".to_string()
+    } else {
+        gpu_layers.to_string()
+    }
+}
+
+/// Log what llama.cpp thinks each device can hold, so a CPU fallback is explainable after the
+/// fact instead of being an unattributed slowdown. Best-effort: a failed estimate must never
+/// stop the model from loading.
+fn log_device_memory_estimate(model_path: &Path, n_ctx: u32) {
+    let model_params = LlamaModelParams::default();
+    let context_params = LlamaContextParams::default().with_n_ctx(NonZeroU32::new(n_ctx));
+    // Same log level the fitting path uses; llama.cpp's own chatter stays suppressed.
+    let log_level = FitParams::default().log_level;
+    match get_device_memory_data(model_path, &model_params, &context_params, log_level) {
+        Ok(report) => {
+            const MIB: f64 = 1024.0 * 1024.0;
+            for (index, entry) in report.entries.iter().enumerate() {
+                tauri_plugin_log::log::info!(
+                    "[Extraction] llama.cpp device {index} @ {n_ctx} ctx: free {:.0} MiB of {:.0} MiB; \
+                     needs {:.0} MiB (weights {:.0} + kv {:.0} + compute {:.0})",
+                    entry.free as f64 / MIB,
+                    entry.total as f64 / MIB,
+                    entry.used() as f64 / MIB,
+                    entry.model as f64 / MIB,
+                    entry.context as f64 / MIB,
+                    entry.compute as f64 / MIB,
+                );
+            }
+        }
+        Err(error) => tauri_plugin_log::log::warn!(
+            "[Extraction] could not estimate device memory for Gemma 4: {error}"
+        ),
+    }
+}
+
+/// Owns the heap buffers that [`fit_params`] pointed `llama_model_params` at — the per-device
+/// tensor split and the tensor buffer-type overrides.
+///
+/// This must outlive the [`LlamaModel`] loaded with those params. `llama_model` stores a *copy
+/// of the params struct*, raw pointers included, for its entire lifetime (`llama-model.h`:
+/// `llama_model_params params;`), and the loader walks the override array until it finds a null
+/// `pattern` sentinel (`llama-model-loader.cpp`: `for (const auto * overrides =
+/// tensor_buft_overrides; overrides->pattern != nullptr; ++overrides)`), building a
+/// `std::regex` from each `pattern`. Dropping the fit result first frees that array, so
+/// llama.cpp walks reused heap, finds no sentinel, and constructs a `std::regex` from a garbage
+/// `const char *` — an access violation in native code that kills the process outright. That
+/// was the crash on every GPU-fitted synthesis run.
+struct FittedParams(FitParamsResult);
+
+/// SAFETY: `FitParamsResult` is not automatically `Send` only because `llama_model_params`
+/// contains raw pointers. Every one of those pointers is null, a function pointer, or a pointer
+/// into a heap buffer owned by this same value — none is thread-affine, and moving the value
+/// does not move the `Vec` allocations it points into. The resident model is guarded by the
+/// extractor's async mutex, so it is only ever touched by one thread at a time.
+unsafe impl Send for FittedParams {}
+
+/// A loaded GGUF model together with everything whose lifetime it depends on.
+pub struct GgufRuntime {
+    backend: &'static LlamaBackend,
+    model: LlamaModel,
+    context_size: u32,
+    gpu_layers: i32,
+    /// Never read directly: held solely so the buffers `model` points into stay alive for
+    /// exactly as long as `model` does. See [`FittedParams`].
+    _fit: Option<FittedParams>,
+}
+
+/// True when the multimodal projector next to the text GGUF is present and complete.
+pub fn gemma4_mmproj_ready(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() == GEMMA4_MMPROJ_BYTES)
+        .unwrap_or(false)
+}
 
 const JSON_GBNF: &str = r#"
 root ::= object
@@ -41,12 +230,11 @@ pub enum GemmaRuntime {
         model: Box<gemma4::Model>,
         tokenizer: Box<Tokenizer>,
     },
-    Gguf {
-        backend: LlamaBackend,
-        model: LlamaModel,
-        context_size: u32,
-        gpu_layers: i32,
-    },
+    // Boxed to keep the enum small: the GGUF runtime carries the fitted-parameter storage,
+    // which dwarfs the two pointers the native variant holds. Boxing is also free of
+    // correctness concerns here — the fitted params point into their own heap buffers, which
+    // do not move when the struct does.
+    Gguf(Box<GgufRuntime>),
 }
 
 pub struct GemmaContext {
@@ -65,7 +253,6 @@ struct InferenceOutput {
     preamble: String,
     system_prompt: String,
     user_prompt: String,
-    context: GemmaContext,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -144,8 +331,8 @@ impl IntelligenceExtractor {
             .unwrap_or(true);
 
         if cache_needs_reload {
-            // llama.cpp permits one backend per process. Drop any resident GGUF runtime
-            // before initializing a replacement with a different acceleration policy.
+            // Release the resident model's memory before allocating its replacement, so the
+            // two never coexist on the accelerator.
             *cache = None;
             debug!("[Extraction] Loading model from: {:?}", repo_path);
             let _ = handle.emit(
@@ -156,7 +343,14 @@ impl IntelligenceExtractor {
                     "msg": format!("Loading intelligence model with {:?} acceleration policy...", acceleration_preference(force_cpu))
                 }),
             );
-            let context = Self::load_context(&repo_path, force_cpu)?;
+            // Loading a multi-gigabyte GGUF and fitting it to the accelerator takes tens of
+            // seconds of pure blocking work. Doing it inline would stall a runtime worker (and
+            // with it unrelated IPC) for that whole time.
+            let context = {
+                let repo_path = repo_path.clone();
+                tokio::task::spawn_blocking(move || Self::load_context(&repo_path, force_cpu))
+                    .await??
+            };
             let _ = handle.emit(
                 "analysis-progress",
                 json!({
@@ -170,7 +364,9 @@ impl IntelligenceExtractor {
             debug!("[Extraction] Model loaded and cached.");
         }
 
-        let ctx = cache.take().unwrap();
+        let mut ctx = cache
+            .take()
+            .ok_or_else(|| anyhow!("intelligence model was not resident after load"))?;
 
         let rid_clone = rid.clone();
 
@@ -223,17 +419,22 @@ impl IntelligenceExtractor {
         let first_text = processed_text.clone();
         let first_context = related_context.clone();
         let first_images = images;
-        let mut result = tokio::task::spawn_blocking(move || {
-            Self::run_inference(
-                first_handle,
-                first_rid,
-                ctx,
+        // The context is handed to the blocking task and handed straight back, whatever the
+        // outcome. A failed pass no longer costs a multi-gigabyte model reload; only the retry
+        // below, which deliberately changes acceleration policy, replaces it.
+        let (returned_ctx, mut result) = tokio::task::spawn_blocking(move || {
+            let outcome = Self::run_inference(
+                &first_handle,
+                &first_rid,
+                &mut ctx,
                 first_text,
                 first_context,
                 first_images,
-            )
+            );
+            (ctx, outcome)
         })
         .await?;
+        ctx = returned_ctx;
 
         // Never let a vision or accelerator failure break synthesis: on error, retry once as a
         // TEXT-ONLY pass (dropping to CPU if an accelerator failed). Worst case we lose image
@@ -260,25 +461,39 @@ impl IntelligenceExtractor {
                     "msg": format!("Synthesis failed on {active_device}; retrying text-only fallback")
                 }),
             );
-            let retry_context = Self::load_context(&repo_path, force_cpu || accelerator_failed)?;
-            result = tokio::task::spawn_blocking(move || {
-                Self::run_inference(
-                    handle,
-                    rid_clone,
-                    retry_context,
+            // Free the failed model before allocating its replacement: with the backend now a
+            // process-wide singleton, nothing else stops two multi-gigabyte models from being
+            // resident at once, and the retry usually exists because memory ran short.
+            drop(ctx);
+            let mut retry_ctx = {
+                let repo_path = repo_path.clone();
+                let retry_force_cpu = force_cpu || accelerator_failed;
+                tokio::task::spawn_blocking(move || Self::load_context(&repo_path, retry_force_cpu))
+                    .await??
+            };
+            let (returned_ctx, retry_result) = tokio::task::spawn_blocking(move || {
+                let outcome = Self::run_inference(
+                    &handle,
+                    &rid_clone,
+                    &mut retry_ctx,
                     processed_text,
                     related_context,
                     Vec::new(),
-                )
+                );
+                (retry_ctx, outcome)
             })
             .await?;
+            ctx = returned_ctx;
+            result = retry_result;
         }
 
-        // 4. Restore Cache
+        // 4. Restore Cache — the model stays resident whether or not this pass produced usable
+        // JSON, so a single bad generation does not force the next record to reload it.
+        *cache = Some(ctx);
+
         match result {
             Ok(output) => {
                 debug!("[Extraction] Inference completed successfully.");
-                *cache = Some(output.context);
 
                 // 5. Post-process: Persist fragments & Neural Logs
                 self.persist_result_fragments(&db, record_id, &output.response)
@@ -345,75 +560,49 @@ impl IntelligenceExtractor {
     }
 
     fn run_inference(
-        handle: AppHandle,
-        rid: String,
-        mut ctx: GemmaContext,
+        handle: &AppHandle,
+        rid: &str,
+        ctx: &mut GemmaContext,
         text: String,
         related_context: String,
         images: Vec<PathBuf>,
     ) -> Result<InferenceOutput> {
         let system_prompt = build_text_system_prompt(&related_context);
         let user_prompt = build_text_user_prompt(&text);
+        let device_label = ctx.device_label.clone();
 
         // Gemma analyzes evidence images (and can correct the OCR'd text using them) only when
         // this on-demand synthesis runs on a record that HAS images AND the multimodal projector
-        // is present next to the GGUF model. It reuses the one resident model and never
-        // auto-cascades from OCR.
-        let mmproj_path = ctx
-            .repo_path
-            .parent()
-            .map(|parent| parent.join(GEMMA4_MMPROJ_FILENAME));
-        let use_multimodal = !images.is_empty()
-            && matches!(ctx.runtime, GemmaRuntime::Gguf { .. })
-            && mmproj_path.as_ref().is_some_and(|path| path.exists());
+        // is present and complete next to the GGUF model. It reuses the one resident model and
+        // never auto-cascades from OCR. Anything unusable here degrades to text-only rather
+        // than reaching native code with input it cannot handle.
+        let vision = Self::plan_vision(ctx, &images);
 
-        let (generated_text, runtime_context) = match ctx.runtime {
-            GemmaRuntime::Native { model, tokenizer } => Self::run_native_inference(
-                &handle,
-                &rid,
-                model,
-                tokenizer,
-                &system_prompt,
-                &user_prompt,
-                &ctx.device_label,
-            )?,
-            GemmaRuntime::Gguf {
-                backend,
-                model,
-                context_size,
-                gpu_layers,
-            } if use_multimodal => Self::run_gguf_multimodal_inference(
-                &handle,
-                &rid,
-                backend,
-                model,
-                context_size,
-                gpu_layers,
-                &system_prompt,
-                &user_prompt,
-                &ctx.device_label,
-                mmproj_path.as_ref().expect("mmproj path present when use_multimodal"),
-                &images,
-            )?,
-            GemmaRuntime::Gguf {
-                backend,
-                model,
-                context_size,
-                gpu_layers,
-            } => Self::run_gguf_inference(
-                &handle,
-                &rid,
-                backend,
-                model,
-                context_size,
-                gpu_layers,
-                &system_prompt,
-                &user_prompt,
-                &ctx.device_label,
-            )?,
+        let generated_text = match &mut ctx.runtime {
+            GemmaRuntime::Native { model, tokenizer } => {
+                Self::run_native_inference(handle, rid, model, tokenizer, &system_prompt, &user_prompt)?
+            }
+            GemmaRuntime::Gguf(gguf) => match &vision {
+                Some((mmproj_path, vision_images)) => Self::run_gguf_multimodal_inference(
+                    handle,
+                    rid,
+                    gguf,
+                    &system_prompt,
+                    &user_prompt,
+                    &device_label,
+                    mmproj_path,
+                    vision_images,
+                )?,
+                None => Self::run_gguf_inference(
+                    handle,
+                    rid,
+                    gguf,
+                    &system_prompt,
+                    &user_prompt,
+                    &device_label,
+                )?,
+            },
         };
-
-        ctx.runtime = runtime_context;
 
         let json_start = generated_text.find('{').unwrap_or(0);
         let preamble = generated_text[..json_start].trim().to_string();
@@ -438,19 +627,72 @@ impl IntelligenceExtractor {
             preamble,
             system_prompt,
             user_prompt,
-            context: ctx,
         })
+    }
+
+    /// Decide whether this pass can run multimodal, and with which images.
+    ///
+    /// Everything downstream of this point is native llama.cpp code, where a missing file, a
+    /// truncated projector or an unreadable image is an access violation rather than an error
+    /// we can catch. So each precondition is checked here, and any failure simply means
+    /// text-only synthesis for this record.
+    fn plan_vision(ctx: &GemmaContext, images: &[PathBuf]) -> Option<(PathBuf, Vec<PathBuf>)> {
+        if images.is_empty() || !matches!(ctx.runtime, GemmaRuntime::Gguf(_)) {
+            return None;
+        }
+
+        let mmproj_path = ctx.repo_path.parent()?.join(GEMMA4_MMPROJ_FILENAME);
+        if !gemma4_mmproj_ready(&mmproj_path) {
+            if mmproj_path.exists() {
+                tauri_plugin_log::log::warn!(
+                    "[Extraction] Gemma 4 projector at {} is not the expected {} bytes; \
+                     running text-only until it is re-provisioned",
+                    mmproj_path.display(),
+                    GEMMA4_MMPROJ_BYTES
+                );
+            }
+            return None;
+        }
+
+        let mut usable = Vec::new();
+        for path in images {
+            if usable.len() == MAX_VISION_IMAGES {
+                tauri_plugin_log::log::warn!(
+                    "[Extraction] Record has more than {MAX_VISION_IMAGES} evidence images; \
+                     analyzing the first {MAX_VISION_IMAGES} to stay inside the context window"
+                );
+                break;
+            }
+            match std::fs::metadata(path) {
+                Ok(metadata)
+                    if metadata.is_file()
+                        && metadata.len() > 0
+                        && metadata.len() <= MAX_VISION_IMAGE_BYTES =>
+                {
+                    usable.push(path.clone());
+                }
+                Ok(_) => tauri_plugin_log::log::warn!(
+                    "[Extraction] Skipping evidence image {}: empty, oversized, or not a file",
+                    path.display()
+                ),
+                Err(error) => tauri_plugin_log::log::warn!(
+                    "[Extraction] Skipping unreadable evidence image {}: {error}",
+                    path.display()
+                ),
+            }
+        }
+
+        (!usable.is_empty()).then_some((mmproj_path, usable))
     }
 
     fn run_native_inference(
         handle: &AppHandle,
         rid: &str,
-        mut model: Box<gemma4::Model>,
-        tokenizer: Box<Tokenizer>,
+        model: &mut gemma4::Model,
+        tokenizer: &Tokenizer,
         system_prompt: &str,
         user_prompt: &str,
-        device_label: &str,
-    ) -> Result<(String, GemmaRuntime)> {
+    ) -> Result<String> {
         let device = model.device.clone();
 
         let prompt = format!(
@@ -521,22 +763,26 @@ impl IntelligenceExtractor {
             }
         }
 
-        let _ = device_label;
-        Ok((generated_text, GemmaRuntime::Native { model, tokenizer }))
+        Ok(generated_text)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn run_gguf_inference(
         handle: &AppHandle,
         rid: &str,
-        backend: LlamaBackend,
-        model: LlamaModel,
-        context_size: u32,
-        gpu_layers: i32,
+        gguf: &GgufRuntime,
         system_prompt: &str,
         user_prompt: &str,
         device_label: &str,
-    ) -> Result<(String, GemmaRuntime)> {
+    ) -> Result<String> {
+        let GgufRuntime {
+            backend,
+            model,
+            context_size,
+            gpu_layers,
+            ..
+        } = gguf;
+        let (context_size, gpu_layers) = (*context_size, *gpu_layers);
+
         let messages = [
             LlamaChatMessage::new("system".to_string(), system_prompt.to_string())?,
             LlamaChatMessage::new("user".to_string(), user_prompt.to_string())?,
@@ -558,7 +804,7 @@ impl IntelligenceExtractor {
             .with_n_threads(crate::analysis::hardware::cpu_inference_threads() as i32)
             .with_n_threads_batch(crate::analysis::hardware::cpu_inference_threads() as i32)
             .with_flash_attn_type(LlamaFlashAttnType::Auto);
-        let mut llama_context = model.new_context(&backend, context_params)?;
+        let mut llama_context = model.new_context(backend, context_params)?;
         let batch_capacity = context_size.min(1024) as usize;
         let mut batch = LlamaBatch::new(batch_capacity, 1);
         for (chunk_index, chunk) in tokens.chunks(batch_capacity).enumerate() {
@@ -580,7 +826,7 @@ impl IntelligenceExtractor {
         // and provenance-checked after parsing, but malformed braces can no longer discard an
         // otherwise expensive synthesis pass.
         let sampler = LlamaSampler::chain_simple([
-            LlamaSampler::grammar(&model, JSON_GBNF, "root"),
+            LlamaSampler::grammar(model, JSON_GBNF, "root"),
             LlamaSampler::greedy(),
         ]);
         let mut generated = Vec::new();
@@ -590,7 +836,12 @@ impl IntelligenceExtractor {
         );
 
         for (position, index) in (tokens.len() as i32..).zip(0..generation_limit) {
-            let token = sampler.sample(&llama_context, 0);
+            // `-1` selects the most recent output. An explicit `0` indexes the batch, not the
+            // output list, and only the final prompt token has logits enabled — so index 0
+            // resolves to a position that produced none, and llama.cpp fails the lookup
+            // ("invalid logits id 0, reason: batch.logits[0] != true") and then dereferences
+            // the null it returned in release builds. The multimodal path already used -1.
+            let token = sampler.sample(&llama_context, -1);
             if model.is_eog_token(token) {
                 break;
             }
@@ -622,18 +873,8 @@ impl IntelligenceExtractor {
             llama_context.decode(&mut batch)?;
         }
 
-        let generated_text = String::from_utf8(generated)
-            .map_err(|error| anyhow!("Gemma 4 returned invalid UTF-8: {error}"))?;
-        drop(llama_context);
-        Ok((
-            generated_text,
-            GemmaRuntime::Gguf {
-                backend,
-                model,
-                context_size,
-                gpu_layers,
-            },
-        ))
+        String::from_utf8(generated)
+            .map_err(|error| anyhow!("Gemma 4 returned invalid UTF-8: {error}"))
     }
 
     /// Multimodal synthesis: Gemma 4 analyzes the evidence images together with the (OCR'd)
@@ -643,24 +884,32 @@ impl IntelligenceExtractor {
     fn run_gguf_multimodal_inference(
         handle: &AppHandle,
         rid: &str,
-        backend: LlamaBackend,
-        model: LlamaModel,
-        context_size: u32,
-        gpu_layers: i32,
+        gguf: &GgufRuntime,
         system_prompt: &str,
         user_prompt: &str,
         device_label: &str,
         mmproj_path: &Path,
         image_paths: &[PathBuf],
-    ) -> Result<(String, GemmaRuntime)> {
+    ) -> Result<String> {
+        let GgufRuntime {
+            backend,
+            model,
+            context_size,
+            gpu_layers,
+            ..
+        } = gguf;
+        let (context_size, gpu_layers) = (*context_size, *gpu_layers);
         let threads = crate::analysis::hardware::cpu_inference_threads() as i32;
-        // Scope all borrows of `model`/`backend` so they end before we move them into the
-        // returned runtime.
+
         let generated_text = {
             let mtmd = MtmdContext::init_from_file(
                 mmproj_path,
-                &model,
-                MtmdContextParams::default().use_gpu(gpu_layers > 0),
+                model,
+                // The vision encoder otherwise runs on mtmd's own small default thread count
+                // rather than the budget the rest of inference was given.
+                MtmdContextParams::default()
+                    .use_gpu(offloads_to_accelerator(gpu_layers))
+                    .n_threads(threads),
             )
             .map_err(|e| {
                 anyhow!(
@@ -672,6 +921,9 @@ impl IntelligenceExtractor {
                 return Err(anyhow!("Gemma 4 projector does not report vision support"));
             }
 
+            // Decode every image before building the prompt: the number of media markers has
+            // to match the number of bitmaps handed to `tokenize`, or the projector and the
+            // token stream disagree about how many media chunks exist.
             let bitmaps: Vec<MtmdBitmap> = image_paths
                 .iter()
                 .map(|p| {
@@ -683,8 +935,7 @@ impl IntelligenceExtractor {
 
             // One media marker per image, inside the user turn, then the chat template.
             let marker = MtmdContext::default_marker();
-            let markers = std::iter::repeat(marker)
-                .take(image_paths.len())
+            let markers = std::iter::repeat_n(marker, bitmap_refs.len())
                 .collect::<Vec<_>>()
                 .join("\n");
             let multimodal_user = format!(
@@ -711,7 +962,7 @@ impl IntelligenceExtractor {
                 .with_n_threads(threads)
                 .with_n_threads_batch(threads)
                 .with_flash_attn_type(LlamaFlashAttnType::Auto);
-            let mut llama_context = model.new_context(&backend, ctx_params)?;
+            let mut llama_context = model.new_context(backend, ctx_params)?;
 
             let mut n_past: i32 = 0;
             mtmd.eval_chunks(
@@ -733,7 +984,7 @@ impl IntelligenceExtractor {
             }
 
             let sampler = LlamaSampler::chain_simple([
-                LlamaSampler::grammar(&model, JSON_GBNF, "root"),
+                LlamaSampler::grammar(model, JSON_GBNF, "root"),
                 LlamaSampler::greedy(),
             ]);
             let _ = handle.emit(
@@ -762,7 +1013,7 @@ impl IntelligenceExtractor {
                                 "device": device_label,
                                 "gpu_layers": gpu_layers,
                                 "context_size": context_size,
-                                "visual_asset_count": image_paths.len()
+                                "visual_asset_count": bitmap_refs.len()
                             }
                         }),
                     );
@@ -776,15 +1027,7 @@ impl IntelligenceExtractor {
                 .map_err(|e| anyhow!("Gemma 4 vision returned invalid UTF-8: {e}"))?
         };
 
-        Ok((
-            generated_text,
-            GemmaRuntime::Gguf {
-                backend,
-                model,
-                context_size,
-                gpu_layers,
-            },
-        ))
+        Ok(generated_text)
     }
 
     fn load_context(repo_path: &PathBuf, force_cpu: bool) -> Result<GemmaContext> {
@@ -839,37 +1082,99 @@ impl IntelligenceExtractor {
     }
 
     fn load_gguf_context(model_path: &Path, force_cpu: bool) -> Result<GemmaContext> {
-        let mut backend = LlamaBackend::init()?;
-        backend.void_logs();
+        let backend = llama_backend()?;
 
-        let (model_params, context_size, gpu_layers) = if force_cpu {
-            (LlamaModelParams::default().with_n_gpu_layers(0), 8192, 0)
+        // The fit result owns the buffers its `model_params` point into, so it has to stay
+        // alive for as long as the model does — see `FittedParams`. Keep the whole result and
+        // borrow the params out of it rather than moving the params away from their storage.
+        let (fit, context_size, gpu_layers) = if force_cpu {
+            (None, 8192, 0)
         } else {
-            let fitted = fit_params(
-                &backend,
-                model_path,
-                FitParams::default().with_n_ctx_min(8192),
-            )
-            .map_err(|error| anyhow!("could not fit Gemma 4 to available memory: {error}"))?;
-            let context_size = fitted
-                .context_params
-                .n_ctx()
-                .map(NonZeroU32::get)
-                .unwrap_or(8192)
-                .max(8192);
-            let gpu_layers = fitted.model_params.n_gpu_layers();
-            (fitted.model_params, context_size, gpu_layers)
+            log_device_memory_estimate(model_path, GPU_FIT_ATTEMPTS[0].0);
+
+            let mut chosen: Option<(FitParamsResult, u32, i32)> = None;
+            let mut last_error = None;
+            for (n_ctx, margin) in GPU_FIT_ATTEMPTS {
+                // Pin the context rather than passing `n_ctx = 0`, which invites the fitter to
+                // grow it until the card is full. See `GPU_FIT_ATTEMPTS`.
+                let options = FitParams::default()
+                    .with_context_params(
+                        LlamaContextParams::default().with_n_ctx(NonZeroU32::new(n_ctx)),
+                    )
+                    .with_n_ctx_min(n_ctx)
+                    .with_margins(vec![margin; llama_cpp_4::max_devices()]);
+                match fit_params(backend, model_path, options) {
+                    Ok(fitted) => {
+                        // Never exceed what we asked for, whatever the fitter reports back.
+                        let context_size = fitted
+                            .context_params
+                            .n_ctx()
+                            .map(NonZeroU32::get)
+                            .unwrap_or(n_ctx)
+                            .min(n_ctx);
+                        let gpu_layers = fitted.model_params.n_gpu_layers();
+                        let accepted = offloads_to_accelerator(gpu_layers);
+                        tauri_plugin_log::log::info!(
+                            "[Extraction] fit attempt (ctx {n_ctx}, margin {} MiB) -> \
+                             {} GPU layers at {context_size} ctx{}",
+                            margin / (1024 * 1024),
+                            gpu_layer_description(gpu_layers),
+                            if accepted { "" } else { "; asking for less" }
+                        );
+                        // Keep the newest plan either way: if no attempt wins the GPU, the last
+                        // one is still a valid CPU plan to load with.
+                        chosen = Some((fitted, context_size, gpu_layers));
+                        if accepted {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        tauri_plugin_log::log::warn!(
+                            "[Extraction] fit attempt (ctx {n_ctx}, margin {} MiB) failed: {error}",
+                            margin / (1024 * 1024)
+                        );
+                        last_error = Some(error);
+                    }
+                }
+            }
+
+            let (fitted, context_size, gpu_layers) = chosen.ok_or_else(|| {
+                anyhow!(
+                    "could not fit Gemma 4 to available memory: {}",
+                    last_error
+                        .map(|error| error.to_string())
+                        .unwrap_or_else(|| "no fitting attempt succeeded".to_string())
+                )
+            })?;
+            if !offloads_to_accelerator(gpu_layers) {
+                tauri_plugin_log::log::warn!(
+                    "[Extraction] Gemma 4 will run on the CPU: no fitting attempt could place a \
+                     single layer on an accelerator. See the device memory estimate above — free \
+                     VRAM must exceed the weights plus KV cache plus compute buffers."
+                );
+            }
+            (Some(FittedParams(fitted)), context_size, gpu_layers)
         };
 
-        let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
+        let cpu_params;
+        let model_params = match &fit {
+            Some(fitted) => &fitted.0.model_params,
+            None => {
+                cpu_params = LlamaModelParams::default().with_n_gpu_layers(0);
+                &cpu_params
+            }
+        };
+
+        let model = LlamaModel::load_from_file(backend, model_path, model_params)
             .map_err(|error| anyhow!("failed to load Gemma 4 GGUF: {error}"))?;
-        let device_label = if gpu_layers > 0 {
+        let device_label = if offloads_to_accelerator(gpu_layers) {
+            let layers = gpu_layer_description(gpu_layers);
             if cfg!(feature = "cuda") {
-                format!("NVIDIA CUDA via llama.cpp ({gpu_layers} GPU layers)")
+                format!("NVIDIA CUDA via llama.cpp ({layers} GPU layers)")
             } else if cfg!(feature = "metal") {
-                format!("Apple Metal via llama.cpp ({gpu_layers} GPU layers)")
+                format!("Apple Metal via llama.cpp ({layers} GPU layers)")
             } else {
-                format!("GPU offload via llama.cpp ({gpu_layers} GPU layers)")
+                format!("GPU offload via llama.cpp ({layers} GPU layers)")
             }
         } else {
             format!(
@@ -883,12 +1188,13 @@ impl IntelligenceExtractor {
         );
 
         Ok(GemmaContext {
-            runtime: GemmaRuntime::Gguf {
+            runtime: GemmaRuntime::Gguf(Box::new(GgufRuntime {
                 backend,
                 model,
                 context_size,
                 gpu_layers,
-            },
+                _fit: fit,
+            })),
             repo_path: model_path.to_path_buf(),
             device_label,
             acceleration_preference: format!("{:?}", acceleration_preference(force_cpu)),
@@ -1061,5 +1367,48 @@ mod tests {
         assert_eq!(value["observations"][0]["text"], "legacy note");
         assert!(value["observations"][0]["confidence"].is_number());
         assert!(value["observations"][0]["evidence_source"].is_string());
+    }
+
+    /// A partially downloaded projector must not count as ready: handing a short GGUF to
+    /// llama.cpp faults inside native code, where nothing can catch it.
+    #[test]
+    fn mmproj_readiness_requires_the_exact_pinned_size() {
+        let dir = std::env::temp_dir().join(format!("pursue-mmproj-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join(GEMMA4_MMPROJ_FILENAME);
+
+        assert!(!gemma4_mmproj_ready(&path), "missing file is not ready");
+
+        std::fs::write(&path, b"GGUF truncated").expect("write short file");
+        assert!(!gemma4_mmproj_ready(&path), "short file is not ready");
+
+        assert!(
+            !gemma4_mmproj_ready(&dir),
+            "a directory at the projector path is not ready"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The registry is what downloads the file; the synthesis path is what decides the file is
+    /// usable. If those two ever disagreed on size or name, a "complete" download would be
+    /// rejected forever (or worse, a short one accepted).
+    #[test]
+    fn registry_entries_match_the_readiness_constants() {
+        let registry = crate::analysis::registry::get_model_registry();
+
+        let mmproj = registry
+            .iter()
+            .find(|model| model.id == "gemma-4-e4b-mmproj")
+            .expect("mmproj registry entry");
+        assert_eq!(mmproj.filename.as_deref(), Some(GEMMA4_MMPROJ_FILENAME));
+        assert_eq!(mmproj.expected_bytes, Some(GEMMA4_MMPROJ_BYTES));
+
+        let text = registry
+            .iter()
+            .find(|model| model.id == "gemma-4-e4b-q4")
+            .expect("q4 registry entry");
+        assert_eq!(text.filename.as_deref(), Some(GEMMA4_Q4_FILENAME));
+        assert_eq!(text.expected_bytes, Some(GEMMA4_Q4_BYTES));
     }
 }

@@ -75,10 +75,12 @@ pub fn get_model_registry() -> Vec<ModelDefinition> {
             model_type: ModelType::Intelligence,
             size_label: "5.15 GB".to_string(),
             repo_id: "google/gemma-4-E4B-it-qat-q4_0-gguf".to_string(),
-            filename: Some("gemma-4-E4B_q4_0-it.gguf".to_string()),
-            repo_file: Some("gemma-4-E4B_q4_0-it.gguf".to_string()),
+            filename: Some(super::extraction::GEMMA4_Q4_FILENAME.to_string()),
+            repo_file: Some(super::extraction::GEMMA4_Q4_FILENAME.to_string()),
             revision: "99ef3d9bbf819591699ffa9084c4be12db1fbe6c".to_string(),
-            expected_bytes: Some(5_154_939_136),
+            // Shared with the readiness checks so the two cannot disagree about what a
+            // finished download looks like.
+            expected_bytes: Some(super::extraction::GEMMA4_Q4_BYTES),
             expected_sha256: Some(
                 "e8b6a059ba86947a44ace84d6e5679795bc41862c25c30513142588f0e9dba1d"
                     .to_string(),
@@ -92,12 +94,14 @@ pub fn get_model_registry() -> Vec<ModelDefinition> {
             model_type: ModelType::Vision,
             size_label: "946 MB".to_string(),
             repo_id: "google/gemma-4-E4B-it-qat-q4_0-gguf".to_string(),
-            filename: Some("gemma-4-E4B-it-mmproj.gguf".to_string()),
-            repo_file: Some("gemma-4-E4B-it-mmproj.gguf".to_string()),
+            filename: Some(super::extraction::GEMMA4_MMPROJ_FILENAME.to_string()),
+            repo_file: Some(super::extraction::GEMMA4_MMPROJ_FILENAME.to_string()),
             // The mmproj was published after the text checkpoint's pinned revision, so it
             // carries its own revision. Content is verified by SHA-256 regardless of ref.
             revision: "4b4a2c1d584be7264f87aac328a1bc739ce81b6c".to_string(),
-            expected_bytes: Some(991_552_256),
+            // Shared with the synthesis path's completeness check so the two cannot disagree
+            // about what a finished projector looks like.
+            expected_bytes: Some(super::extraction::GEMMA4_MMPROJ_BYTES),
             expected_sha256: Some(
                 "7498a37cb619e55f2fcf87eb931f56e99389ed6d432e4c5c66110694c0d65578"
                     .to_string(),
