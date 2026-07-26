@@ -9,7 +9,13 @@ edition = "2021"
 
 [lib]
 name = "pursue_data_analyzer_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# `cdylib` is Tauri-template boilerplate for Android; this app is desktop-only (no
+# `src-tauri/gen`, no mobile CI). Building it produced a 602 MB DLL that the executable never
+# imports, and the WiX bundler picked it up off the target directory and packed it into the
+# installer — pushing the CUDA payload to 3.1 GB, over the ~2 GB CAB ceiling, so `light.exe`
+# failed with LGHT0306 and no CUDA installer shipped for v0.10.11 through v0.11.1. Restore
+# `cdylib` alongside a mobile target if one is ever added.
+crate-type = ["staticlib", "rlib"]
 
 [[bin]]
 name = "pursue-data-analyzer"
