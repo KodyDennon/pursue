@@ -6,6 +6,7 @@
 	import Modal from './Modal.svelte';
 	import ImageViewer from './media/ImageViewer.svelte';
 	import VideoViewer from './media/VideoViewer.svelte';
+	import AudioViewer from './media/AudioViewer.svelte';
 	import PdfViewer from './media/PdfViewer.svelte';
 
 	let { record, isOpen = $bindable(false) } = $props<{
@@ -69,7 +70,8 @@
 	const isImage = $derived(
 		['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff'].includes(fileType)
 	);
-	const isVideo = $derived(['mp4', 'webm', 'ogg', 'mov'].includes(fileType));
+	const isVideo = $derived(['mp4', 'webm', 'ogg', 'mov', 'm4v', 'mkv', 'avi'].includes(fileType));
+	const isAudio = $derived(['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'].includes(fileType));
 	const isPdf = $derived(fileType === 'pdf');
 </script>
 
@@ -137,7 +139,9 @@
 					{#if isImage}
 						<ImageViewer bind:zoom bind:rotation bind:position {assetUrl} title={record.title} />
 					{:else if isVideo}
-						<VideoViewer {assetUrl} />
+						<VideoViewer {assetUrl} title={record.title} />
+					{:else if isAudio}
+						<AudioViewer {assetUrl} title={record.title} />
 					{:else if isPdf}
 						<PdfViewer {assetUrl} />
 					{:else}

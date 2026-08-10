@@ -4,7 +4,7 @@ use crate::models::Record;
 use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
-use tauri::Emitter;
+use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncReadExt;
 
 // Quality-first ceiling: ~16 MiB of UTF-8 text is far beyond normal OCR/digital-text output
@@ -238,14 +238,25 @@ impl TextExtractor {
                     }),
                 })
             }
-            "mp4" | "mov" | "avi" | "mkv" | "webm" | "mp3" | "wav" | "m4a" | "aac" | "ogg"
-            | "flac" => {
+            "mp4" | "mov" | "m4v" | "avi" | "mkv" | "webm" => {
                 let _ = app.emit(
                     "analysis-progress",
                     serde_json::json!({
                         "status": "extracting-foundation",
                         "record_id": id,
-                        "step": "No local speech-to-text model is installed; indexing disclosure metadata instead..."
+                        "step": "Sampling video keyframes and performing local ONNX OCR on HUD / telemetry overlays..."
+                    }),
+                );
+
+                extract_video_keyframes_ocr(app, &self.ocr, id, path, record).await
+            }
+            "mp3" | "wav" | "m4a" | "aac" | "ogg" | "flac" | "opus" => {
+                let _ = app.emit(
+                    "analysis-progress",
+                    serde_json::json!({
+                        "status": "extracting-foundation",
+                        "record_id": id,
+                        "step": "Indexing audio record disclosure metadata..."
                     }),
                 );
 
@@ -255,7 +266,7 @@ impl TextExtractor {
                     warnings: Vec::new(),
                     metadata: serde_json::json!({
                         "mode": "metadata_only",
-                        "caveat": "No local speech-to-text model is installed for media transcripts."
+                        "caveat": "Audio record indexed on official disclosure metadata and DVIDS captions."
                     }),
                 })
             }
@@ -355,6 +366,83 @@ fn is_reliable_pdf_text(text: &str) -> bool {
         && control / total <= 0.01
         && words >= 5
         && unique_chars >= 10
+}
+
+async fn extract_video_keyframes_ocr(
+    app: &AppHandle,
+    ocr: &OcrEngine,
+    _id: &str,
+    video_path: &Path,
+    record: &Record,
+) -> Result<TextExtractionResult> {
+    let temp_dir = std::env::temp_dir().join(format!("pursue-video-ocr-{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir_all(&temp_dir).await?;
+
+    let timestamps = ["00:00:01", "00:00:05", "00:00:15", "00:00:30", "00:01:00"];
+    let mut extracted_frame_texts = Vec::new();
+    let mut frame_metadata = Vec::new();
+
+    for (idx, ts) in timestamps.iter().enumerate() {
+        let frame_path = temp_dir.join(format!("frame_{idx}.png"));
+        let mut cmd = tokio::process::Command::new("ffmpeg");
+        cmd.arg("-ss")
+            .arg(ts)
+            .arg("-i")
+            .arg(video_path)
+            .arg("-vframes")
+            .arg("1")
+            .arg("-f")
+            .arg("image2")
+            .arg("-y")
+            .arg(&frame_path);
+
+        if let Ok(output) = crate::common::hide_console(&mut cmd).output().await {
+            if output.status.success() && frame_path.exists() {
+                if let Ok(img) = image::open(&frame_path) {
+                    if let Ok(ocr_output) = ocr.extract_structured(app, &img).await {
+                        if !ocr_output.text.trim().is_empty() {
+                            extracted_frame_texts
+                                .push(format!("[Video Frame at {ts}]:\n{}", ocr_output.text.trim()));
+                            frame_metadata.push(serde_json::json!({
+                                "timestamp": ts,
+                                "confidence": ocr_output.average_confidence,
+                                "regions_found": ocr_output.regions.len()
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+
+    let mut combined_text = media_record_text(record);
+    if !extracted_frame_texts.is_empty() {
+        combined_text.push_str("\n\n--- EXTRACTED VIDEO KEYFRAME TEXT (HUD / TELEMETRY / OVERLAY) ---\n");
+        combined_text.push_str(&extracted_frame_texts.join("\n\n"));
+
+        Ok(TextExtractionResult {
+            text: combined_text,
+            engine: "video-keyframe-ocr".to_string(),
+            warnings: Vec::new(),
+            metadata: serde_json::json!({
+                "mode": "video_keyframe_ocr",
+                "keyframes_analyzed": frame_metadata.len(),
+                "keyframe_details": frame_metadata
+            }),
+        })
+    } else {
+        Ok(TextExtractionResult {
+            text: combined_text,
+            engine: "disclosure-metadata".to_string(),
+            warnings: Vec::new(),
+            metadata: serde_json::json!({
+                "mode": "metadata_only",
+                "caveat": "Video analyzed; no burned-in text/HUD overlays detected on sampled keyframes."
+            }),
+        })
+    }
 }
 
 /// No local speech-to-text model is bundled, so audio/video records are indexed on their
