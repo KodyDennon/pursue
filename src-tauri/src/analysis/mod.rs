@@ -477,12 +477,33 @@ impl AnalysisManager {
             .await;
 
         let mut image_paths = Vec::new();
-        for asset in assets.iter().filter(|a| a.asset_type == "image") {
-            image_paths.push(
-                self.library
-                    .get_readable_artifact_path(&asset.local_path)
-                    .await?,
-            );
+        for asset in &assets {
+            let ext = std::path::Path::new(&asset.local_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+
+            if asset.asset_type == "image"
+                || matches!(
+                    ext.as_str(),
+                    "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff"
+                )
+            {
+                if let Ok(path) = self.library.get_readable_artifact_path(&asset.local_path).await {
+                    image_paths.push(path);
+                }
+            } else if asset.asset_type == "video"
+                || matches!(
+                    ext.as_str(),
+                    "mp4" | "mov" | "m4v" | "avi" | "mkv" | "webm"
+                )
+            {
+                if let Ok(video_path) = self.library.get_readable_artifact_path(&asset.local_path).await {
+                    let extracted = extract_video_keyframes_for_gemma(&video_path).await;
+                    image_paths.extend(extracted);
+                }
+            }
         }
 
         // Native Gemma 4 image understanding (llama.cpp mtmd) needs the GGUF text model AND the
@@ -698,13 +719,45 @@ fn is_pdf_path(path: &std::path::Path) -> bool {
 
 fn emit_analysis_warning(app: &tauri::AppHandle, record_id: &str, warning: &str) {
     let _ = app.emit(
-        "analysis-progress",
+        "analysis-warning",
         serde_json::json!({
-            "status": "analysis-warning",
             "record_id": record_id,
             "warning": warning
         }),
     );
+}
+
+async fn extract_video_keyframes_for_gemma(video_path: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let temp_dir = std::env::temp_dir().join(format!("pursue-gemma-frames-{}", uuid::Uuid::new_v4()));
+    if tokio::fs::create_dir_all(&temp_dir).await.is_err() {
+        return Vec::new();
+    }
+
+    let timestamps = ["00:00:01", "00:00:05", "00:00:15", "00:00:30"];
+    let mut extracted_paths = Vec::new();
+
+    for (idx, ts) in timestamps.iter().enumerate() {
+        let frame_path = temp_dir.join(format!("gemma_frame_{idx}.png"));
+        let mut cmd = tokio::process::Command::new("ffmpeg");
+        cmd.arg("-ss")
+            .arg(ts)
+            .arg("-i")
+            .arg(video_path)
+            .arg("-vframes")
+            .arg("1")
+            .arg("-f")
+            .arg("image2")
+            .arg("-y")
+            .arg(&frame_path);
+
+        if let Ok(output) = crate::common::hide_console(&mut cmd).output().await {
+            if output.status.success() && frame_path.exists() {
+                extracted_paths.push(frame_path);
+            }
+        }
+    }
+
+    extracted_paths
 }
 
 #[cfg(test)]
