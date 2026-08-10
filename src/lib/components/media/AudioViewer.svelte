@@ -94,10 +94,10 @@
 
 	<!-- Animated Waveform Bars -->
 	<div class="waveform-container" class:playing={isPlaying}>
-		{#each Array(28) as _, i}
+		{#each Array.from({ length: 28 }, (_, i) => i) as barIndex (barIndex)}
 			<div
 				class="wave-bar"
-				style="animation-delay: { (i % 7) * 0.12 }s; height: { 15 + ((i * 7) % 65) }%;"
+				style="animation-delay: { (barIndex % 7) * 0.12 }s; height: { 15 + ((barIndex * 7) % 65) }%;"
 			></div>
 		{/each}
 	</div>

@@ -9,7 +9,7 @@
 		try {
 			const appWindow = getCurrentWindow();
 			isMaximized = await appWindow.isMaximized();
-		} catch (e) {
+		} catch {
 			// Non-Tauri fallback
 		}
 	}
@@ -23,8 +23,8 @@
 	async function minimize() {
 		try {
 			await getCurrentWindow().minimize();
-		} catch (e) {
-			console.error('Failed to minimize window:', e);
+		} catch {
+			// Ignore fallback error
 		}
 	}
 
@@ -33,16 +33,16 @@
 			const appWindow = getCurrentWindow();
 			await appWindow.toggleMaximize();
 			isMaximized = await appWindow.isMaximized();
-		} catch (e) {
-			console.error('Failed to toggle maximize window:', e);
+		} catch {
+			// Ignore fallback error
 		}
 	}
 
 	async function closeWindow() {
 		try {
 			await getCurrentWindow().close();
-		} catch (e) {
-			console.error('Failed to close window:', e);
+		} catch {
+			// Ignore fallback error
 		}
 	}
 </script>

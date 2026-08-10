@@ -2,8 +2,8 @@
 	let { assetUrl, title = 'Video Asset' } = $props<{ assetUrl: string; title?: string }>();
 </script>
 
-<div class="video-container glass-panel">
-	<video controls autoplay src={assetUrl} preload="auto">
+<div class="video-container glass-panel" title={title}>
+	<video controls autoplay src={assetUrl} preload="auto" aria-label={title}>
 		<track kind="captions" />
 		Your browser does not support the video tag.
 	</video>
