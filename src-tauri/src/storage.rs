@@ -181,7 +181,24 @@ pub fn migrate_storage(
     Ok(stats)
 }
 
+use std::collections::HashSet;
+
 fn dir_size(dir: &Path, should_skip: &impl Fn(&Path) -> bool) -> Result<u64> {
+    let mut visited = HashSet::new();
+    dir_size_inner(dir, should_skip, &mut visited)
+}
+
+fn dir_size_inner(
+    dir: &Path,
+    should_skip: &impl Fn(&Path) -> bool,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<u64> {
+    if let Ok(canonical) = std::fs::canonicalize(dir) {
+        if !visited.insert(canonical) {
+            return Ok(0);
+        }
+    }
+
     let mut total = 0;
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
@@ -189,15 +206,18 @@ fn dir_size(dir: &Path, should_skip: &impl Fn(&Path) -> bool) -> Result<u64> {
         if should_skip(&path) {
             continue;
         }
-        let metadata = path.symlink_metadata()?;
-        if metadata.file_type().is_symlink() {
-            return Err(anyhow!(
-                "storage migration refuses symbolic link {}",
-                path.display()
-            ));
-        }
+        let symlink_meta = path.symlink_metadata()?;
+        let metadata = if symlink_meta.file_type().is_symlink() {
+            match std::fs::metadata(&path) {
+                Ok(target_meta) => target_meta,
+                Err(_) => continue,
+            }
+        } else {
+            symlink_meta
+        };
+
         if metadata.is_dir() {
-            total += dir_size(&path, should_skip)?;
+            total += dir_size_inner(&path, should_skip, visited)?;
         } else {
             total += metadata.len();
         }
@@ -212,6 +232,24 @@ fn copy_tree(
     stats: &mut MigrationStats,
     progress: &mut impl FnMut(u64, u64),
 ) -> Result<()> {
+    let mut visited = HashSet::new();
+    copy_tree_inner(from, to, should_skip, stats, progress, &mut visited)
+}
+
+fn copy_tree_inner(
+    from: &Path,
+    to: &Path,
+    should_skip: &impl Fn(&Path) -> bool,
+    stats: &mut MigrationStats,
+    progress: &mut impl FnMut(u64, u64),
+    visited: &mut HashSet<PathBuf>,
+) -> Result<()> {
+    if let Ok(canonical) = std::fs::canonicalize(from) {
+        if !visited.insert(canonical) {
+            return Ok(());
+        }
+    }
+
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
@@ -220,15 +258,18 @@ fn copy_tree(
             continue;
         }
         let target = to.join(entry.file_name());
-        let metadata = source.symlink_metadata()?;
-        if metadata.file_type().is_symlink() {
-            return Err(anyhow!(
-                "storage migration refuses symbolic link {}",
-                source.display()
-            ));
-        }
+        let symlink_meta = source.symlink_metadata()?;
+        let metadata = if symlink_meta.file_type().is_symlink() {
+            match std::fs::metadata(&source) {
+                Ok(target_meta) => target_meta,
+                Err(_) => continue,
+            }
+        } else {
+            symlink_meta
+        };
+
         if metadata.is_dir() {
-            copy_tree(&source, &target, should_skip, stats, progress)?;
+            copy_tree_inner(&source, &target, should_skip, stats, progress, visited)?;
         } else {
             let copied = copy_file_verified(&source, &target, |bytes| {
                 stats.bytes_copied += bytes;
