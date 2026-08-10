@@ -135,12 +135,11 @@ jobs:
             args: --features directml
             bundle_args: --bundles msi,nsis
             cuda: false
-          # The Windows CUDA installer is built on the maintainer's local machine and
-          # uploaded to the release with scripts/release-cuda-local.ps1. Its warm target
-          # dir turns the ~2h20m cold CI CUDA compile into a few-minute incremental build.
-          # CUDA compilation is still validated in CI by cuda-check.yml, and the R2 mirror
-          # (mirror-release.yml) still requires all four installers before it publishes.
-          # See RELEASING.md.
+          - name: windows-cuda
+            platform: windows-2022
+            args: --features cuda,directml
+            bundle_args: --bundles msi
+            cuda: true
     runs-on: ${{ matrix.platform }}
     env:
       MACOSX_DEPLOYMENT_TARGET: '26.0'
