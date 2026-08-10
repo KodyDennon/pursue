@@ -99,6 +99,12 @@ async fn finish_db_startup(pool: SqlitePool) -> anyhow::Result<SqlitePool> {
     let _ = sqlx::query("UPDATE records SET analysis_status = 'pending', analysis_error = 'Neural OCR sidecar failed previously; ready to retry after runtime health check' WHERE analysis_status = 'failed' AND analysis_error LIKE '%127.0.0.1:8374/ocr%'")
         .execute(&pool)
         .await;
+    let _ = sqlx::query("DELETE FROM analysis_results WHERE ocr_text IS NULL OR length(trim(ocr_text)) = 0")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("UPDATE records SET analysis_status = 'pending' WHERE local_path IS NOT NULL AND id NOT IN (SELECT record_id FROM analysis_results)")
+        .execute(&pool)
+        .await;
 
     // Automatic Maintenance: WAL Checkpointing
     // Prevents the -wal file from growing indefinitely by truncating it periodically

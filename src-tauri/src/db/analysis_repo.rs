@@ -124,6 +124,8 @@ impl AnalysisRepository {
             .bind(record_id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM vec_intelligence_fragments WHERE fragment_id IN (SELECT fragment_id FROM intelligence_fragments WHERE record_id = ?)").bind(record_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM intelligence_fragments WHERE record_id = ?").bind(record_id).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM record_forensics WHERE record_id = ?")
             .bind(record_id)
             .execute(&mut *tx)
@@ -159,6 +161,12 @@ impl AnalysisRepository {
             .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM analysis_chunks_fts")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM vec_intelligence_fragments")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM intelligence_fragments")
             .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM record_forensics")

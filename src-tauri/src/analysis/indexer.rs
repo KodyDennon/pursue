@@ -223,8 +223,17 @@ impl TextExtractor {
 
                 let img = image::open(path)?;
                 let ocr_output = self.ocr.extract_structured(app, &img).await?;
+                let meta_text = media_record_text(record);
+                let text = if ocr_output.text.trim().is_empty() {
+                    meta_text
+                } else if meta_text.is_empty() {
+                    ocr_output.text.trim().to_string()
+                } else {
+                    format!("{meta_text}\n\n--- OCR EXTRACTED TEXT ---\n{}", ocr_output.text.trim())
+                };
+
                 Ok(TextExtractionResult {
-                    text: ocr_output.text,
+                    text,
                     engine: "onnx-ocr".to_string(),
                     warnings: Vec::new(),
                     metadata: serde_json::json!({
