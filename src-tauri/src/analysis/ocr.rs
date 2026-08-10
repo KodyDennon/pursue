@@ -482,7 +482,8 @@ fn resize_to_pixel_cap(img: &image::DynamicImage, max_pixels: u64) -> Option<ima
 
 fn get_model_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>, filename: &str) -> Result<PathBuf> {
     use tauri::Manager;
-    let rel_path = format!("src-tauri/assets/models/{}", filename);
+
+    // 1. Resource path (packaged app / installer)
     if let Ok(path) = app.path().resolve(
         format!("assets/models/{}", filename),
         tauri::path::BaseDirectory::Resource,
@@ -491,14 +492,49 @@ fn get_model_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>, filename: &str) 
             return Ok(path);
         }
     }
-    let mut path = std::env::current_dir()?;
-    if path.ends_with("src-tauri") {
-        path = path.parent().unwrap().to_path_buf();
+
+    // 2. App data models directory
+    if let Ok(app_dir) = app.path().app_data_dir() {
+        let candidate = app_dir.join("models").join(filename);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
     }
-    let target = path.join(&rel_path);
-    if target.exists() {
-        return Ok(target);
+
+    // 3. Current working directory (dev mode)
+    if let Ok(cur_dir) = std::env::current_dir() {
+        let candidate1 = cur_dir.join("src-tauri").join("assets").join("models").join(filename);
+        if candidate1.exists() {
+            return Ok(candidate1);
+        }
+        let candidate2 = cur_dir.join("assets").join("models").join(filename);
+        if candidate2.exists() {
+            return Ok(candidate2);
+        }
+        if let Some(parent) = cur_dir.parent() {
+            let candidate3 = parent.join("src-tauri").join("assets").join("models").join(filename);
+            if candidate3.exists() {
+                return Ok(candidate3);
+            }
+        }
     }
+
+    // 4. Current executable directory (bundled binary)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidate = exe_dir.join("assets").join("models").join(filename);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+            if let Some(parent) = exe_dir.parent() {
+                let candidate = parent.join("assets").join("models").join(filename);
+                if candidate.exists() {
+                    return Ok(candidate);
+                }
+            }
+        }
+    }
+
     Err(anyhow!("Model file {} not found", filename))
 }
 

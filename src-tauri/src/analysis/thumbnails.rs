@@ -86,7 +86,10 @@ impl ThumbnailManager {
 
                 crate::analysis::pdf::init_winrt_apartment();
 
-                let input_hstring = HSTRING::from(input_path.to_str().unwrap());
+                let input_str = input_path
+                    .to_str()
+                    .ok_or_else(|| anyhow!("invalid UTF-8 path: {:?}", input_path))?;
+                let input_hstring = HSTRING::from(input_str);
 
                 // Load PDF via WinRT
                 let file = StorageFile::GetFileFromPathAsync(&input_hstring)?.get()?;

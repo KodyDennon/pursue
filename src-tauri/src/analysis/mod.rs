@@ -229,10 +229,11 @@ impl AnalysisManager {
         let record = records::find_by_id(&self.db, record_id)
             .await?
             .ok_or_else(|| anyhow!("record not found"))?;
-        let full_path = self
-            .library
-            .get_readable_artifact_path(record.local_path.as_ref().unwrap())
-            .await?;
+        let local_path = record
+            .local_path
+            .as_deref()
+            .ok_or_else(|| anyhow!("record {} has no local_path", record_id))?;
+        let full_path = self.library.get_readable_artifact_path(local_path).await?;
 
         // 1. OCR (Foundation)
         let _ = _app.emit(
@@ -704,4 +705,16 @@ fn emit_analysis_warning(app: &tauri::AppHandle, record_id: &str, warning: &str)
             "warning": warning
         }),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_pdf_path() {
+        assert!(is_pdf_path(std::path::Path::new("document.pdf")));
+        assert!(is_pdf_path(std::path::Path::new("document.PDF")));
+        assert!(!is_pdf_path(std::path::Path::new("document.png")));
+    }
 }

@@ -1,7 +1,7 @@
 use crate::analysis::ocr::OcrEngine;
 use crate::analysis::pdf::{PdfAnalyzer, PdfRenderOptions};
 use crate::models::Record;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 use tauri::Emitter;
@@ -259,7 +259,39 @@ impl TextExtractor {
                     }),
                 })
             }
-            _ => Err(anyhow!("unsupported type `{}`", extension)),
+            _ => {
+                if let Ok((text, truncated)) = read_text_file_limited(path, MAX_TEXT_EXTRACTION_BYTES).await {
+                    if !text.is_empty() && !text.contains('\0') {
+                        let mut warnings = Vec::new();
+                        if truncated {
+                            let warning = format!(
+                                "Text extraction truncated at {} MiB to keep analysis memory bounded.",
+                                MAX_TEXT_EXTRACTION_BYTES / 1024 / 1024
+                            );
+                            emit_analysis_warning(app, id, &warning);
+                            warnings.push(warning);
+                        }
+                        return Ok(TextExtractionResult {
+                            text,
+                            engine: "generic-text".to_string(),
+                            warnings,
+                            metadata: serde_json::json!({
+                                "mode": "generic_text_fallback",
+                                "truncated": truncated
+                            }),
+                        });
+                    }
+                }
+                Ok(TextExtractionResult {
+                    text: media_record_text(record),
+                    engine: "disclosure-metadata".to_string(),
+                    warnings: Vec::new(),
+                    metadata: serde_json::json!({
+                        "mode": "metadata_only",
+                        "caveat": format!("Generic fallback for file extension `.{}`", extension)
+                    }),
+                })
+            }
         }
     }
 }
