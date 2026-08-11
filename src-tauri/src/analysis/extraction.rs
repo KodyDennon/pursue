@@ -579,6 +579,36 @@ impl IntelligenceExtractor {
         Ok(())
     }
 
+fn clean_duplicated_llm_tokens(input: &str) -> String {
+    let mut cleaned = input.to_string();
+
+    // Fix doubled quotes and doubled colons e.g. ""key"": ""val"" -> "key": "val"
+    cleaned = cleaned.replace(r#""""#, r#"""#);
+    cleaned = cleaned.replace(r#"":":"#, r#"": "#);
+
+    // Fix common doubled subword tokens in JSON keys and values
+    for word in &[
+        ("auditaudit", "audit"),
+        ("statusstatus", "status"),
+        ("objectobject", "object"),
+        ("descriptiondescription", "description"),
+        ("observationsobservations", "observations"),
+        ("evidenceevidence", "evidence"),
+        ("caveatscaveats", "caveats"),
+        ("insinsufficientufficient", "insufficient"),
+        ("TheThe", "The"),
+        ("white white", "white"),
+        ("bean bean", "bean"),
+        ("non non", "non"),
+        ("metallicmetallic", "metallic"),
+        (",,", ","),
+        ("--", "-"),
+    ] {
+        cleaned = cleaned.replace(word.0, word.1);
+    }
+    cleaned
+}
+
     fn run_inference(
         handle: &AppHandle,
         rid: &str,
@@ -631,9 +661,10 @@ impl IntelligenceExtractor {
             .rfind('}')
             .map(|i| i + 1)
             .unwrap_or(generated_text.len());
-        let json_str = &generated_text[json_start..json_end];
+        let raw_json_slice = &generated_text[json_start..json_end];
+        let json_str = Self::clean_duplicated_llm_tokens(raw_json_slice);
 
-        let mut val = serde_json::from_str::<Value>(json_str).map_err(|error| {
+        let mut val = serde_json::from_str::<Value>(&json_str).map_err(|error| {
             anyhow!(
                 "Gemma 4 synthesis returned invalid JSON: {}. Raw response prefix: {}",
                 error,
@@ -845,7 +876,7 @@ impl IntelligenceExtractor {
         // Constrain generation to syntactically valid JSON. The schema is still normalized
         // and provenance-checked after parsing, but malformed braces can no longer discard an
         // otherwise expensive synthesis pass.
-        let sampler = LlamaSampler::chain_simple([
+        let mut sampler = LlamaSampler::chain_simple([
             LlamaSampler::grammar(model, JSON_GBNF, "root"),
             LlamaSampler::greedy(),
         ]);
@@ -856,12 +887,8 @@ impl IntelligenceExtractor {
         );
 
         for (position, index) in (tokens.len() as i32..).zip(0..generation_limit) {
-            // `-1` selects the most recent output. An explicit `0` indexes the batch, not the
-            // output list, and only the final prompt token has logits enabled — so index 0
-            // resolves to a position that produced none, and llama.cpp fails the lookup
-            // ("invalid logits id 0, reason: batch.logits[0] != true") and then dereferences
-            // the null it returned in release builds. The multimodal path already used -1.
             let token = sampler.sample(&llama_context, -1);
+            sampler.accept(token);
             if model.is_eog_token(token) {
                 break;
             }
@@ -1003,7 +1030,7 @@ impl IntelligenceExtractor {
                 ));
             }
 
-            let sampler = LlamaSampler::chain_simple([
+            let mut sampler = LlamaSampler::chain_simple([
                 LlamaSampler::grammar(model, JSON_GBNF, "root"),
                 LlamaSampler::greedy(),
             ]);
@@ -1016,6 +1043,7 @@ impl IntelligenceExtractor {
             let mut batch = LlamaBatch::new(n_batch as usize, 1);
             for (position, index) in (n_past..).zip(0..generation_limit) {
                 let token = sampler.sample(&llama_context, -1);
+                sampler.accept(token);
                 if model.is_eog_token(token) {
                     break;
                 }
