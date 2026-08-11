@@ -876,7 +876,7 @@ fn clean_duplicated_llm_tokens(input: &str) -> String {
         // Constrain generation to syntactically valid JSON. The schema is still normalized
         // and provenance-checked after parsing, but malformed braces can no longer discard an
         // otherwise expensive synthesis pass.
-        let mut sampler = LlamaSampler::chain_simple([
+        let sampler = LlamaSampler::chain_simple([
             LlamaSampler::grammar(model, JSON_GBNF, "root"),
             LlamaSampler::greedy(),
         ]);
@@ -1029,7 +1029,7 @@ fn clean_duplicated_llm_tokens(input: &str) -> String {
                 ));
             }
 
-            let mut sampler = LlamaSampler::chain_simple([
+            let sampler = LlamaSampler::chain_simple([
                 LlamaSampler::grammar(model, JSON_GBNF, "root"),
                 LlamaSampler::greedy(),
             ]);
