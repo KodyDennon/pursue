@@ -888,7 +888,6 @@ fn clean_duplicated_llm_tokens(input: &str) -> String {
 
         for (position, index) in (tokens.len() as i32..).zip(0..generation_limit) {
             let token = sampler.sample(&llama_context, -1);
-            sampler.accept(token);
             if model.is_eog_token(token) {
                 break;
             }
@@ -1043,7 +1042,6 @@ fn clean_duplicated_llm_tokens(input: &str) -> String {
             let mut batch = LlamaBatch::new(n_batch as usize, 1);
             for (position, index) in (n_past..).zip(0..generation_limit) {
                 let token = sampler.sample(&llama_context, -1);
-                sampler.accept(token);
                 if model.is_eog_token(token) {
                     break;
                 }
