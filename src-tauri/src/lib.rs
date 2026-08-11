@@ -191,6 +191,7 @@ pub fn run() {
             get_disk_space_info,
             get_update_target,
             prepare_for_update,
+            install_unsigned_update,
             begin_hugging_face_device_auth,
             complete_hugging_face_device_auth,
             set_hugging_face_manual_token,

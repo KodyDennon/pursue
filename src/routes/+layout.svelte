@@ -8,11 +8,13 @@
 	import Toasts from '$lib/components/Toasts.svelte';
 	import WindowControls from '$lib/components/WindowControls.svelte';
 	import { settingsStore } from '$lib/stores/settingsStore.svelte';
+	import { updateStore } from '$lib/stores/updateStore.svelte';
 
 	let { children } = $props();
 
 	onMount(() => {
 		logger.debug('[Layout] Layout mounted.');
+		updateStore.checkForUpdate({ automatic: true, silent: true });
 	});
 
 	$effect(() => {

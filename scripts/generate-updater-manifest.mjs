@@ -45,46 +45,30 @@ function exactlyOne(label, predicate) {
 const lanes = [
 	{
 		target: 'macos-metal-aarch64',
-		bundle: exactlyOne('Apple Silicon Metal updater', (name) => name.endsWith('.app.tar.gz'))
+		bundle: exactlyOne('Apple Silicon DMG', (name) => name.endsWith('.dmg'))
 	},
 	{
 		target: 'windows-cuda-x86_64',
 		bundle: exactlyOne(
-			'Windows CUDA updater',
-			(name) => name.endsWith('.msi.zip') && /(?:^|[-_])cuda(?:[-_.]|$)/i.test(name)
+			'Windows CUDA MSI',
+			(name) => name.endsWith('.msi') && /(?:^|[-_])cuda(?:[-_.]|$)/i.test(name)
 		)
 	},
 	{
 		target: 'windows-directml-x86_64',
 		bundle: exactlyOne(
-			'Windows DirectML updater',
-			(name) => name.endsWith('.nsis.zip') && !/(?:^|[-_])cuda(?:[-_.]|$)/i.test(name)
+			'Windows DirectML Installer',
+			(name) => (name.endsWith('.exe') || name.endsWith('.msi')) && !/(?:^|[-_])cuda(?:[-_.]|$)/i.test(name)
 		)
 	}
 ];
 
 const platforms = {};
 for (const lane of lanes) {
-	const signatureAsset = exactlyOne(
-		`${lane.target} signature`,
-		(name) => name === `${lane.bundle.name}.sig`
-	);
 	if (!lane.bundle.browser_download_url?.startsWith('https://github.com/')) {
 		throw new Error(`${lane.bundle.name} has an unexpected download URL`);
 	}
-	const signature = (
-		await (
-			await github(
-				`/repos/${repository}/releases/assets/${signatureAsset.id}`,
-				'application/octet-stream'
-			)
-		).text()
-	).trim();
-	if (signature.length < 50 || /\s/.test(signature)) {
-		throw new Error(`${signatureAsset.name} is not a valid compact updater signature`);
-	}
 	platforms[lane.target] = {
-		signature,
 		url: lane.bundle.browser_download_url
 	};
 }
@@ -96,5 +80,5 @@ const manifest = {
 	platforms
 };
 
-await writeFile('latest.json', `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx' });
-console.log(`Generated signed updater manifest for ${Object.keys(platforms).length} release lanes.`);
+await writeFile('latest.json', `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'w' });
+console.log(`Generated unsigned updater manifest for ${Object.keys(platforms).length} release lanes.`);

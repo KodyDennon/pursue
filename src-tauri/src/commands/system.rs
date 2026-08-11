@@ -809,6 +809,67 @@ pub async fn prepare_for_update(state: State<'_, AppState>) -> Result<(), String
     Ok(())
 }
 
+/// Flush durable database state and launch a downloaded unsigned installer (MSI / EXE / DMG).
+/// Replaces Program Files files while preserving all user database records in AppData.
+#[tauri::command]
+pub async fn install_unsigned_update(
+    state: State<'_, AppState>,
+    installer_path: String,
+) -> Result<(), String> {
+    prepare_for_update(state).await?;
+
+    let path = std::path::PathBuf::from(&installer_path);
+    if !path.exists() {
+        return Err(format!("Installer file not found at: {}", path.display()));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let is_msi = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("msi"))
+            .unwrap_or(false);
+
+        let status = if is_msi {
+            std::process::Command::new("msiexec.exe")
+                .arg("/i")
+                .arg(&path)
+                .arg("/passive")
+                .spawn()
+        } else {
+            std::process::Command::new(&path)
+                .arg("/passive")
+                .spawn()
+        };
+
+        match status {
+            Ok(_) => {
+                info!("Launched unsigned installer successfully. Exiting app...");
+                std::process::exit(0);
+            }
+            Err(err) => Err(format!("Failed to launch installer: {err}")),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open").arg(&path).spawn();
+        match status {
+            Ok(_) => {
+                info!("Opened macOS update package successfully. Exiting app...");
+                std::process::exit(0);
+            }
+            Err(err) => Err(format!("Failed to open macOS installer: {err}")),
+        }
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        Err("Unsupported operating system for in-app installer execution".to_string())
+    }
+}
+
 #[tauri::command]
 pub async fn get_log_path(app_handle: AppHandle) -> Result<String, String> {
     let log_dir = app_handle.path().app_log_dir().map_err(|e| e.to_string())?;
