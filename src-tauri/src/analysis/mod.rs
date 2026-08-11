@@ -7,6 +7,7 @@ pub mod hardware;
 pub mod indexer;
 pub mod model_manager;
 pub mod ocr;
+pub mod ocr_repair;
 pub mod pdf;
 pub mod persistence;
 pub mod registry;
@@ -727,13 +728,53 @@ fn emit_analysis_warning(app: &tauri::AppHandle, record_id: &str, warning: &str)
     );
 }
 
+async fn probe_video_duration(video_path: &std::path::Path) -> Option<f64> {
+    let mut cmd = tokio::process::Command::new("ffprobe");
+    cmd.arg("-v")
+        .arg("error")
+        .arg("-show_entries")
+        .arg("format=duration")
+        .arg("-of")
+        .arg("default=noprint_wrappers=1:nokey=1")
+        .arg(video_path);
+
+    if let Ok(output) = crate::common::hide_console(&mut cmd).output().await {
+        if output.status.success() {
+            let str_out = String::from_utf8_lossy(&output.stdout);
+            if let Ok(sec) = str_out.trim().parse::<f64>() {
+                if sec > 0.0 {
+                    return Some(sec);
+                }
+            }
+        }
+    }
+    None
+}
+
 async fn extract_video_keyframes_for_gemma(video_path: &std::path::Path) -> Vec<std::path::PathBuf> {
     let temp_dir = std::env::temp_dir().join(format!("pursue-gemma-frames-{}", uuid::Uuid::new_v4()));
     if tokio::fs::create_dir_all(&temp_dir).await.is_err() {
         return Vec::new();
     }
 
-    let timestamps = ["00:00:01", "00:00:05", "00:00:15", "00:00:30"];
+    let duration = probe_video_duration(video_path).await.unwrap_or(30.0);
+    let offsets = [
+        (duration * 0.1).clamp(0.5, 2.0),
+        duration * 0.35,
+        duration * 0.65,
+        (duration * 0.90).min(duration - 0.5),
+    ];
+    let timestamps: Vec<String> = offsets
+        .iter()
+        .map(|s| {
+            let total = (*s as u64).max(0);
+            let hrs = total / 3600;
+            let mins = (total % 3600) / 60;
+            let secs = total % 60;
+            format!("{:02}:{:02}:{:02}", hrs, mins, secs)
+        })
+        .collect();
+
     let mut extracted_paths = Vec::new();
 
     for (idx, ts) in timestamps.iter().enumerate() {

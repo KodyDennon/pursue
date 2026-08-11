@@ -198,8 +198,9 @@ impl TextExtractor {
                     (false, true) => "onnx-ocr",
                     (false, false) => "pdf-empty",
                 };
+                let cleaned_text = crate::analysis::ocr_repair::repair_ocr_text(&full_text);
                 Ok(TextExtractionResult {
-                    text: full_text.trim().to_string(),
+                    text: cleaned_text,
                     engine: engine.to_string(),
                     warnings,
                     metadata: serde_json::json!({
@@ -223,13 +224,14 @@ impl TextExtractor {
 
                 let img = image::open(path)?;
                 let ocr_output = self.ocr.extract_structured(app, &img).await?;
+                let cleaned_ocr = crate::analysis::ocr_repair::repair_ocr_text(&ocr_output.text);
                 let meta_text = media_record_text(record);
-                let text = if ocr_output.text.trim().is_empty() {
+                let text = if cleaned_ocr.is_empty() {
                     meta_text
                 } else if meta_text.is_empty() {
-                    ocr_output.text.trim().to_string()
+                    cleaned_ocr
                 } else {
-                    format!("{meta_text}\n\n--- OCR EXTRACTED TEXT ---\n{}", ocr_output.text.trim())
+                    format!("{meta_text}\n\n--- OCR EXTRACTED TEXT ---\n{cleaned_ocr}")
                 };
 
                 Ok(TextExtractionResult {
@@ -387,7 +389,25 @@ async fn extract_video_keyframes_ocr(
     let temp_dir = std::env::temp_dir().join(format!("pursue-video-ocr-{}", uuid::Uuid::new_v4()));
     tokio::fs::create_dir_all(&temp_dir).await?;
 
-    let timestamps = ["00:00:01", "00:00:05", "00:00:15", "00:00:30", "00:01:00"];
+    let duration = probe_video_duration(video_path).await.unwrap_or(30.0);
+    let offsets = [
+        (duration * 0.05).clamp(0.5, 2.0),
+        duration * 0.25,
+        duration * 0.50,
+        duration * 0.75,
+        (duration * 0.95).min(duration - 0.5),
+    ];
+    let timestamps: Vec<String> = offsets
+        .iter()
+        .map(|s| {
+            let total = (*s as u64).max(0);
+            let hrs = total / 3600;
+            let mins = (total % 3600) / 60;
+            let secs = total % 60;
+            format!("{:02}:{:02}:{:02}", hrs, mins, secs)
+        })
+        .collect();
+
     let mut extracted_frame_texts = Vec::new();
     let mut frame_metadata = Vec::new();
 
@@ -452,6 +472,29 @@ async fn extract_video_keyframes_ocr(
             }),
         })
     }
+}
+
+async fn probe_video_duration(video_path: &Path) -> Option<f64> {
+    let mut cmd = tokio::process::Command::new("ffprobe");
+    cmd.arg("-v")
+        .arg("error")
+        .arg("-show_entries")
+        .arg("format=duration")
+        .arg("-of")
+        .arg("default=noprint_wrappers=1:nokey=1")
+        .arg(video_path);
+
+    if let Ok(output) = crate::common::hide_console(&mut cmd).output().await {
+        if output.status.success() {
+            let str_out = String::from_utf8_lossy(&output.stdout);
+            if let Ok(sec) = str_out.trim().parse::<f64>() {
+                if sec > 0.0 {
+                    return Some(sec);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// No local speech-to-text model is bundled, so audio/video records are indexed on their

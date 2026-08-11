@@ -209,6 +209,35 @@ export interface AnalysisReport {
 	extraction_warnings_json?: string | null;
 }
 
+export interface ObservationItem {
+	text: string;
+	confidence: number;
+	evidence_source: string;
+	caveat?: string;
+}
+
+export interface EvidenceItem {
+	source: string;
+	quote_or_summary: string;
+}
+
+export interface IntelligenceData {
+	audit_status?: 'completed' | 'partial' | 'insufficient_evidence';
+	object_description?: string;
+	observations?: ObservationItem[];
+	evidence?: EvidenceItem[];
+	caveats?: string[];
+	runtime?: string;
+	runtime_device?: string;
+
+	// Legacy field fallbacks for backward compatibility
+	pilot_observations?: string;
+	agencies?: string[];
+	location?: string;
+	incident_date?: string;
+	intelligence_score?: number;
+}
+
 export interface SearchRequest {
 	query: string;
 	filters?: {

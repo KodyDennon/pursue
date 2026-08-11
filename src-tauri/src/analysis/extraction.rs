@@ -390,10 +390,30 @@ impl IntelligenceExtractor {
             }
         }
 
+        let analyst_notes_rows = sqlx::query(
+            "SELECT body FROM case_notes WHERE record_id = ? UNION ALL SELECT notes AS body FROM case_records WHERE record_id = ? AND notes IS NOT NULL AND notes != ''"
+        )
+        .bind(&rid)
+        .bind(&rid)
+        .fetch_all(&db)
+        .await
+        .unwrap_or_default();
+
+        let mut user_notes_manifest = String::new();
+        if !analyst_notes_rows.is_empty() {
+            user_notes_manifest.push_str("\n\nANALYST CASE NOTES & HUMAN OBSERVATIONS:\n");
+            for row in analyst_notes_rows {
+                use sqlx::Row;
+                let body: String = row.get("body");
+                user_notes_manifest.push_str(&format!("- {}\n", body.trim()));
+            }
+        }
+
         let related_context = bounded_evidence_context(
             format!(
-                "{}\n\nCRITICAL CONTEXT FROM SEMANTIC INDEX:\n{}\n",
+                "{}\n{}\n\nCRITICAL CONTEXT FROM SEMANTIC INDEX:\n{}\n",
                 forensic_manifest,
+                user_notes_manifest,
                 fragments.join("\n---\n")
             ),
             12_000,
