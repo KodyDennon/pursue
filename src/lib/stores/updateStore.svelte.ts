@@ -94,7 +94,7 @@ class UpdateStore {
 					const tagVersion = String(ghRelease.tag_name || '').replace(/^v/, '');
 					const assets = Array.isArray(ghRelease.assets) ? ghRelease.assets : [];
 					
-					let matchAsset = assets.find((a: { name: string }) => 
+					const matchAsset = assets.find((a: { name: string }) => 
 						this.target.includes('cuda') ? a.name.includes('cuda') && a.name.endsWith('.msi')
 						: this.target.includes('directml') ? (a.name.endsWith('.exe') || a.name.endsWith('.msi')) && !a.name.includes('cuda')
 						: a.name.endsWith('.dmg')
