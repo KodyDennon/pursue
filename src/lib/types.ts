@@ -214,6 +214,7 @@ export interface ObservationItem {
 	confidence: number;
 	evidence_source: string;
 	caveat?: string;
+	[key: string]: unknown;
 }
 
 export interface EvidenceItem {

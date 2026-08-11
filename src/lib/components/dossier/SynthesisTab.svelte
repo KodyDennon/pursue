@@ -28,7 +28,7 @@
 			let obs: ObservationItem[] = [];
 
 			if (Array.isArray(parsed.observations)) {
-				obs = parsed.observations.map((item: Record<string, unknown> | string) => {
+				obs = (parsed.observations as (Record<string, unknown> | string)[]).map((item) => {
 					if (typeof item === 'string') {
 						return {
 							text: item,
