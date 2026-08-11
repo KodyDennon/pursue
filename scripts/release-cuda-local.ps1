@@ -119,8 +119,11 @@ Step 'Preflight' {
 
     if (-not $SkipUpload) {
         # The mirror needs all four installers; confirm CI already published the other three.
-        $assets = (& gh release view $Tag --json assets --jq '.assets[].name' 2>$null)
-        if ($LASTEXITCODE -ne 0) { Die "release $Tag not found (cut it with a 'release:' commit first)" }
+        $assets = (gh release view $Tag --json assets --jq '.assets[].name' 2>&1)
+        if ($LASTEXITCODE -ne 0) { 
+            Write-Warning "Release $Tag has not been created by CI yet. Building CUDA MSI locally first..."
+            $assets = @()
+        }
         $assets = @($assets)
         $have = @($assets)
         $needDmg   = $have | Where-Object { $_ -match '_aarch64\.dmg$' }
@@ -133,19 +136,17 @@ Step 'Preflight' {
     }
 }
 
-if ($CancelCiCudaJob) {
-    Step 'Cancel redundant CI CUDA job' {
-        $runId = & gh run list --workflow release.yml --json databaseId,headBranch,status `
-            --jq "[.[] | select(.headBranch==\`"$Tag\`" and .status!=\`"completed\`")][0].databaseId" 2>$null
-        if ($runId) {
-            $jobs = & gh api "repos/{owner}/{repo}/actions/runs/$runId/jobs" --jq '.jobs[] | select(.name==\"installer-windows-cuda\" and .status!=\"completed\") | .id' 2>$null
-            if ($jobs) {
-                foreach ($j in @($jobs)) { & gh api -X POST "repos/{owner}/{repo}/actions/jobs/$j/cancel" *> $null }
-                Write-Host "Requested cancel of CI installer-windows-cuda (run $runId)."
-            } else { Write-Host "No running CI CUDA job to cancel." }
-        } else { Write-Host "No in-progress CI run for $Tag." }
+    if ($CancelCiCudaJob) {
+        Step 'Cancel redundant CI CUDA job' {
+            $runId = (gh run list --workflow=build-installers.yml --json databaseId,headBranch,status --jq "[.[] | select(.headBranch==\"$Tag\" and .status!=\"completed\")][0].databaseId" 2>&1)
+            if ($runId -and $LASTEXITCODE -eq 0 -and $runId -ne "null") {
+                gh api -X POST "repos/{owner}/{repo}/actions/runs/$runId/cancel" 2>&1 | Out-Null
+                Write-Host "Requested cancellation of CI run $runId for $Tag."
+            } else {
+                Write-Host "No active CI CUDA run to cancel."
+            }
+        }
     }
-}
 
 Step 'Configure MSVC + CUDA + llama toolchain env' {
     # Prefer a VS 2022 (v17) toolset: CUDA 12.x nvcc rejects newer MSVC host compilers.
