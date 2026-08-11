@@ -28,7 +28,7 @@
 			let obs: ObservationItem[] = [];
 
 			if (Array.isArray(parsed.observations)) {
-				obs = parsed.observations.map((item: any) => {
+				obs = parsed.observations.map((item: Record<string, unknown> | string) => {
 					if (typeof item === 'string') {
 						return {
 							text: item,
@@ -36,11 +36,12 @@
 							evidence_source: 'semantic_index'
 						};
 					}
+					const obj = item as Record<string, unknown>;
 					return {
-						text: item.text || String(item),
-						confidence: typeof item.confidence === 'number' ? item.confidence : 0.8,
-						evidence_source: item.evidence_source || 'grounded_evidence',
-						caveat: item.caveat
+						text: typeof obj.text === 'string' ? obj.text : String(item),
+						confidence: typeof obj.confidence === 'number' ? obj.confidence : 0.8,
+						evidence_source: typeof obj.evidence_source === 'string' ? obj.evidence_source : 'grounded_evidence',
+						caveat: typeof obj.caveat === 'string' ? obj.caveat : undefined
 					};
 				});
 			} else if (parsed.pilot_observations) {
@@ -63,7 +64,7 @@
 				observations: obs,
 				fidelityScore: Math.round(avgConf * 100)
 			};
-		} catch (e) {
+		} catch {
 			return { data: null, observations: [], fidelityScore: 0.5 };
 		}
 	}
