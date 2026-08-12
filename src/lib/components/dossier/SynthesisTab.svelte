@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { Brain, ShieldCheck, AlertCircle, FileText } from 'lucide-svelte';
+	import { Brain, ShieldCheck, AlertCircle, FileText, Loader2 } from 'lucide-svelte';
 	import { convertFileSrc } from '@tauri-apps/api/core';
 	import type { RecordSummary, RecordAsset, IntelligenceData, ObservationItem } from '$lib/types';
+
+	import { dossierStore } from '$lib/stores/dossierStore.svelte';
 
 	let {
 		record,
@@ -16,6 +18,8 @@
 		onRunDeepSynthesis: () => void;
 		compact?: boolean;
 	}>();
+
+	const activeIntelJson = $derived(dossierStore.analysis?.intelligence_json || record.intelligence_json);
 
 	function parseIntelligence(rawJson: string | null): {
 		data: IntelligenceData | null;
@@ -71,8 +75,8 @@
 </script>
 
 <div class="view-padding" class:compact>
-	{#if record.intelligence_json}
-		{@const { data: intel, observations, fidelityScore } = parseIntelligence(record.intelligence_json)}
+	{#if activeIntelJson}
+		{@const { data: intel, observations, fidelityScore } = parseIntelligence(activeIntelJson)}
 		<div class="intel-grid">
 			<div class="intel-main">
 				<section class="intel-card-section">
@@ -168,11 +172,25 @@
 		</div>
 	{:else}
 		<div class="pending-state">
-			<Brain size={48} class="accent-icon" />
+			<Brain size={48} class="accent-icon {busy === 'synthesis' ? 'spin' : ''}" />
 			<h3>Evidence Synthesis Pending</h3>
 			<p>Gemma 4 must generate evidence-grounded synthesis for this record.</p>
+
+			{#if dossierStore.analysis?.ocr_text}
+				<div class="foundation-preview">
+					<span class="preview-label">FOUNDATION EXTRACTED TEXT PREVIEW</span>
+					<p class="preview-text">
+						{dossierStore.analysis.ocr_text.slice(0, 400)}{dossierStore.analysis.ocr_text.length > 400 ? '...' : ''}
+					</p>
+				</div>
+			{/if}
+
 			<button class="primary-btn" onclick={onRunDeepSynthesis} disabled={busy === 'synthesis'}>
-				RUN NEURAL SYNTHESIS
+				{#if busy === 'synthesis'}
+					<Loader2 size={16} class="spin" /> NEURAL SYNTHESIS IN PROGRESS...
+				{:else}
+					RUN NEURAL SYNTHESIS
+				{/if}
 			</button>
 		</div>
 	{/if}
@@ -386,5 +404,50 @@
 		font-size: var(--text-3xs, 10px);
 		color: var(--color-text-tertiary);
 		font-family: var(--font-mono, monospace);
+	}
+
+	.foundation-preview {
+		background: rgba(0, 0, 0, 0.3);
+		border: 1px solid var(--color-border-subtle);
+		border-radius: var(--radius-base);
+		padding: var(--space-4xl);
+		max-width: 520px;
+		text-align: left;
+		margin: var(--space-md) 0;
+	}
+
+	.preview-label {
+		font-size: var(--text-2xs, 9px);
+		font-weight: 900;
+		letter-spacing: 0.12em;
+		color: var(--color-accent-primary);
+		display: block;
+		margin-bottom: var(--space-xs);
+	}
+
+	.preview-text {
+		font-size: var(--text-sm);
+		line-height: 1.6;
+		color: var(--color-text-secondary);
+		white-space: pre-wrap;
+	}
+
+	.primary-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-md);
+	}
+
+	:global(.spin) {
+		animation: spin 1.2s linear infinite;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
 	}
 </style>

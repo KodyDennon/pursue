@@ -138,11 +138,19 @@ Step 'Preflight' {
 
     if ($CancelCiCudaJob) {
         Step 'Cancel redundant CI CUDA job' {
-            $runId = (gh run list --workflow=build-installers.yml --json databaseId,headBranch,status --jq "[.[] | select(.headBranch==\"$Tag\" and .status!=\"completed\")][0].databaseId" 2>&1)
-            if ($runId -and $LASTEXITCODE -eq 0 -and $runId -ne "null") {
-                gh api -X POST "repos/{owner}/{repo}/actions/runs/$runId/cancel" 2>&1 | Out-Null
-                Write-Host "Requested cancellation of CI run $runId for $Tag."
-            } else {
+            try {
+                $rawJson = gh run list --workflow=build-installers.yml --json databaseId,headBranch,status 2>&1
+                if ($LASTEXITCODE -eq 0 -and $rawJson) {
+                    $runs = $rawJson | ConvertFrom-Json
+                    $activeRun = $runs | Where-Object { $_.headBranch -eq $Tag -and $_.status -ne "completed" } | Select-Object -First 1
+                    if ($activeRun) {
+                        gh api -X POST "repos/{owner}/{repo}/actions/runs/$($activeRun.databaseId)/cancel" 2>&1 | Out-Null
+                        Write-Host "Requested cancellation of CI run $($activeRun.databaseId) for $Tag."
+                    } else {
+                        Write-Host "No active CI CUDA run to cancel."
+                    }
+                }
+            } catch {
                 Write-Host "No active CI CUDA run to cancel."
             }
         }

@@ -73,15 +73,15 @@
 					<span class="m-type">{model.type}</span>
 					<span class="m-name">{model.name}</span>
 					{#if model.status === 'downloading'}
-						<div class="progress-container">
-							<div class="progress-bar" style="width: {model.progress}%"></div>
+						<div class="model-progress-block">
+							<div class="progress-bar-track">
+								<div class="progress-bar-fill" style="width: {model.progress}%"></div>
+							</div>
 							<div class="m-stats">
 								<span class="m-size">{model.progress.toFixed(1)}% of {model.size}</span>
 								<span class="m-eta">
 									{#if model.speedMbps !== null && model.speedMbps > 0}
 										{model.speedMbps.toFixed(2)} MB/s
-									{:else}
-										...
 									{/if}
 									{#if model.etaSeconds !== null}
 										• ETA: {model.etaSeconds}s
@@ -190,17 +190,24 @@
 		background: rgba(231, 196, 107, 0.05);
 	}
 
-	.progress-container {
-		margin-top: var(--space-md);
-		width: 200px;
+	.model-progress-block {
+		margin-top: var(--space-xs);
+		width: 240px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.progress-bar-track {
+		width: 100%;
 		height: 4px;
-		background: rgba(255, 255, 255, 0.05);
+		background: rgba(255, 255, 255, 0.08);
 		border-radius: var(--radius-2xs);
 		position: relative;
 		overflow: hidden;
 	}
 
-	.progress-bar {
+	.progress-bar-fill {
 		height: 100%;
 		background: var(--color-accent-primary);
 		box-shadow: 0 0 8px var(--color-accent-primary);

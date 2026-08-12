@@ -21,7 +21,9 @@ use llama_cpp_4::prelude::{
 // Native Gemma 4 multimodal (image understanding) via llama.cpp mtmd. This reuses the SAME
 // resident GGUF model as text synthesis (only one llama.cpp backend is allowed per process),
 // and is distinct from the OCR model, which merely extracts text from images.
-use llama_cpp_4::mtmd::{MtmdBitmap, MtmdContext, MtmdContextParams, MtmdInputChunks, MtmdInputText};
+use llama_cpp_4::mtmd::{
+    MtmdBitmap, MtmdContext, MtmdContextParams, MtmdInputChunks, MtmdInputText,
+};
 use std::num::NonZeroU32;
 
 /// File name of the Gemma 4 multimodal projector, provisioned next to the text GGUF.
@@ -579,35 +581,35 @@ impl IntelligenceExtractor {
         Ok(())
     }
 
-fn clean_duplicated_llm_tokens(input: &str) -> String {
-    let mut cleaned = input.to_string();
+    fn clean_duplicated_llm_tokens(input: &str) -> String {
+        let mut cleaned = input.to_string();
 
-    // Fix doubled quotes and doubled colons e.g. ""key"": ""val"" -> "key": "val"
-    cleaned = cleaned.replace(r#""""#, r#"""#);
-    cleaned = cleaned.replace(r#"":":"#, r#"": "#);
+        // Fix doubled quotes and doubled colons e.g. ""key"": ""val"" -> "key": "val"
+        cleaned = cleaned.replace(r#""""#, r#"""#);
+        cleaned = cleaned.replace(r#"":":"#, r#"": "#);
 
-    // Fix common doubled subword tokens in JSON keys and values
-    for word in &[
-        ("auditaudit", "audit"),
-        ("statusstatus", "status"),
-        ("objectobject", "object"),
-        ("descriptiondescription", "description"),
-        ("observationsobservations", "observations"),
-        ("evidenceevidence", "evidence"),
-        ("caveatscaveats", "caveats"),
-        ("insinsufficientufficient", "insufficient"),
-        ("TheThe", "The"),
-        ("white white", "white"),
-        ("bean bean", "bean"),
-        ("non non", "non"),
-        ("metallicmetallic", "metallic"),
-        (",,", ","),
-        ("--", "-"),
-    ] {
-        cleaned = cleaned.replace(word.0, word.1);
+        // Fix common doubled subword tokens in JSON keys and values
+        for word in &[
+            ("auditaudit", "audit"),
+            ("statusstatus", "status"),
+            ("objectobject", "object"),
+            ("descriptiondescription", "description"),
+            ("observationsobservations", "observations"),
+            ("evidenceevidence", "evidence"),
+            ("caveatscaveats", "caveats"),
+            ("insinsufficientufficient", "insufficient"),
+            ("TheThe", "The"),
+            ("white white", "white"),
+            ("bean bean", "bean"),
+            ("non non", "non"),
+            ("metallicmetallic", "metallic"),
+            (",,", ","),
+            ("--", "-"),
+        ] {
+            cleaned = cleaned.replace(word.0, word.1);
+        }
+        cleaned
     }
-    cleaned
-}
 
     fn run_inference(
         handle: &AppHandle,
@@ -629,9 +631,14 @@ fn clean_duplicated_llm_tokens(input: &str) -> String {
         let vision = Self::plan_vision(ctx, &images);
 
         let generated_text = match &mut ctx.runtime {
-            GemmaRuntime::Native { model, tokenizer } => {
-                Self::run_native_inference(handle, rid, model, tokenizer, &system_prompt, &user_prompt)?
-            }
+            GemmaRuntime::Native { model, tokenizer } => Self::run_native_inference(
+                handle,
+                rid,
+                model,
+                tokenizer,
+                &system_prompt,
+                &user_prompt,
+            )?,
             GemmaRuntime::Gguf(gguf) => match &vision {
                 Some((mmproj_path, vision_images)) => Self::run_gguf_multimodal_inference(
                     handle,

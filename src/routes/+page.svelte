@@ -361,20 +361,34 @@
 		}
 	});
 
+	const viewTitles: Record<string, string> = {
+		dashboard: 'Evidence Archive',
+		intelligence: 'Neural Engine',
+		vault: 'Secure Vault',
+		agent: 'Ingestion Agent',
+		map: 'Tactical Map',
+		'link-analysis': 'Link Analysis Matrix',
+		settings: 'System Settings'
+	};
+
 	$effect(() => {
 		const id = appStore.selectedRecordId;
 		if (!id || records.length === 0) return;
 		const match = records.find((record) => record.id === id);
 		if (match) {
 			selectedRecord = match;
-			appStore.activeView = 'map';
+			if (appStore.activeView !== 'map') {
+				appStore.activeView = 'dashboard';
+			}
 			appStore.selectedRecordId = null;
 		} else {
 			invoke<RecordSummary | null>('get_record', { id })
 				.then((record) => {
 					if (record) {
 						selectedRecord = record;
-						appStore.activeView = 'map';
+						if (appStore.activeView !== 'map') {
+							appStore.activeView = 'dashboard';
+						}
 					}
 				})
 				.finally(() => {
@@ -402,16 +416,7 @@
 		<header class="os-header glass-header" data-tauri-drag-region>
 			<div class="view-context" data-tauri-drag-region>
 				<h2 class="view-title" data-tauri-drag-region>
-					{(appStore.activeView === 'dashboard'
-						? 'Evidence Archive'
-						: appStore.activeView === 'intelligence'
-							? 'Neural Engine'
-							: appStore.activeView === 'vault'
-								? 'Secure Vault'
-								: appStore.activeView === 'agent'
-									? 'Ingestion Agent'
-									: appStore.activeView
-					).toUpperCase()}
+					{(viewTitles[appStore.activeView] || appStore.activeView).toUpperCase()}
 				</h2>
 			</div>
 

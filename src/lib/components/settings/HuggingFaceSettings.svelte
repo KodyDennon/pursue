@@ -56,7 +56,10 @@
 		<p class="section-desc">
 			As a fallback, provide a read token. It is verified before secure storage. Create one at <a
 				href="https://huggingface.co/settings/tokens"
-				target="_blank"
+				onclick={(e) => {
+					e.preventDefault();
+					openUrl('https://huggingface.co/settings/tokens');
+				}}
 				class="accent-link">huggingface.co/settings/tokens</a
 			>.
 		</p>

@@ -19,7 +19,10 @@ class DownloadStore {
 	private worker: Worker | null = null;
 	private workerJobId: string | null = null;
 
+	private onCompleteHandler: (() => void | Promise<void>) | null = null;
+
 	async init(onComplete?: () => void | Promise<void>) {
+		if (onComplete) this.onCompleteHandler = onComplete;
 		try {
 			const latest = await invoke<BulkDownloadReport | null>('get_latest_download_job');
 			if (latest) {
@@ -106,6 +109,7 @@ class DownloadStore {
 	}
 
 	async fetchStatus(onComplete?: () => void | Promise<void>) {
+		const handler = onComplete ?? this.onCompleteHandler ?? undefined;
 		if (!this.activeJobId) return;
 		try {
 			this.report = await invoke<DownloadJobWindow>('get_download_job_window', {
@@ -125,7 +129,7 @@ class DownloadStore {
 				this.report.job.status === 'completed_with_errors'
 			) {
 				this.stopPolling();
-				if (onComplete) await onComplete();
+				if (handler) await handler();
 				if (
 					(this.report.job.status === 'completed' ||
 						this.report.job.status === 'completed_with_errors') &&
@@ -242,10 +246,14 @@ class DownloadStore {
 	}
 
 	startPolling(onComplete?: () => void | Promise<void>) {
+		if (onComplete) this.onCompleteHandler = onComplete;
 		if (this.polling) return;
 		this.polling = true;
-		this.fetchStatus(onComplete);
-		this.pollInterval = setInterval(() => this.fetchStatus(onComplete), 2000);
+		this.fetchStatus(this.onCompleteHandler ?? undefined);
+		this.pollInterval = setInterval(
+			() => this.fetchStatus(this.onCompleteHandler ?? undefined),
+			2000
+		);
 	}
 
 	stopPolling() {

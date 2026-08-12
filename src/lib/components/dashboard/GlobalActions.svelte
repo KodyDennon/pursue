@@ -44,7 +44,34 @@
 			const selected = await open({
 				multiple: false,
 				filters: [
-					{ name: 'Evidence', extensions: ['pdf', 'txt', 'md', 'csv', 'json', 'png', 'jpg'] }
+					{
+						name: 'Evidence Artifacts',
+						extensions: [
+							'pdf',
+							'txt',
+							'md',
+							'csv',
+							'json',
+							'png',
+							'jpg',
+							'jpeg',
+							'webp',
+							'gif',
+							'bmp',
+							'tif',
+							'tiff',
+							'mp4',
+							'mov',
+							'mkv',
+							'avi',
+							'webm',
+							'mp3',
+							'wav',
+							'm4a',
+							'flac',
+							'ogg'
+						]
+					}
 				]
 			});
 			if (typeof selected !== 'string') {

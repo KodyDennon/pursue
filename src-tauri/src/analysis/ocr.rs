@@ -503,7 +503,11 @@ fn get_model_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>, filename: &str) 
 
     // 3. Current working directory (dev mode)
     if let Ok(cur_dir) = std::env::current_dir() {
-        let candidate1 = cur_dir.join("src-tauri").join("assets").join("models").join(filename);
+        let candidate1 = cur_dir
+            .join("src-tauri")
+            .join("assets")
+            .join("models")
+            .join(filename);
         if candidate1.exists() {
             return Ok(candidate1);
         }
@@ -512,7 +516,11 @@ fn get_model_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>, filename: &str) 
             return Ok(candidate2);
         }
         if let Some(parent) = cur_dir.parent() {
-            let candidate3 = parent.join("src-tauri").join("assets").join("models").join(filename);
+            let candidate3 = parent
+                .join("src-tauri")
+                .join("assets")
+                .join("models")
+                .join(filename);
             if candidate3.exists() {
                 return Ok(candidate3);
             }

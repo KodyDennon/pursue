@@ -52,6 +52,8 @@
 
 	onDestroy(() => dossierStore.destroy());
 
+	const activeRecord = $derived(dossierStore.record ?? record);
+
 	const selectedCase = $derived(
 		cases.find((item: CaseSummary) => item.id === selectedCaseId) ?? null
 	);
@@ -61,9 +63,10 @@
 	);
 
 	const isSynthesisOutdated = $derived.by(() => {
-		if (!record.intelligence_json || dossierStore.intelLogs.length === 0) return false;
+		const intelJson = activeRecord.intelligence_json || dossierStore.analysis?.intelligence_json;
+		if (!intelJson || dossierStore.intelLogs.length === 0) return false;
 		if (dossierStore.analysis?.ocr_text && dossierStore.intelLogs[0]) {
-			const ocrTime = new Date(record.updated_at || 0).getTime();
+			const ocrTime = new Date(activeRecord.updated_at || 0).getTime();
 			const intelTime = new Date(dossierStore.intelLogs[0].created_at).getTime();
 			return ocrTime > intelTime + 5000;
 		}
@@ -71,9 +74,9 @@
 	});
 
 	async function openSourceProxy() {
-		if (!record.document_url) return;
+		if (!activeRecord.document_url) return;
 		try {
-			await openUrl(record.document_url);
+			await openUrl(activeRecord.document_url);
 		} catch (e) {
 			addToast({ type: 'error', message: `Failed to open source: ${e}` });
 		}
@@ -96,7 +99,7 @@
 </script>
 
 <div class="intelligence-dossier glass-panel">
-	<DossierHeader {record} {onBack} />
+	<DossierHeader record={activeRecord} {onBack} />
 
 	<div class="dossier-layout">
 		<main class="dossier-main-stage">
@@ -115,7 +118,7 @@
 					{#if showArtifactSplit}
 						<div class="artifact-pane">
 							<ArtifactTab
-								{record}
+								record={activeRecord}
 								{resolvePath}
 								revealLocal={() => dossierStore.revealLocal()}
 								openSource={openSourceProxy}
@@ -129,7 +132,7 @@
 					<div class="tab-content custom-scrollbar">
 						{#if activeTab === 'synthesis'}
 							<SynthesisTab
-								{record}
+								record={activeRecord}
 								{images}
 								busy={dossierStore.busy}
 								onRunDeepSynthesis={() => dossierStore.runDeepSynthesis(onChanged, onSynthesize)}
@@ -137,7 +140,7 @@
 							/>
 						{:else if activeTab === 'forensics'}
 							<ForensicAuditViewer
-								recordId={record.id}
+								recordId={activeRecord.id}
 								forensics={dossierStore.forensics}
 								{images}
 							/>
@@ -145,7 +148,7 @@
 							<ThoughtsTab intelLogs={dossierStore.intelLogs} />
 						{:else if activeTab === 'artifact'}
 							<ArtifactTab
-								{record}
+								record={activeRecord}
 								{resolvePath}
 								revealLocal={() => dossierStore.revealLocal()}
 								openSource={openSourceProxy}
@@ -161,7 +164,7 @@
 						{:else if activeTab === 'chunks'}
 							<ChunksTab chunks={dossierStore.chunks} />
 						{:else if activeTab === 'case'}
-							<CaseWorkTab recordId={record.id} {selectedCaseId} {selectedCase} {onChanged} />
+							<CaseWorkTab recordId={activeRecord.id} {selectedCaseId} {selectedCase} {onChanged} />
 						{/if}
 					</div>
 				</div>
@@ -169,7 +172,7 @@
 		</main>
 
 		<DossierSidebar
-			{record}
+			record={activeRecord}
 			analysis={dossierStore.analysis}
 			bind:activeDomain
 			{isSynthesisOutdated}
@@ -180,7 +183,7 @@
 	</div>
 </div>
 
-<MediaViewer {record} bind:isOpen={viewerOpen} />
+<MediaViewer record={activeRecord} bind:isOpen={viewerOpen} />
 
 <style>
 	.intelligence-dossier {

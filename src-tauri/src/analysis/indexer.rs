@@ -282,7 +282,9 @@ impl TextExtractor {
                 })
             }
             _ => {
-                if let Ok((text, truncated)) = read_text_file_limited(path, MAX_TEXT_EXTRACTION_BYTES).await {
+                if let Ok((text, truncated)) =
+                    read_text_file_limited(path, MAX_TEXT_EXTRACTION_BYTES).await
+                {
                     if !text.is_empty() && !text.contains('\0') {
                         let mut warnings = Vec::new();
                         if truncated {
@@ -400,7 +402,7 @@ async fn extract_video_keyframes_ocr(
     let timestamps: Vec<String> = offsets
         .iter()
         .map(|s| {
-            let total = (*s as u64).max(0);
+            let total = s.max(0.0) as u64;
             let hrs = total / 3600;
             let mins = (total % 3600) / 60;
             let secs = total % 60;
@@ -430,8 +432,10 @@ async fn extract_video_keyframes_ocr(
                 if let Ok(img) = image::open(&frame_path) {
                     if let Ok(ocr_output) = ocr.extract_structured(app, &img).await {
                         if !ocr_output.text.trim().is_empty() {
-                            extracted_frame_texts
-                                .push(format!("[Video Frame at {ts}]:\n{}", ocr_output.text.trim()));
+                            extracted_frame_texts.push(format!(
+                                "[Video Frame at {ts}]:\n{}",
+                                ocr_output.text.trim()
+                            ));
                             frame_metadata.push(serde_json::json!({
                                 "timestamp": ts,
                                 "confidence": ocr_output.average_confidence,
@@ -448,7 +452,8 @@ async fn extract_video_keyframes_ocr(
 
     let mut combined_text = media_record_text(record);
     if !extracted_frame_texts.is_empty() {
-        combined_text.push_str("\n\n--- EXTRACTED VIDEO KEYFRAME TEXT (HUD / TELEMETRY / OVERLAY) ---\n");
+        combined_text
+            .push_str("\n\n--- EXTRACTED VIDEO KEYFRAME TEXT (HUD / TELEMETRY / OVERLAY) ---\n");
         combined_text.push_str(&extracted_frame_texts.join("\n\n"));
 
         Ok(TextExtractionResult {

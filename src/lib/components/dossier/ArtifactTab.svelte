@@ -40,7 +40,7 @@
 		</div>
 
 		<div class="artifact-preview">
-			<iframe src={resolvePath(record.local_path)} title="Evidence Document"></iframe>
+			<iframe src="{resolvePath(record.local_path)}#toolbar=0&navpanes=0" title="Evidence Document"></iframe>
 		</div>
 	{:else}
 		<div class="pending-state">

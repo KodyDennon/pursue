@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { RecordSummary } from '$lib/types';
+	import { appStore } from '$lib/stores/appStore.svelte';
 
 	let { records } = $props<{ records: RecordSummary[] }>();
 
@@ -32,7 +33,22 @@
 				</div>
 				<div class="link-lines">
 					{#each items.slice(0, 10) as item (item.id)}
-						<div class="link-item">
+						<div
+							class="link-item"
+							role="button"
+							tabindex="0"
+							onclick={() => {
+								appStore.selectedRecordId = item.id;
+								appStore.activeView = 'dashboard';
+							}}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
+									appStore.selectedRecordId = item.id;
+									appStore.activeView = 'dashboard';
+								}
+							}}
+							title="Open Dossier"
+						>
 							<span class="dot"></span>
 							<span class="title">{item.title}</span>
 							<span
@@ -115,6 +131,18 @@
 		align-items: center;
 		gap: var(--space-xl);
 		font-size: var(--text-md);
+		cursor: pointer;
+		padding: 4px 8px;
+		border-radius: var(--radius-xs);
+		transition: background 0.2s;
+	}
+
+	.link-item:hover {
+		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.link-item:hover .title {
+		color: var(--color-accent-primary);
 	}
 
 	.dot {

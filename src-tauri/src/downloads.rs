@@ -82,8 +82,10 @@ impl DownloadPartWriter {
                 .await?;
             state.file = Some(file);
         }
-        // Safe: just ensured Some(_) above.
-        let file = state.file.as_mut().unwrap();
+        let file = state
+            .file
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("failed to acquire output file handle"))?;
         file.write_all(bytes).await?;
         file.flush().await?;
 

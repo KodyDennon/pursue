@@ -47,6 +47,9 @@ class DossierStore {
 				} else if (payload.status === 'extracting-foundation') {
 					this.analysisStatus = 'Foundation OCR In Progress...';
 					this.analysisProgress = 20;
+				} else if (payload.status === 'completed' || payload.status === 'record-completed') {
+					this.analysisStatus = null;
+					this.loadAnalysis();
 				}
 			}
 		});
@@ -60,9 +63,14 @@ class DossierStore {
 		if (!this.record) return;
 		this.error = null;
 		try {
-			this.analysis = await invoke<AnalysisReport | null>('get_analysis_result', {
-				id: this.record.id
-			});
+			const [analysis, freshRecord] = await Promise.all([
+				invoke<AnalysisReport | null>('get_analysis_result', { id: this.record.id }),
+				invoke<RecordSummary | null>('get_record', { id: this.record.id }).catch(() => null)
+			]);
+			this.analysis = analysis;
+			if (freshRecord) {
+				this.record = freshRecord;
+			}
 
 			if (
 				this.record.analysis_status === 'completed' ||
@@ -122,8 +130,8 @@ class DossierStore {
 		try {
 			if (onAnalyze) onAnalyze();
 			await invoke('index_record', { id: this.record.id, current: 1, total: 1 });
-			if (onChanged) await onChanged();
 			await this.loadAnalysis();
+			if (onChanged) await onChanged();
 			addToast({ type: 'success', message: 'Foundation Indexed Successfully', duration: 2000 });
 		} catch (e) {
 			this.error = String(e);
@@ -142,8 +150,8 @@ class DossierStore {
 				id: this.record.id
 			});
 			this.analysis = report;
+			await this.loadAnalysis();
 			if (onChanged) await onChanged();
-			await this.loadForensics();
 			addToast({ type: 'success', message: 'Intelligence Synthesis Complete', duration: 3000 });
 		} catch (e) {
 			this.error = String(e);

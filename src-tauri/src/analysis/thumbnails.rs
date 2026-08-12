@@ -62,10 +62,11 @@ impl ThumbnailManager {
 
             if status.status.success() {
                 // qlmanage names the file input_path.png
-                let generated = output_dir.join(format!(
-                    "{}.png",
-                    input.file_name().unwrap().to_str().unwrap()
-                ));
+                let file_name = input
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .ok_or_else(|| anyhow!("invalid input filename"))?;
+                let generated = output_dir.join(format!("{}.png", file_name));
                 if generated.exists() {
                     tokio::fs::rename(generated, output).await?;
                     return Ok(());

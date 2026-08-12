@@ -491,16 +491,21 @@ impl AnalysisManager {
                     "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff"
                 )
             {
-                if let Ok(path) = self.library.get_readable_artifact_path(&asset.local_path).await {
+                if let Ok(path) = self
+                    .library
+                    .get_readable_artifact_path(&asset.local_path)
+                    .await
+                {
                     image_paths.push(path);
                 }
             } else if asset.asset_type == "video"
-                || matches!(
-                    ext.as_str(),
-                    "mp4" | "mov" | "m4v" | "avi" | "mkv" | "webm"
-                )
+                || matches!(ext.as_str(), "mp4" | "mov" | "m4v" | "avi" | "mkv" | "webm")
             {
-                if let Ok(video_path) = self.library.get_readable_artifact_path(&asset.local_path).await {
+                if let Ok(video_path) = self
+                    .library
+                    .get_readable_artifact_path(&asset.local_path)
+                    .await
+                {
                     let extracted = extract_video_keyframes_for_gemma(&video_path).await;
                     image_paths.extend(extracted);
                 }
@@ -661,7 +666,9 @@ impl AnalysisManager {
         let mmproj = registry::get_model_registry()
             .into_iter()
             .find(|model| model.id == "gemma-4-e4b-mmproj")
-            .ok_or_else(|| anyhow!("Gemma 4 vision projector is missing from the model registry"))?;
+            .ok_or_else(|| {
+                anyhow!("Gemma 4 vision projector is missing from the model registry")
+            })?;
         let url = mmproj
             .download_url()
             .ok_or_else(|| anyhow!("Gemma 4 vision projector has no resolvable download URL"))?;
@@ -751,8 +758,11 @@ async fn probe_video_duration(video_path: &std::path::Path) -> Option<f64> {
     None
 }
 
-async fn extract_video_keyframes_for_gemma(video_path: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let temp_dir = std::env::temp_dir().join(format!("pursue-gemma-frames-{}", uuid::Uuid::new_v4()));
+async fn extract_video_keyframes_for_gemma(
+    video_path: &std::path::Path,
+) -> Vec<std::path::PathBuf> {
+    let temp_dir =
+        std::env::temp_dir().join(format!("pursue-gemma-frames-{}", uuid::Uuid::new_v4()));
     if tokio::fs::create_dir_all(&temp_dir).await.is_err() {
         return Vec::new();
     }
@@ -767,7 +777,7 @@ async fn extract_video_keyframes_for_gemma(video_path: &std::path::Path) -> Vec<
     let timestamps: Vec<String> = offsets
         .iter()
         .map(|s| {
-            let total = (*s as u64).max(0);
+            let total = s.max(0.0) as u64;
             let hrs = total / 3600;
             let mins = (total % 3600) / 60;
             let secs = total % 60;

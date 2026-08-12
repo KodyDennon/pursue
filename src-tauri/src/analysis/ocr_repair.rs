@@ -20,15 +20,13 @@ pub fn repair_ocr_text(raw_text: &str) -> String {
 
     // 3. Fix common OCR character substitution errors in English words (e.g., "1nformation" -> "information", "0fficial" -> "official")
     static RE_NUM_SUB_START: OnceLock<Regex> = OnceLock::new();
-    let re_num_sub_start = RE_NUM_SUB_START.get_or_init(|| {
-        Regex::new(r"\b1([a-z]{3,})\b").expect("valid regex")
-    });
+    let re_num_sub_start =
+        RE_NUM_SUB_START.get_or_init(|| Regex::new(r"\b1([a-z]{3,})\b").expect("valid regex"));
     cleaned = re_num_sub_start.replace_all(&cleaned, "i$1").to_string();
 
     static RE_ZERO_SUB_START: OnceLock<Regex> = OnceLock::new();
-    let re_zero_sub_start = RE_ZERO_SUB_START.get_or_init(|| {
-        Regex::new(r"\b0([a-z]{3,})\b").expect("valid regex")
-    });
+    let re_zero_sub_start =
+        RE_ZERO_SUB_START.get_or_init(|| Regex::new(r"\b0([a-z]{3,})\b").expect("valid regex"));
     cleaned = re_zero_sub_start.replace_all(&cleaned, "o$1").to_string();
 
     // 4. Normalize excessive newlines and spaces

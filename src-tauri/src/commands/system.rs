@@ -838,9 +838,7 @@ pub async fn install_unsigned_update(
                 .arg("/passive")
                 .spawn()
         } else {
-            std::process::Command::new(&path)
-                .arg("/passive")
-                .spawn()
+            std::process::Command::new(&path).arg("/passive").spawn()
         };
 
         match status {

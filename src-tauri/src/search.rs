@@ -44,7 +44,9 @@ fn get_tokenizer() -> Result<&'static Tokenizer> {
 
     let tokenizer = Tokenizer::from_file(path).map_err(|e| anyhow::anyhow!(e))?;
     let _ = TOKENIZER.set(tokenizer);
-    TOKENIZER.get().ok_or_else(|| anyhow::anyhow!("Tokenizer not set"))
+    TOKENIZER
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("Tokenizer not set"))
 }
 
 fn get_embedding_session() -> Result<&'static Mutex<EmbeddingSession>> {
@@ -62,7 +64,9 @@ fn get_embedding_session() -> Result<&'static Mutex<EmbeddingSession>> {
     let session = load_embedding_session_from(&path, 0)?;
 
     let _ = EMBEDDING_SESSION.set(Mutex::new(session));
-    EMBEDDING_SESSION.get().ok_or_else(|| anyhow::anyhow!("Embedding session not set"))
+    EMBEDDING_SESSION
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("Embedding session not set"))
 }
 
 fn load_embedding_session_from(
