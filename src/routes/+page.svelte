@@ -239,19 +239,24 @@
 				const tier = specs?.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
 				const requiredModels = MODELS[tier];
 
-				const allPresent = requiredModels.every(
-					(m) => intelligenceStore.models.find((im) => im.id === m.id)?.status === 'ready'
+				const hasEmbedding =
+					intelligenceStore.models.find((im) => im.id === 'bge-small')?.status === 'ready' &&
+					intelligenceStore.models.find((im) => im.id === 'tokenizer')?.status === 'ready';
+				const hasIntelligence = intelligenceStore.models.some(
+					(im) =>
+						(im.id === 'qwen2.5-vl-3b-q4' || im.id === 'gemma-4-e4b-q4') && im.status === 'ready'
 				);
+				const allPresent = hasEmbedding && hasIntelligence;
 				logger.debug('[App] All models present:', allPresent);
 
 				if (allPresent) {
 					isProvisioned = true;
 					// The vision projector can arrive in the registry via an app update, long
 					// after this install finished onboarding — and nothing re-runs first-launch
-					// provisioning. Without this, an upgraded Elite install sits with a missing
+					// provisioning. Without this, an upgraded install sits with a missing
 					// projector (no image understanding) until someone notices the download
 					// button in the Intelligence Center. Fire and forget: it must not gate boot.
-					if (tier === 'Elite' && !intelligenceStore.runtimeProvisioned) {
+					if (!intelligenceStore.runtimeProvisioned) {
 						void intelligenceStore.provisionRuntime();
 					}
 					// Resume any interrupted download job at app level. This used to live only in

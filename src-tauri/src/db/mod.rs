@@ -86,6 +86,10 @@ async fn initialize_schema(pool: &SqlitePool) -> anyhow::Result<()> {
 }
 
 async fn finish_db_startup(pool: SqlitePool) -> anyhow::Result<SqlitePool> {
+    // Retire legacy jobs created by older builds when queue construction produced no items.
+    // Jobs with queued or downloading items remain resumable below.
+    let _ = repair_empty_download_jobs(&pool).await;
+
     // Preserve interrupted download jobs for browser-side resume instead of marking them failed.
     let _ = sqlx::query("UPDATE download_jobs SET status = 'running', summary_json = '{\"resume_available\": true, \"reason\": \"Application interrupted\"}' WHERE status IN ('running', 'queued')")
         .execute(&pool)
@@ -122,6 +126,50 @@ async fn finish_db_startup(pool: SqlitePool) -> anyhow::Result<SqlitePool> {
     });
 
     Ok(pool)
+}
+
+async fn repair_empty_download_jobs(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        UPDATE download_jobs
+        SET completed = (
+                SELECT COUNT(*)
+                FROM download_job_items
+                WHERE job_id = download_jobs.id AND status = 'completed'
+            ),
+            failed = (
+                SELECT COUNT(*)
+                FROM download_job_items
+                WHERE job_id = download_jobs.id AND status = 'failed'
+            ),
+            status = CASE
+                WHEN cancel_requested <> 0
+                    OR EXISTS (
+                        SELECT 1
+                        FROM download_job_items
+                        WHERE job_id = download_jobs.id AND status = 'cancelled'
+                    ) THEN 'cancelled'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM download_job_items
+                    WHERE job_id = download_jobs.id AND status = 'failed'
+                ) THEN 'completed_with_errors'
+                ELSE 'completed'
+            END,
+            summary_json = '{"resume_available": false, "reason": "No pending download items"}',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE status IN ('running', 'queued')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM download_job_items
+              WHERE job_id = download_jobs.id
+                AND status IN ('queued', 'downloading')
+          )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 async fn create_versioned_backup(
@@ -309,5 +357,45 @@ mod tests {
         assert!(!production_source.contains("quarantine_incompatible_database"));
         assert!(!production_source.contains("record_schema_reset_notice"));
         assert!(production_source.contains("create_versioned_backup"));
+    }
+
+    #[tokio::test]
+    async fn startup_retires_empty_running_download_jobs() {
+        let pool = super::test_pool().await.expect("test pool");
+        sqlx::query(
+            "INSERT INTO download_jobs (id, status, total, skipped, created_at, updated_at) VALUES ('empty-job', 'running', 375, 375, 'now', 'now')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed empty job");
+
+        super::repair_empty_download_jobs(&pool)
+            .await
+            .expect("repair empty jobs");
+
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM download_jobs WHERE id = 'empty-job'")
+                .fetch_one(&pool)
+                .await
+                .expect("read repaired job");
+        assert_eq!(status, "completed");
+
+        sqlx::query(
+            "INSERT INTO download_jobs (id, status, total, skipped, cancel_requested, created_at, updated_at) VALUES ('empty-cancelled-job', 'running', 375, 375, 1, 'now', 'now')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed empty cancelled job");
+
+        super::repair_empty_download_jobs(&pool)
+            .await
+            .expect("repair empty cancelled job");
+
+        let cancelled_status: String =
+            sqlx::query_scalar("SELECT status FROM download_jobs WHERE id = 'empty-cancelled-job'")
+                .fetch_one(&pool)
+                .await
+                .expect("read repaired cancelled job");
+        assert_eq!(cancelled_status, "cancelled");
     }
 }

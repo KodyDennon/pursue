@@ -48,12 +48,13 @@ pub fn active_inference_backends() -> BTreeMap<String, String> {
 }
 
 pub fn cpu_inference_threads() -> usize {
+    let physical = num_cpus::get_physical().max(1);
     let available = num_cpus::get().max(1);
     std::env::var("PURSUE_CPU_THREADS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|threads| *threads > 0)
-        .unwrap_or(available)
+        .unwrap_or(physical)
         .min(available)
 }
 

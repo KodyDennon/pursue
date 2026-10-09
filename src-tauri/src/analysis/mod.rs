@@ -454,6 +454,26 @@ impl AnalysisManager {
                 .fetch_all(&self.db)
                 .await?;
 
+        let qwen_path = self
+            .models
+            .models_dir()
+            .join(crate::analysis::extraction::QWEN25_VL_3B_FILENAME);
+        let qwen_mmproj_path = self
+            .models
+            .models_dir()
+            .join(crate::analysis::extraction::QWEN25_VL_3B_MMPROJ_FILENAME);
+        let qwen_ready = std::fs::metadata(&qwen_path)
+            .map(|metadata| {
+                metadata.is_file()
+                    && metadata.len() == crate::analysis::extraction::QWEN25_VL_3B_BYTES
+            })
+            .unwrap_or(false)
+            && !crate::analysis::verifier::is_model_corrupted(
+                &qwen_path,
+                crate::analysis::extraction::QWEN25_VL_3B_FILENAME,
+            )
+            .await;
+
         let bf16_path = self.models.models_dir().join("gemma-4-e4b");
         let q4_path = self
             .models
@@ -468,7 +488,8 @@ impl AnalysisManager {
             bf16_ready && crate::analysis::hardware::gemma4_bf16_accelerator_suitable().await;
         let q4_ready = std::fs::metadata(&q4_path)
             .map(|metadata| {
-                metadata.is_file() && metadata.len() == crate::analysis::extraction::GEMMA4_Q4_BYTES
+                metadata.is_file()
+                    && metadata.len() == crate::analysis::extraction::GEMMA4_Q4_BYTES
             })
             .unwrap_or(false)
             && !crate::analysis::verifier::is_model_corrupted(
@@ -512,16 +533,20 @@ impl AnalysisManager {
             }
         }
 
-        // Native Gemma 4 image understanding (llama.cpp mtmd) needs the GGUF text model AND the
-        // multimodal projector. When a record has images and both are present, run text synthesis
-        // AND image analysis on the single shared Q4 GGUF (one resident llama.cpp model). This is
-        // distinct from OCR — which only transcribes text — and never auto-cascades: it runs only
-        // when this on-demand synthesis is invoked on an image-bearing record.
-        let native_vision = !image_paths.is_empty()
+        let qwen_vision = !image_paths.is_empty()
+            && qwen_ready
+            && crate::analysis::extraction::qwen25_mmproj_ready(&qwen_mmproj_path);
+        let gemma_vision = !image_paths.is_empty()
             && q4_ready
             && crate::analysis::extraction::gemma4_mmproj_ready(&mmproj_path);
 
-        let model_path = if native_vision {
+        let model_path = if qwen_vision {
+            info!("[Analysis] Qwen 2.5 VL 3B multimodal via native llama.cpp mtmd on the fast Q4 GGUF");
+            qwen_path
+        } else if qwen_ready {
+            info!("[Analysis] Using high-speed Qwen 2.5 VL 3B Instruct Q4_K_M with adaptive GPU offload");
+            qwen_path
+        } else if gemma_vision {
             info!("[Analysis] Gemma 4 multimodal via native llama.cpp mtmd on the shared Q4 GGUF");
             q4_path
         } else if bf16_accelerator_suitable {
@@ -534,11 +559,11 @@ impl AnalysisManager {
             q4_path
         } else if bf16_ready {
             return Err(anyhow!(
-                "The existing Gemma 4 E4B BF16 cache is preserved, but this accelerator does not have the safe 20 GiB memory margin it requires. Download the official Gemma 4 E4B QAT Q4_0 model from Intelligence Setup."
+                "The existing Gemma 4 E4B BF16 cache is preserved, but this accelerator does not have the safe 20 GiB memory margin it requires. Download Qwen 2.5 VL 3B or Gemma 4 E4B QAT Q4_0 from Intelligence Setup."
             ));
         } else {
             return Err(anyhow!(
-                "Gemma 4 E4B is not ready. Download the required official QAT Q4_0 model from Intelligence Setup. Gemma 3 and Gemma 2 are not valid fallbacks."
+                "No intelligence model is ready. Download Qwen 2.5 VL 3B (Fast) or Gemma 4 E4B from Intelligence Setup."
             ));
         };
 
@@ -644,34 +669,49 @@ impl AnalysisManager {
         Ok((max_score, discoveries))
     }
 
-    /// Native Gemma 4 image understanding is ready when both the Q4 GGUF text model and its
+    /// Multimodal vision is ready when either Qwen 2.5 VL or Gemma 4 text model and its
     /// multimodal projector are present. No Python/torch runtime is involved — the projector is
     /// loaded via llama.cpp mtmd onto the same resident model used for text synthesis.
     pub async fn check_neural_runtime_status(&self) -> Result<bool> {
         let models_dir = self.models.models_dir();
-        // Report readiness on the same completeness test the synthesis path uses, so the UI
-        // cannot advertise vision as ready while a half-downloaded projector makes it fall
-        // back to text-only.
-        let q4_ready = models_dir
+        let qwen_ready = models_dir
+            .join(crate::analysis::extraction::QWEN25_VL_3B_FILENAME)
+            .exists()
+            && crate::analysis::extraction::qwen25_mmproj_ready(
+                &models_dir.join(crate::analysis::extraction::QWEN25_VL_3B_MMPROJ_FILENAME),
+            );
+        let gemma_ready = models_dir
             .join(crate::analysis::extraction::GEMMA4_Q4_FILENAME)
-            .exists();
-        let mmproj_ready = crate::analysis::extraction::gemma4_mmproj_ready(
-            &models_dir.join(crate::analysis::extraction::GEMMA4_MMPROJ_FILENAME),
-        );
-        Ok(q4_ready && mmproj_ready)
+            .exists()
+            && crate::analysis::extraction::gemma4_mmproj_ready(
+                &models_dir.join(crate::analysis::extraction::GEMMA4_MMPROJ_FILENAME),
+            );
+        Ok(qwen_ready || gemma_ready)
     }
 
-    /// Ensure the Gemma 4 multimodal projector is downloaded (it pairs with the text GGUF).
+    /// Ensure the active multimodal projector is downloaded (pairs with the text GGUF).
     pub async fn provision_neural_runtime(&self, app: &tauri::AppHandle) -> Result<()> {
+        let models_dir = self.models.models_dir();
+        let is_qwen = models_dir
+            .join(crate::analysis::extraction::QWEN25_VL_3B_FILENAME)
+            .exists()
+            || !models_dir
+                .join(crate::analysis::extraction::GEMMA4_Q4_FILENAME)
+                .exists();
+        let target_id = if is_qwen {
+            "qwen2.5-vl-3b-mmproj"
+        } else {
+            "gemma-4-e4b-mmproj"
+        };
         let mmproj = registry::get_model_registry()
             .into_iter()
-            .find(|model| model.id == "gemma-4-e4b-mmproj")
+            .find(|model| model.id == target_id)
             .ok_or_else(|| {
-                anyhow!("Gemma 4 vision projector is missing from the model registry")
+                anyhow!("Vision projector ({target_id}) is missing from the model registry")
             })?;
         let url = mmproj
             .download_url()
-            .ok_or_else(|| anyhow!("Gemma 4 vision projector has no resolvable download URL"))?;
+            .ok_or_else(|| anyhow!("Vision projector ({target_id}) has no resolvable download URL"))?;
         self.models
             .ensure_model(
                 app,
@@ -683,7 +723,7 @@ impl AnalysisManager {
             )
             .await
             .map(|_| ())
-            .context("failed to provision the Gemma 4 vision projector")
+            .context("failed to provision the vision projector")
     }
 
     pub async fn analyze_record(

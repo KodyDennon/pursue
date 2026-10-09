@@ -14,9 +14,9 @@ export const MODELS = {
 			filename: 'tokenizer.json'
 		},
 		{
-			id: 'gemma-4-e4b-q4',
-			name: 'Gemma 4 E4B IT (Official QAT Q4_0)',
-			filename: 'gemma-4-E4B_q4_0-it.gguf'
+			id: 'qwen2.5-vl-3b-q4',
+			name: 'Qwen 2.5 VL 3B Instruct (Q4_K_M)',
+			filename: 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf'
 		}
 	],
 	Elite: [
@@ -29,6 +29,11 @@ export const MODELS = {
 			id: 'tokenizer',
 			name: 'BGE Tokenizer',
 			filename: 'tokenizer.json'
+		},
+		{
+			id: 'qwen2.5-vl-3b-q4',
+			name: 'Qwen 2.5 VL 3B Instruct (Q4_K_M)',
+			filename: 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf'
 		},
 		{
 			id: 'gemma-4-e4b-q4',

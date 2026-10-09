@@ -276,6 +276,10 @@ pub async fn download_missing_records(state: State<'_, AppState>) -> Result<Stri
     .map_err(to_error)?;
     tx.commit().await.map_err(to_error)?;
 
+    refresh_download_job_counters(&state.db, &job_id)
+        .await
+        .map_err(to_error)?;
+
     Ok(job_id)
 }
 
@@ -966,8 +970,11 @@ pub async fn reset_download_item_part(
 pub async fn cancel_bulk_download(id: String, state: State<'_, AppState>) -> Result<(), String> {
     sqlx::query("UPDATE download_jobs SET cancel_requested = 1, updated_at = ? WHERE id = ?")
         .bind(now())
-        .bind(id)
+        .bind(&id)
         .execute(&state.db)
+        .await
+        .map_err(to_error)?;
+    refresh_download_job_counters(&state.db, &id)
         .await
         .map_err(to_error)?;
     Ok(())
@@ -1111,17 +1118,14 @@ async fn refresh_download_job_counters(db: &SqlitePool, job_id: &str) -> Result<
     .fetch_one(db)
     .await?;
 
-    let final_status = if remaining == 0 {
-        if cancelled > 0 {
-            Some("cancelled")
-        } else if failed > 0 {
-            Some("completed_with_errors")
-        } else {
-            Some("completed")
-        }
-    } else {
-        None
-    };
+    let cancel_requested: i64 =
+        sqlx::query_scalar("SELECT cancel_requested FROM download_jobs WHERE id = ?")
+            .bind(job_id)
+            .fetch_one(db)
+            .await?;
+
+    let final_status =
+        terminal_download_status(remaining, cancelled, failed, cancel_requested != 0);
 
     let summary = serde_json::json!({
         "completed": completed,
@@ -1156,6 +1160,23 @@ async fn refresh_download_job_counters(db: &SqlitePool, job_id: &str) -> Result<
     }
 
     Ok(())
+}
+
+fn terminal_download_status(
+    remaining: i64,
+    cancelled: i64,
+    failed: i64,
+    cancel_requested: bool,
+) -> Option<&'static str> {
+    if remaining != 0 {
+        None
+    } else if cancel_requested || cancelled > 0 {
+        Some("cancelled")
+    } else if failed > 0 {
+        Some("completed_with_errors")
+    } else {
+        Some("completed")
+    }
 }
 
 #[tauri::command]
@@ -1605,6 +1626,7 @@ mod tests {
     use super::{
         build_dvids_resolver_script, build_war_gov_continue_download_script,
         build_war_gov_download_script, downloadable_source_url, dvids_asset_type_for_record,
+        terminal_download_status,
     };
 
     #[tokio::test]
@@ -1630,6 +1652,16 @@ mod tests {
             dvids_asset_type_for_record(&pool, Some("does-not-exist")).await,
             "video"
         );
+    }
+
+    #[test]
+    fn empty_cancelled_download_job_reaches_a_terminal_cancelled_state() {
+        assert_eq!(terminal_download_status(0, 0, 0, true), Some("cancelled"));
+    }
+
+    #[test]
+    fn empty_all_skipped_download_job_reaches_a_terminal_completed_state() {
+        assert_eq!(terminal_download_status(0, 0, 0, false), Some("completed"));
     }
 
     #[test]

@@ -41,6 +41,18 @@ pub const GEMMA4_Q4_FILENAME: &str = "gemma-4-E4B_q4_0-it.gguf";
 /// projector: a short GGUF is parsed by native code that cannot report the problem back.
 pub const GEMMA4_Q4_BYTES: u64 = 5_154_939_136;
 
+/// File name of the high-speed Qwen 2.5 VL 3B multimodal projector.
+pub const QWEN25_VL_3B_MMPROJ_FILENAME: &str = "mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf";
+
+/// Exact on-disk size of the pinned Qwen 2.5 VL 3B multimodal projector.
+pub const QWEN25_VL_3B_MMPROJ_BYTES: u64 = 844_757_728;
+
+/// File name of the high-speed Qwen 2.5 VL 3B text backbone (Q4_K_M).
+pub const QWEN25_VL_3B_FILENAME: &str = "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf";
+
+/// Exact on-disk size of the pinned Qwen 2.5 VL 3B Q4_K_M model.
+pub const QWEN25_VL_3B_BYTES: u64 = 1_929_901_056;
+
 /// Upper bound on evidence images handed to the projector in one synthesis pass. Each image
 /// costs a few hundred context tokens, and the prompt plus the 2048-token generation budget
 /// must still fit the fitted context window. Records with more images keep the first few and
@@ -214,6 +226,25 @@ pub struct GgufRuntime {
 pub fn gemma4_mmproj_ready(path: &Path) -> bool {
     std::fs::metadata(path)
         .map(|metadata| metadata.is_file() && metadata.len() == GEMMA4_MMPROJ_BYTES)
+        .unwrap_or(false)
+}
+
+/// True when the Qwen 2.5 VL multimodal projector is present and complete.
+pub fn qwen25_mmproj_ready(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() == QWEN25_VL_3B_MMPROJ_BYTES)
+        .unwrap_or(false)
+}
+
+/// True when a recognized multimodal projector (Gemma 4 or Qwen 2.5) is present and complete.
+#[allow(dead_code)]
+pub fn mmproj_ready(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| {
+            metadata.is_file()
+                && (metadata.len() == GEMMA4_MMPROJ_BYTES
+                    || metadata.len() == QWEN25_VL_3B_MMPROJ_BYTES)
+        })
         .unwrap_or(false)
 }
 
@@ -630,37 +661,83 @@ impl IntelligenceExtractor {
         // than reaching native code with input it cannot handle.
         let vision = Self::plan_vision(ctx, &images);
 
-        let generated_text = match &mut ctx.runtime {
-            GemmaRuntime::Native { model, tokenizer } => Self::run_native_inference(
-                handle,
-                rid,
-                model,
-                tokenizer,
-                &system_prompt,
-                &user_prompt,
-            )?,
-            GemmaRuntime::Gguf(gguf) => match &vision {
-                Some((mmproj_path, vision_images)) => Self::run_gguf_multimodal_inference(
+        let outcome = match &mut ctx.runtime {
+            GemmaRuntime::Native { model, tokenizer } => {
+                let generated_text = Self::run_native_inference(
                     handle,
                     rid,
-                    gguf,
+                    model,
+                    tokenizer,
                     &system_prompt,
                     &user_prompt,
+                )?;
+                Self::parse_synthesis_json(
+                    &generated_text,
                     &device_label,
-                    mmproj_path,
-                    vision_images,
-                )?,
-                None => Self::run_gguf_inference(
-                    handle,
-                    rid,
-                    gguf,
-                    &system_prompt,
-                    &user_prompt,
+                    system_prompt,
+                    user_prompt,
+                )?
+            }
+            GemmaRuntime::Gguf(gguf) => {
+                let execute_pass = |use_grammar: bool| -> Result<String> {
+                    match &vision {
+                        Some((mmproj_path, vision_images)) => Self::run_gguf_multimodal_inference(
+                            handle,
+                            rid,
+                            gguf,
+                            &system_prompt,
+                            &user_prompt,
+                            &device_label,
+                            mmproj_path,
+                            vision_images,
+                            use_grammar,
+                        ),
+                        None => Self::run_gguf_inference(
+                            handle,
+                            rid,
+                            gguf,
+                            &system_prompt,
+                            &user_prompt,
+                            &device_label,
+                            use_grammar,
+                        ),
+                    }
+                };
+
+                // Fast-path: greedy sampling avoids evaluating GBNF grammar across 256k logits on CPU
+                let raw = execute_pass(false)?;
+                match Self::parse_synthesis_json(
+                    &raw,
                     &device_label,
-                )?,
-            },
+                    system_prompt.clone(),
+                    user_prompt.clone(),
+                ) {
+                    Ok(parsed) => parsed,
+                    Err(err) => {
+                        tauri_plugin_log::log::warn!(
+                            "[Extraction] Fast-path greedy JSON parsing failed ({err}); retrying with strict GBNF grammar sampler..."
+                        );
+                        let retry_raw = execute_pass(true)?;
+                        Self::parse_synthesis_json(
+                            &retry_raw,
+                            &device_label,
+                            system_prompt,
+                            user_prompt,
+                        )?
+                    }
+                }
+            }
         };
 
+        Ok(outcome)
+    }
+
+    fn parse_synthesis_json(
+        generated_text: &str,
+        device_label: &str,
+        system_prompt: String,
+        user_prompt: String,
+    ) -> Result<InferenceOutput> {
         let json_start = generated_text.find('{').unwrap_or(0);
         let preamble = generated_text[..json_start].trim().to_string();
 
@@ -673,12 +750,12 @@ impl IntelligenceExtractor {
 
         let mut val = serde_json::from_str::<Value>(&json_str).map_err(|error| {
             anyhow!(
-                "Gemma 4 synthesis returned invalid JSON: {}. Raw response prefix: {}",
+                "Synthesis returned invalid JSON: {}. Raw response prefix: {}",
                 error,
                 generated_text.chars().take(240).collect::<String>()
             )
         })?;
-        normalize_text_audit_schema(&mut val, &ctx.device_label);
+        normalize_text_audit_schema(&mut val, device_label);
 
         Ok(InferenceOutput {
             response: val,
@@ -699,14 +776,32 @@ impl IntelligenceExtractor {
             return None;
         }
 
-        let mmproj_path = ctx.repo_path.parent()?.join(GEMMA4_MMPROJ_FILENAME);
-        if !gemma4_mmproj_ready(&mmproj_path) {
+        let parent = ctx.repo_path.parent()?;
+        let is_qwen = ctx.repo_path.to_string_lossy().contains("Qwen2.5-VL");
+        let (mmproj_path, expected_bytes, model_label) = if is_qwen {
+            (
+                parent.join(QWEN25_VL_3B_MMPROJ_FILENAME),
+                QWEN25_VL_3B_MMPROJ_BYTES,
+                "Qwen 2.5 VL",
+            )
+        } else {
+            (
+                parent.join(GEMMA4_MMPROJ_FILENAME),
+                GEMMA4_MMPROJ_BYTES,
+                "Gemma 4",
+            )
+        };
+
+        let ready = std::fs::metadata(&mmproj_path)
+            .map(|metadata| metadata.is_file() && metadata.len() == expected_bytes)
+            .unwrap_or(false);
+
+        if !ready {
             if mmproj_path.exists() {
                 tauri_plugin_log::log::warn!(
-                    "[Extraction] Gemma 4 projector at {} is not the expected {} bytes; \
+                    "[Extraction] {model_label} vision projector at {} is not the expected {expected_bytes} bytes; \
                      running text-only until it is re-provisioned",
                     mmproj_path.display(),
-                    GEMMA4_MMPROJ_BYTES
                 );
             }
             return None;
@@ -831,6 +926,7 @@ impl IntelligenceExtractor {
         system_prompt: &str,
         user_prompt: &str,
         device_label: &str,
+        use_grammar: bool,
     ) -> Result<String> {
         let GgufRuntime {
             backend,
@@ -850,20 +946,24 @@ impl IntelligenceExtractor {
         let generation_limit = 2048_usize;
         if tokens.len().saturating_add(generation_limit) > context_size as usize {
             return Err(anyhow!(
-                "Gemma 4 prompt requires {} tokens, exceeding the fitted {}-token context; reduce record context or free accelerator memory",
+                "Prompt requires {} tokens, exceeding the fitted {}-token context; reduce record context or free accelerator memory",
                 tokens.len().saturating_add(generation_limit),
                 context_size
             ));
         }
 
+        // Allocate only the context required for this prompt + generation budget, capped at context_size
+        let alloc_ctx = ((tokens.len() + generation_limit + 256) as u32)
+            .min(context_size)
+            .max(2048);
         let context_params = LlamaContextParams::default()
-            .with_n_ctx(NonZeroU32::new(context_size))
-            .with_n_batch(context_size.min(1024))
+            .with_n_ctx(NonZeroU32::new(alloc_ctx))
+            .with_n_batch(alloc_ctx.min(1024))
             .with_n_threads(crate::analysis::hardware::cpu_inference_threads() as i32)
             .with_n_threads_batch(crate::analysis::hardware::cpu_inference_threads() as i32)
             .with_flash_attn_type(LlamaFlashAttnType::Auto);
         let mut llama_context = model.new_context(backend, context_params)?;
-        let batch_capacity = context_size.min(1024) as usize;
+        let batch_capacity = alloc_ctx.min(1024) as usize;
         let mut batch = LlamaBatch::new(batch_capacity, 1);
         for (chunk_index, chunk) in tokens.chunks(batch_capacity).enumerate() {
             batch.clear();
@@ -880,19 +980,21 @@ impl IntelligenceExtractor {
             llama_context.decode(&mut batch)?;
         }
 
-        // Constrain generation to syntactically valid JSON. The schema is still normalized
-        // and provenance-checked after parsing, but malformed braces can no longer discard an
-        // otherwise expensive synthesis pass.
-        let sampler = LlamaSampler::chain_simple([
-            LlamaSampler::grammar(model, JSON_GBNF, "root"),
-            LlamaSampler::greedy(),
-        ]);
+        let sampler = if use_grammar {
+            LlamaSampler::chain_simple([
+                LlamaSampler::grammar(model, JSON_GBNF, "root"),
+                LlamaSampler::greedy(),
+            ])
+        } else {
+            LlamaSampler::chain_simple([LlamaSampler::greedy()])
+        };
         let mut generated = Vec::new();
         let _ = handle.emit(
             "analysis-progress",
             json!({"status": "synthesizing-start", "record_id": rid}),
         );
 
+        let mut piece_buf = String::new();
         for (position, index) in (tokens.len() as i32..).zip(0..generation_limit) {
             let token = sampler.sample(&llama_context, -1);
             if model.is_eog_token(token) {
@@ -901,8 +1003,11 @@ impl IntelligenceExtractor {
             let bytes = model.token_to_bytes(token, Special::Plaintext)?;
             generated.extend_from_slice(&bytes);
             let piece = String::from_utf8_lossy(&bytes).to_string();
+            piece_buf.push_str(&piece);
 
-            if index % 5 == 0 || !piece.is_empty() {
+            // Throttle UI IPC updates: emit every 6 tokens or on final token
+            if index % 6 == 0 || index + 1 == generation_limit {
+                let piece_to_emit = std::mem::take(&mut piece_buf);
                 let _ = handle.emit(
                     "analysis-progress",
                     json!({
@@ -910,12 +1015,12 @@ impl IntelligenceExtractor {
                         "record_id": rid,
                         "token_index": index,
                         "token_limit": generation_limit,
-                        "token_text": piece,
+                        "token_text": piece_to_emit,
                         "telemetry": {
-                            "kv_cache": "managed by llama.cpp Gemma 4",
+                            "kv_cache": "managed by llama.cpp",
                             "device": device_label,
                             "gpu_layers": gpu_layers,
-                            "context_size": context_size
+                            "context_size": alloc_ctx
                         }
                     }),
                 );
@@ -926,8 +1031,27 @@ impl IntelligenceExtractor {
             llama_context.decode(&mut batch)?;
         }
 
+        if !piece_buf.is_empty() {
+            let _ = handle.emit(
+                "analysis-progress",
+                json!({
+                    "status": "synthesizing",
+                    "record_id": rid,
+                    "token_index": generation_limit,
+                    "token_limit": generation_limit,
+                    "token_text": piece_buf,
+                    "telemetry": {
+                        "kv_cache": "managed by llama.cpp",
+                        "device": device_label,
+                        "gpu_layers": gpu_layers,
+                        "context_size": alloc_ctx
+                    }
+                }),
+            );
+        }
+
         String::from_utf8(generated)
-            .map_err(|error| anyhow!("Gemma 4 returned invalid UTF-8: {error}"))
+            .map_err(|error| anyhow!("Synthesis returned invalid UTF-8: {error}"))
     }
 
     /// Multimodal synthesis: Gemma 4 analyzes the evidence images together with the (OCR'd)
@@ -943,6 +1067,7 @@ impl IntelligenceExtractor {
         device_label: &str,
         mmproj_path: &Path,
         image_paths: &[PathBuf],
+        use_grammar: bool,
     ) -> Result<String> {
         let GgufRuntime {
             backend,
@@ -966,12 +1091,12 @@ impl IntelligenceExtractor {
             )
             .map_err(|e| {
                 anyhow!(
-                    "failed to load Gemma 4 vision projector {}: {e}",
+                    "failed to load vision projector {}: {e}",
                     mmproj_path.display()
                 )
             })?;
             if !mtmd.supports_vision() {
-                return Err(anyhow!("Gemma 4 projector does not report vision support"));
+                return Err(anyhow!("Vision projector does not report vision support"));
             }
 
             // Decode every image before building the prompt: the number of media markers has
@@ -1006,7 +1131,7 @@ impl IntelligenceExtractor {
             let input_text = MtmdInputText::new(&templated, false, true);
             let mut chunks = MtmdInputChunks::new();
             mtmd.tokenize(&input_text, &bitmap_refs, &mut chunks)
-                .map_err(|e| anyhow!("Gemma 4 mtmd tokenize failed: {e}"))?;
+                .map_err(|e| anyhow!("Multimodal mtmd tokenize failed: {e}"))?;
 
             let n_batch = context_size.min(1024);
             let ctx_params = LlamaContextParams::default()
@@ -1027,19 +1152,23 @@ impl IntelligenceExtractor {
                 true,
                 &mut n_past,
             )
-            .map_err(|e| anyhow!("Gemma 4 mtmd eval_chunks failed: {e}"))?;
+            .map_err(|e| anyhow!("Multimodal mtmd eval_chunks failed: {e}"))?;
 
             let generation_limit = 2048usize;
             if (n_past as usize).saturating_add(generation_limit) > context_size as usize {
                 return Err(anyhow!(
-                    "Gemma 4 vision prompt used {n_past} tokens, exceeding the fitted {context_size}-token context; reduce record context or free accelerator memory"
+                    "Vision prompt used {n_past} tokens, exceeding the fitted {context_size}-token context; reduce record context or free accelerator memory"
                 ));
             }
 
-            let sampler = LlamaSampler::chain_simple([
-                LlamaSampler::grammar(model, JSON_GBNF, "root"),
-                LlamaSampler::greedy(),
-            ]);
+            let sampler = if use_grammar {
+                LlamaSampler::chain_simple([
+                    LlamaSampler::grammar(model, JSON_GBNF, "root"),
+                    LlamaSampler::greedy(),
+                ])
+            } else {
+                LlamaSampler::chain_simple([LlamaSampler::greedy()])
+            };
             let _ = handle.emit(
                 "analysis-progress",
                 json!({"status": "synthesizing-start", "record_id": rid}),
@@ -1047,13 +1176,19 @@ impl IntelligenceExtractor {
 
             let mut generated: Vec<u8> = Vec::new();
             let mut batch = LlamaBatch::new(n_batch as usize, 1);
+            let mut piece_buf = String::new();
             for (position, index) in (n_past..).zip(0..generation_limit) {
                 let token = sampler.sample(&llama_context, -1);
                 if model.is_eog_token(token) {
                     break;
                 }
-                generated.extend_from_slice(&model.token_to_bytes(token, Special::Plaintext)?);
-                if index % 5 == 0 {
+                let bytes = model.token_to_bytes(token, Special::Plaintext)?;
+                generated.extend_from_slice(&bytes);
+                let piece = String::from_utf8_lossy(&bytes).to_string();
+                piece_buf.push_str(&piece);
+
+                if index % 6 == 0 || index + 1 == generation_limit {
+                    let text_to_emit = std::mem::take(&mut piece_buf);
                     let _ = handle.emit(
                         "analysis-progress",
                         json!({
@@ -1061,8 +1196,9 @@ impl IntelligenceExtractor {
                             "record_id": rid,
                             "token_index": index,
                             "token_limit": generation_limit,
+                            "token_text": text_to_emit,
                             "telemetry": {
-                                "kv_cache": "managed by llama.cpp Gemma 4 mtmd",
+                                "kv_cache": "managed by llama.cpp mtmd",
                                 "device": device_label,
                                 "gpu_layers": gpu_layers,
                                 "context_size": context_size,
@@ -1076,8 +1212,28 @@ impl IntelligenceExtractor {
                 llama_context.decode(&mut batch)?;
             }
 
+            if !piece_buf.is_empty() {
+                let _ = handle.emit(
+                    "analysis-progress",
+                    json!({
+                        "status": "synthesizing",
+                        "record_id": rid,
+                        "token_index": generation_limit,
+                        "token_limit": generation_limit,
+                        "token_text": piece_buf,
+                        "telemetry": {
+                            "kv_cache": "managed by llama.cpp mtmd",
+                            "device": device_label,
+                            "gpu_layers": gpu_layers,
+                            "context_size": context_size,
+                            "visual_asset_count": bitmap_refs.len()
+                        }
+                    }),
+                );
+            }
+
             String::from_utf8(generated)
-                .map_err(|e| anyhow!("Gemma 4 vision returned invalid UTF-8: {e}"))?
+                .map_err(|e| anyhow!("Multimodal vision returned invalid UTF-8: {e}"))?
         };
 
         Ok(generated_text)

@@ -70,6 +70,40 @@ pub fn get_model_registry() -> Vec<ModelDefinition> {
             description: "Required for text-to-vector normalization.".to_string(),
         },
         ModelDefinition {
+            id: "qwen2.5-vl-3b-q4".to_string(),
+            name: "Qwen 2.5 VL 3B Instruct (Q4_K_M)".to_string(),
+            model_type: ModelType::Intelligence,
+            size_label: "1.93 GB".to_string(),
+            repo_id: "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF".to_string(),
+            filename: Some(super::extraction::QWEN25_VL_3B_FILENAME.to_string()),
+            repo_file: Some(super::extraction::QWEN25_VL_3B_FILENAME.to_string()),
+            revision: "5037fcf163dd95d1e41d1974465f0898ed108ca2".to_string(),
+            expected_bytes: Some(super::extraction::QWEN25_VL_3B_BYTES),
+            expected_sha256: Some(
+                "d02fe9b69ad8cadbbd228e387667af66612c44bed29ffc8eb1e7caf9ac486c12"
+                    .to_string(),
+            ),
+            description: "High-speed multimodal vision-language model. Delivers 2.5x–3x faster intelligence synthesis with low VRAM footprint on CUDA and Metal."
+                .to_string(),
+        },
+        ModelDefinition {
+            id: "qwen2.5-vl-3b-mmproj".to_string(),
+            name: "Qwen 2.5 VL 3B Vision Projector (mmproj)".to_string(),
+            model_type: ModelType::Vision,
+            size_label: "845 MB".to_string(),
+            repo_id: "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF".to_string(),
+            filename: Some(super::extraction::QWEN25_VL_3B_MMPROJ_FILENAME.to_string()),
+            repo_file: Some(super::extraction::QWEN25_VL_3B_MMPROJ_FILENAME.to_string()),
+            revision: "5037fcf163dd95d1e41d1974465f0898ed108ca2".to_string(),
+            expected_bytes: Some(super::extraction::QWEN25_VL_3B_MMPROJ_BYTES),
+            expected_sha256: Some(
+                "980c9b2f78c04e6cff93d277ada09e768394f112d75db3b4e9dea8a69f9fb904"
+                    .to_string(),
+            ),
+            description: "Qwen 2.5 VL 3B multimodal projector for visual evidence analysis and OCR validation."
+                .to_string(),
+        },
+        ModelDefinition {
             id: "gemma-4-e4b-q4".to_string(),
             name: "Gemma 4 E4B IT (Official QAT Q4_0)".to_string(),
             model_type: ModelType::Intelligence,
@@ -125,6 +159,7 @@ mod tests {
 
         assert!(ids.contains(&"bge-small".to_string()));
         assert!(ids.contains(&"gemma-4-e4b-q4".to_string()));
+        assert!(ids.contains(&"qwen2.5-vl-3b-q4".to_string()));
     }
 
     #[test]
