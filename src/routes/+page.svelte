@@ -16,7 +16,6 @@
 	import IntelligenceModal from '$lib/components/IntelligenceModal.svelte';
 	import MediaViewer from '$lib/components/MediaViewer.svelte';
 	import Dashboard from '$lib/components/dashboard/Dashboard.svelte';
-	import { MODELS } from '$lib/models';
 	import type { CaseSummary, RecordPage, RecordSummary, SyncReport } from '$lib/types';
 	import { addToast, updateToast } from '$lib/stores/toastStore.svelte';
 	import { appStore } from '$lib/stores/appStore.svelte';
@@ -236,8 +235,6 @@
 
 				const specs = intelligenceStore.diagnostics;
 				logger.debug('[App] Specs:', specs);
-				const tier = specs?.recommended_tier === 'Elite' ? 'Elite' : 'Standard';
-				const requiredModels = MODELS[tier];
 
 				const hasEmbedding =
 					intelligenceStore.models.find((im) => im.id === 'bge-small')?.status === 'ready' &&
