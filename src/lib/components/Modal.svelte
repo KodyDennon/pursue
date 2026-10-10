@@ -15,7 +15,7 @@
 		zIndex = 2000,
 		background = 'rgba(0, 0, 0, 0.85)',
 		blur = '10px',
-		padding = '40px',
+		padding = '24px',
 		children
 	} = $props<{
 		isOpen: boolean;
@@ -61,8 +61,10 @@
 	.modal-overlay {
 		position: fixed;
 		inset: 0;
+		box-sizing: border-box;
 		display: flex;
-		align-items: center;
-		justify-content: center;
+		align-items: safe center;
+		justify-content: safe center;
+		overflow: auto;
 	}
 </style>

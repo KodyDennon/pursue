@@ -18,7 +18,9 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-5xl);
-		padding: 8px 32px;
+		flex-shrink: 0;
+		padding: 8px 20px;
+		overflow: hidden;
 		background: rgba(0, 0, 0, 0.2);
 		border-bottom: 1px solid var(--color-border-subtle);
 		font-size: var(--text-sm);

@@ -111,9 +111,10 @@
 	.dashboard-side {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-5xl);
-		justify-content: space-between;
+		gap: 16px;
 		height: 100%;
+		min-height: 0;
+		overflow: hidden;
 	}
 
 	.progress-wrap {
@@ -166,8 +167,10 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-xl);
-		flex: 1;
-		justify-content: center;
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow: auto;
+		justify-content: flex-start;
 	}
 
 	.info-card {
@@ -233,6 +236,7 @@
 	.action-wrap {
 		display: flex;
 		flex-direction: column;
+		flex-shrink: 0;
 	}
 
 	.start-btn {

@@ -17,15 +17,15 @@
 		{#if status === 'loading-model'}
 			<div class="model-loading-fullscreen">
 				<Brain size={48} class="accent-icon pulse-brain" />
-				<h3>PROVISIONING NEURAL RUNTIME</h3>
-				<p>{modelDownloadMsg || 'Mounting tensor files into hardware cache...'}</p>
+				<h3>Loading model</h3>
+				<p>{modelDownloadMsg || 'Preparing the intelligence model...'}</p>
 			</div>
 		{:else if thoughtText}
 			<div class="neural-stream">
 				{thoughtText}<span class="cursor">█</span>
 			</div>
 		{:else}
-			<div class="empty-state">Thought stream will manifest here upon inference start.</div>
+			<div class="empty-state">Synthesis text will appear here.</div>
 		{/if}
 	</div>
 </div>
@@ -89,7 +89,8 @@
 		line-height: 1.7;
 		color: var(--color-accent-primary);
 		white-space: pre-wrap;
-		word-break: break-all;
+		overflow-wrap: break-word;
+		word-break: normal;
 		text-shadow: 0 0 5px rgba(231, 196, 107, 0.2);
 	}
 

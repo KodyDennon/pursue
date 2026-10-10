@@ -62,9 +62,7 @@
 		<footer class="panel-footer">
 			<div class="notice">
 				<AlertCircle size={14} />
-				<span
-					>Neural inference utilizes Apple Neural Engine or local GPU. Keep application active.</span
-				>
+				<span>Keep PURSUE open until this batch finishes.</span>
 			</div>
 		</footer>
 	</div>
@@ -72,39 +70,47 @@
 
 <style>
 	.synthesis-panel {
-		width: 100%;
-		max-width: 960px;
-		height: 100%;
-		max-height: 620px;
+		width: min(960px, 100%);
+		height: min(680px, calc(100vh - 48px));
+		max-height: calc(100vh - 48px);
+		min-height: 0;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
 	}
 
 	.panel-body {
-		flex: 1;
-		padding: var(--space-6xl);
+		flex: 1 1 auto;
+		min-height: 0;
+		padding: 20px 24px;
 		overflow: hidden;
 	}
 
 	.overhaul-grid {
 		display: grid;
-		grid-template-columns: 320px 1fr;
-		gap: var(--space-6xl);
+		grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+		gap: 20px;
 		height: 100%;
+		min-height: 0;
 	}
 
 	.panel-footer {
-		padding: 16px 28px;
+		flex-shrink: 0;
+		padding: 12px 24px;
 		background: rgba(0, 0, 0, 0.2);
 		border-top: 1px solid var(--color-border-subtle);
 	}
 
 	.notice {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: var(--space-lg);
 		color: var(--color-text-tertiary);
 		font-size: var(--text-sm);
+		line-height: 1.4;
+	}
+
+	.notice span {
+		min-width: 0;
 	}
 </style>

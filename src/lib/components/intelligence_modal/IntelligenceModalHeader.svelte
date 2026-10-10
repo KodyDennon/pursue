@@ -19,10 +19,12 @@
 
 <style>
 	.panel-header {
-		padding: 20px 28px;
+		flex-shrink: 0;
+		padding: 16px 24px;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		gap: var(--space-3xl);
 		border-bottom: 1px solid var(--color-border-subtle);
 	}
 
@@ -30,6 +32,7 @@
 		display: flex;
 		gap: var(--space-3xl);
 		align-items: center;
+		min-width: 0;
 	}
 
 	.brand h2 {

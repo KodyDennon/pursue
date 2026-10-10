@@ -20,57 +20,70 @@
 		<span class="f-label">Analysis:</span>
 		<span class="f-val">{intelligenceStore.status?.analyzed_records || 0} Reports</span>
 	</div>
-	<div class="f-section resource-monitor">
-		{#if systemStats}
-			<div class="res-item">
-				<span class="f-label">CPU</span>
-				<div class="res-bar-wrap">
-					<div class="res-bar-fill" style="width: {systemStats.cpu_usage}%"></div>
+	<div class="f-cluster">
+		<div class="f-section resource-monitor">
+			{#if systemStats}
+				<div class="res-item">
+					<span class="f-label">CPU</span>
+					<div class="res-bar-wrap">
+						<div class="res-bar-fill" style="width: {systemStats.cpu_usage}%"></div>
+					</div>
+					<span class="f-val">{systemStats.cpu_usage.toFixed(1)}%</span>
 				</div>
-				<span class="f-val">{systemStats.cpu_usage.toFixed(1)}%</span>
-			</div>
-			<div class="res-item">
-				<span class="f-label">MEM</span>
-				<span class="f-val">{formatBytes(systemStats.process_memory_mb * 1024 * 1024)}</span>
-			</div>
-		{/if}
-	</div>
+				<div class="res-item">
+					<span class="f-label">MEM</span>
+					<span class="f-val">{formatBytes(systemStats.process_memory_mb * 1024 * 1024)}</span>
+				</div>
+			{/if}
+		</div>
 
-	<div class="f-section engine-status">
-		<div class="status-orb" class:busy></div>
-		<span class="f-val"
-			>{busy ? `AGENT ${busy.toUpperCase()} ACTIVE` : 'INTELLIGENCE OS STANDBY'}</span
-		>
+		<div class="f-section engine-status">
+			<div class="status-orb" class:busy></div>
+			<span class="f-val">{busy ? `${busy} active` : 'Standby'}</span>
+		</div>
 	</div>
 </footer>
 
 <style>
 	.os-footer {
-		height: 32px;
+		height: 36px;
+		flex-shrink: 0;
 		background: #050608;
 		border-top: 1px solid var(--color-border-subtle);
 		display: flex;
 		align-items: center;
-		padding: 0 32px;
-		gap: var(--space-7xl);
+		padding: 0 16px;
+		gap: var(--space-4xl);
 		font-size: var(--text-xs);
-		letter-spacing: 0.1em;
+		letter-spacing: 0.04em;
 		color: var(--color-text-tertiary);
 		text-transform: uppercase;
 		width: 100%;
+		min-width: 0;
 		box-sizing: border-box;
+		overflow: hidden;
 	}
 
 	.f-section {
 		display: flex;
 		gap: var(--space-md);
 		align-items: center;
+		flex-shrink: 0;
+		white-space: nowrap;
+	}
+
+	.f-cluster {
+		margin-left: auto;
+		display: flex;
+		align-items: center;
+		gap: var(--space-3xl);
+		min-width: 0;
+		flex-shrink: 1;
 	}
 
 	.resource-monitor {
-		margin-left: auto;
-		gap: var(--space-5xl);
-		padding-right: var(--space-5xl);
+		gap: var(--space-3xl);
+		padding-right: var(--space-3xl);
 		border-right: 1px solid var(--color-border-subtle);
 		height: 100%;
 	}
@@ -105,8 +118,14 @@
 	}
 
 	.engine-status {
-		margin-left: auto;
 		color: var(--color-accent-primary);
+		min-width: 0;
+		flex-shrink: 1;
+	}
+
+	.engine-status .f-val {
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.status-orb {

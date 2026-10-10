@@ -2,10 +2,25 @@
 	import { Brain, Terminal, Activity, Loader2, Cpu, CheckCircle2 } from 'lucide-svelte';
 
 	type NeuralTelemetry = {
-		device: string;
-		input_shape: unknown;
-		kv_cache_shape: unknown;
+		device?: string;
+		input_shape?: unknown;
+		kv_cache_shape?: unknown;
+		gpu_layers?: number;
+		context_size?: number;
+		visual_asset_count?: number;
 	};
+
+	function hasShape(value: unknown): boolean {
+		if (Array.isArray(value)) return value.length > 0;
+		return value !== undefined && value !== null && value !== '';
+	}
+
+	function gpuLayerLabel(layers: number | undefined): string | null {
+		if (layers === undefined) return null;
+		if (layers < 0) return 'All layers on GPU';
+		if (layers === 0) return 'CPU only';
+		return `${layers} layers on GPU`;
+	}
 
 	let {
 		status,
@@ -33,14 +48,20 @@
 <div class="dashboard-side">
 	<div class="brain-visual-container">
 		<div class="neural-network-glow" class:active={busy}>
-			<Brain size={64} class="neural-brain {busy ? 'pulse-brain' : ''}" />
+			<Brain size={40} class="neural-brain {busy ? 'pulse-brain' : ''}" />
 		</div>
 		<span class="engine-state-label" class:busy>
 			{status === 'loading-model'
-				? 'WAKING MODEL'
+				? 'Loading model'
 				: status === 'synthesizing'
-					? 'SYNTHESIZING'
-					: status.toUpperCase()}
+					? 'Synthesizing'
+					: status === 'completed'
+						? 'Complete'
+						: status === 'failed'
+							? 'Failed'
+							: status === 'standby'
+								? 'Standby'
+								: status.replaceAll('-', ' ')}
 		</span>
 	</div>
 
@@ -94,18 +115,42 @@
 			<div class="info-card telemetry-card">
 				<Cpu size={16} class="card-icon telemetry-icon" />
 				<div class="val text-row-stack">
-					<div class="telemetry-row">
-						<span>DEVICE</span>
-						<strong>{neuralTelemetry.device.replace('Device::', '')}</strong>
-					</div>
-					<div class="telemetry-row">
-						<span>INPUT SHAPE</span>
-						<strong>{JSON.stringify(neuralTelemetry.input_shape)}</strong>
-					</div>
-					<div class="telemetry-row">
-						<span>KV CACHE SHAPE</span>
-						<strong>{JSON.stringify(neuralTelemetry.kv_cache_shape)}</strong>
-					</div>
+					{#if neuralTelemetry.device}
+						<div class="telemetry-row">
+							<span>Device</span>
+							<strong>{neuralTelemetry.device.replace('Device::', '')}</strong>
+						</div>
+					{/if}
+					{#if gpuLayerLabel(neuralTelemetry.gpu_layers)}
+						<div class="telemetry-row">
+							<span>Offload</span>
+							<strong>{gpuLayerLabel(neuralTelemetry.gpu_layers)}</strong>
+						</div>
+					{/if}
+					{#if neuralTelemetry.context_size}
+						<div class="telemetry-row">
+							<span>Context</span>
+							<strong>{neuralTelemetry.context_size} tokens</strong>
+						</div>
+					{/if}
+					{#if neuralTelemetry.visual_asset_count}
+						<div class="telemetry-row">
+							<span>Images</span>
+							<strong>{neuralTelemetry.visual_asset_count}</strong>
+						</div>
+					{/if}
+					{#if hasShape(neuralTelemetry.input_shape)}
+						<div class="telemetry-row">
+							<span>Input shape</span>
+							<strong>{JSON.stringify(neuralTelemetry.input_shape)}</strong>
+						</div>
+					{/if}
+					{#if hasShape(neuralTelemetry.kv_cache_shape)}
+						<div class="telemetry-row">
+							<span>KV cache</span>
+							<strong>{JSON.stringify(neuralTelemetry.kv_cache_shape)}</strong>
+						</div>
+					{/if}
 				</div>
 			</div>
 		{:else}
@@ -127,11 +172,11 @@
 			disabled={busy}
 		>
 			{#if busy}
-				<Loader2 size={16} class="spin" /> SYNTHESIS RUNNING
+				<Loader2 size={16} class="spin" /> Running
 			{:else if status === 'completed'}
-				<CheckCircle2 size={16} /> DISMISS TERMINAL
+				<CheckCircle2 size={16} /> Close
 			{:else}
-				DISMISS
+				Close
 			{/if}
 		</button>
 	</div>
@@ -141,8 +186,10 @@
 	.dashboard-side {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-5xl);
-		justify-content: space-between;
+		gap: 12px;
+		min-height: 0;
+		height: 100%;
+		overflow: hidden;
 	}
 
 	.brain-visual-container {
@@ -160,8 +207,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 100px;
-		height: 100px;
+		width: 72px;
+		height: 72px;
 		border-radius: 50%;
 		background: rgba(255, 255, 255, 0.02);
 		border: 1px solid rgba(255, 255, 255, 0.04);
@@ -218,8 +265,10 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-xl);
-		flex: 1;
-		justify-content: center;
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow: auto;
+		justify-content: flex-start;
 	}
 
 	.info-card {
@@ -277,10 +326,12 @@
 
 	.telemetry-row {
 		display: flex;
-		justify-content: space-between;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
 		width: 100%;
 		font-family: var(--font-mono);
-		font-size: var(--text-2xs);
+		font-size: var(--text-xs);
 		border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 		padding-bottom: var(--space-xs);
 	}
@@ -297,6 +348,9 @@
 	.telemetry-row strong {
 		color: var(--color-accent-primary);
 		font-weight: 600;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		text-align: left;
 	}
 
 	.model-progress-wrap {
@@ -334,6 +388,7 @@
 	.action-wrap {
 		display: flex;
 		flex-direction: column;
+		flex-shrink: 0;
 	}
 
 	.dismiss-btn {

@@ -518,6 +518,25 @@
 			</main>
 		</div>
 
+		{#if (analysisBusy && !analysisModalOpen) || (intelligenceBusy && !intelligenceModalOpen)}
+			<div class="pipeline-strip">
+				{#if analysisBusy && !analysisModalOpen}
+					<button class="pipeline-pill" onclick={() => (analysisModalOpen = true)}>
+						<span class="indicator-glow pulse-active yellow"></span>
+						<Layers size={14} style="color: var(--color-accent-primary)" />
+						<span class="label">Ingestion in progress ({analysisProgress.toFixed(0)}%)</span>
+					</button>
+				{/if}
+				{#if intelligenceBusy && !intelligenceModalOpen}
+					<button class="pipeline-pill" onclick={() => (intelligenceModalOpen = true)}>
+						<span class="indicator-glow pulse-active blue"></span>
+						<Brain size={14} style="color: var(--color-accent-info)" />
+						<span class="label">Synthesis active</span>
+					</button>
+				{/if}
+			</div>
+		{/if}
+
 		<Footer {systemStats} {busy} />
 	</div>
 
@@ -536,52 +555,40 @@
 		<MediaViewer record={viewerRecord} bind:isOpen={viewerOpen} />
 	{/if}
 
-	{#if (analysisBusy && !analysisModalOpen) || (intelligenceBusy && !intelligenceModalOpen)}
-		<div class="active-pipelines-floating">
-			{#if analysisBusy && !analysisModalOpen}
-				<button class="pipeline-pill" onclick={() => (analysisModalOpen = true)}>
-					<span class="indicator-glow pulse-active yellow"></span>
-					<Layers size={14} style="color: var(--color-accent-primary)" />
-					<span class="label">Ingestion In Progress ({analysisProgress.toFixed(0)}%)</span>
-				</button>
-			{/if}
-			{#if intelligenceBusy && !intelligenceModalOpen}
-				<button class="pipeline-pill" onclick={() => (intelligenceModalOpen = true)}>
-					<span class="indicator-glow pulse-active blue"></span>
-					<Brain size={14} style="color: var(--color-accent-info)" />
-					<span class="label">Neural Synthesis Active</span>
-				</button>
-			{/if}
-		</div>
-	{/if}
 {/if}
 
 <style>
 	.os-container {
 		display: flex;
 		flex-direction: column;
-		height: 96vh;
-		width: 96vw;
-		margin: 2vh auto;
-		border-radius: var(--radius-lg);
+		height: 100%;
+		width: 100%;
+		margin: 0;
+		border-radius: 0;
+		border: none;
+		box-shadow: none;
 		overflow: hidden;
 	}
 
 	.os-header {
-		height: 64px;
+		height: 56px;
+		flex-shrink: 0;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0 32px;
+		gap: var(--space-3xl);
+		padding: 0 20px;
 		z-index: 10;
 		border-bottom: 1px solid var(--color-border-subtle);
 		user-select: none;
 		-webkit-user-select: none;
+		min-width: 0;
 	}
 
 	.view-context {
 		display: flex;
 		align-items: center;
+		min-width: 0;
 	}
 
 	.view-title {
@@ -596,16 +603,20 @@
 		display: flex;
 		gap: var(--space-3xl);
 		align-items: center;
+		min-width: 0;
+		flex-shrink: 1;
 	}
 
 	.os-body {
 		display: flex;
 		flex: 1;
+		min-height: 0;
 		overflow: hidden;
 	}
 
 	.os-main {
 		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 		position: relative;
 	}
@@ -648,16 +659,15 @@
 		pointer-events: none;
 	}
 
-	.active-pipelines-floating {
-		position: fixed;
-		bottom: 24px;
-		right: 24px;
-		z-index: 1500;
+	.pipeline-strip {
+		flex-shrink: 0;
 		display: flex;
-		flex-direction: column;
+		justify-content: flex-end;
+		align-items: center;
 		gap: var(--space-lg);
-		pointer-events: auto;
-		animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+		padding: 8px 16px;
+		border-top: 1px solid var(--color-border-subtle);
+		background: rgba(10, 12, 16, 0.92);
 	}
 
 	.pipeline-pill {
@@ -724,14 +734,4 @@
 		}
 	}
 
-	@keyframes slideIn {
-		from {
-			opacity: 0;
-			transform: translateY(16px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
 </style>

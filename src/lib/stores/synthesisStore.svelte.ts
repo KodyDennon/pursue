@@ -12,9 +12,13 @@ export interface AnalysisProgress {
 	progress?: number;
 	msg?: string;
 	telemetry?: {
-		input_shape: number[];
-		kv_cache_shape: number[];
-		device: string;
+		input_shape?: number[];
+		kv_cache_shape?: number[];
+		device?: string;
+		kv_cache?: string;
+		gpu_layers?: number;
+		context_size?: number;
+		visual_asset_count?: number;
 	};
 }
 
