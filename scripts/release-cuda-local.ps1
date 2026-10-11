@@ -119,8 +119,21 @@ Step 'Preflight' {
 
     if (-not $SkipUpload) {
         # The mirror needs all four installers; confirm CI already published the other three.
-        $assets = (gh release view $Tag --json assets --jq '.assets[].name' 2>&1)
-        if ($LASTEXITCODE -ne 0) { 
+        # gh writes "release not found" to stderr. Windows PowerShell 5.1 turns that into a
+        # terminating error under $ErrorActionPreference = 'Stop' before $LASTEXITCODE is checked.
+        $assets = @()
+        $releaseExit = 0
+        try {
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $assets = @(gh release view $Tag --json assets --jq '.assets[].name' 2>&1 | Where-Object { $_ -is [string] })
+            $releaseExit = $LASTEXITCODE
+            $ErrorActionPreference = $prev
+        } catch {
+            $releaseExit = 1
+            $assets = @()
+        }
+        if ($releaseExit -ne 0) {
             Write-Warning "Release $Tag has not been created by CI yet. Building CUDA MSI locally first..."
             $assets = @()
         }
