@@ -9,6 +9,7 @@ export interface AnalysisProgress {
 	error?: string;
 	token_text?: string;
 	token_index?: number;
+	token_limit?: number;
 	progress?: number;
 	msg?: string;
 	telemetry?: {
@@ -31,6 +32,12 @@ class SynthesisStore {
 
 	currentBatchIndex = $state(0);
 	totalBatchCount = $state(0);
+	batchStartedAt = $state<number | null>(null);
+	recordStartedAt = $state<number | null>(null);
+	/** Durations of records that already finished in this batch, in milliseconds. */
+	completedRecordMs = $state<number[]>([]);
+	tokenIndex = $state(0);
+	tokenLimit = $state(0);
 
 	modelDownloadProgress = $state(0);
 	modelDownloadMsg = $state('');
@@ -53,6 +60,7 @@ class SynthesisStore {
 				this.status = payload.status === 'synthesizing-start' ? 'synthesizing' : payload.status;
 			} else if (payload.status === 'completed') {
 				if (this.busy) {
+					this.noteRecordFinished();
 					this.status = 'completed';
 					this.busy = false;
 					if (onComplete) onComplete();
@@ -60,9 +68,13 @@ class SynthesisStore {
 				return;
 			} else if (payload.status === 'failed') {
 				if (this.busy) {
+					this.noteRecordFinished();
 					this.status = 'failed';
 					this.busy = false;
 				}
+				return;
+			} else if (payload.status === 'record-failed') {
+				this.noteRecordFinished();
 				return;
 			} else {
 				return;
@@ -80,9 +92,22 @@ class SynthesisStore {
 				this.modelDownloadProgress = payload.progress ?? this.modelDownloadProgress;
 				this.modelDownloadMsg = payload.msg ?? this.modelDownloadMsg;
 			} else if (payload.status === 'synthesizing-start') {
-				this.thoughtText = ''; // Reset for new synthesis
+				if (payload.current === 1) {
+					this.recordStartedAt = null;
+					this.completedRecordMs = [];
+					this.batchStartedAt = null;
+				}
+				this.noteRecordFinished();
+				const started = Date.now();
+				if (this.batchStartedAt === null) this.batchStartedAt = started;
+				this.recordStartedAt = started;
+				this.tokenIndex = 0;
+				this.tokenLimit = 0;
+				this.thoughtText = '';
 				this.neuralTelemetry = null;
 			} else if (payload.status === 'synthesizing') {
+				if (payload.token_index !== undefined) this.tokenIndex = payload.token_index;
+				if (payload.token_limit !== undefined) this.tokenLimit = payload.token_limit;
 				if (payload.token_text) {
 					this.thoughtText += payload.token_text;
 				}
@@ -91,6 +116,12 @@ class SynthesisStore {
 				}
 			}
 		});
+	}
+
+	private noteRecordFinished() {
+		if (this.recordStartedAt === null) return;
+		this.completedRecordMs.push(Date.now() - this.recordStartedAt);
+		this.recordStartedAt = null;
 	}
 
 	destroy() {

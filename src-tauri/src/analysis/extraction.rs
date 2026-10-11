@@ -355,11 +355,15 @@ impl IntelligenceExtractor {
 
         // 1. Ensure Model Readiness
         let requested_preference = format!("{:?}", acceleration_preference(force_cpu));
+        // A CPU-resident model must not be reused for a GPU request. One failed record used to
+        // reload onto the CPU and then every later record kept that slow model because the
+        // requested policy string still matched.
         let cache_needs_reload = cache
             .as_ref()
             .map(|context| {
                 context.repo_path != repo_path
                     || context.acceleration_preference != requested_preference
+                    || (!force_cpu && context.device_label.contains("CPU"))
             })
             .unwrap_or(true);
 
@@ -473,8 +477,8 @@ impl IntelligenceExtractor {
         let first_context = related_context.clone();
         let first_images = images;
         // The context is handed to the blocking task and handed straight back, whatever the
-        // outcome. A failed pass no longer costs a multi-gigabyte model reload; only the retry
-        // below, which deliberately changes acceleration policy, replaces it.
+        // outcome. A failed pass stays on the resident GPU model. A vision failure retries
+        // text-only with that same model; it never reloads onto the CPU.
         let (returned_ctx, mut result) = tokio::task::spawn_blocking(move || {
             let outcome = Self::run_inference(
                 &first_handle,
@@ -489,51 +493,38 @@ impl IntelligenceExtractor {
         .await?;
         ctx = returned_ctx;
 
-        // Never let a vision or accelerator failure break synthesis: on error, retry once as a
-        // TEXT-ONLY pass (dropping to CPU if an accelerator failed). Worst case we lose image
-        // grounding for this record and produce the same result the text path would have.
-        let accelerator_failed = !force_cpu && !active_device.contains("CPU");
-        if result.is_err() && (had_images || accelerator_failed) {
+        // A vision failure retries once as text-only on the same resident GPU model. Invalid
+        // JSON is not an accelerator failure: reloading onto the CPU made the rest of the batch
+        // run at CPU speed after a single control character in the generated text.
+        if result.is_err() && had_images {
             let prior_error = result
                 .as_ref()
                 .err()
                 .map(ToString::to_string)
                 .unwrap_or_default();
             tauri_plugin_log::log::error!(
-                "[Extraction] Intelligence inference failed on {}; retrying text-only{}: {}",
-                active_device,
-                if accelerator_failed { " on CPU" } else { "" },
-                prior_error
+                "[Extraction] Intelligence inference failed on {active_device}; retrying text-only on the same accelerator: {prior_error}"
             );
-            crate::analysis::hardware::clear_active_inference_backend("Intelligence model");
             let _ = handle.emit(
                 "analysis-progress",
                 json!({
                     "status": "loading-model",
                     "record_id": rid,
-                    "msg": format!("Synthesis failed on {active_device}; retrying text-only fallback")
+                    "msg": format!("Vision pass failed on {active_device}; retrying text-only on the GPU")
                 }),
             );
-            // Free the failed model before allocating its replacement: with the backend now a
-            // process-wide singleton, nothing else stops two multi-gigabyte models from being
-            // resident at once, and the retry usually exists because memory ran short.
-            drop(ctx);
-            let mut retry_ctx = {
-                let repo_path = repo_path.clone();
-                let retry_force_cpu = force_cpu || accelerator_failed;
-                tokio::task::spawn_blocking(move || Self::load_context(&repo_path, retry_force_cpu))
-                    .await??
-            };
+            let retry_handle = handle.clone();
+            let retry_rid = rid_clone.clone();
             let (returned_ctx, retry_result) = tokio::task::spawn_blocking(move || {
                 let outcome = Self::run_inference(
-                    &handle,
-                    &rid_clone,
-                    &mut retry_ctx,
+                    &retry_handle,
+                    &retry_rid,
+                    &mut ctx,
                     processed_text,
                     related_context,
                     Vec::new(),
                 );
-                (retry_ctx, outcome)
+                (ctx, outcome)
             })
             .await?;
             ctx = returned_ctx;
@@ -613,7 +604,14 @@ impl IntelligenceExtractor {
     }
 
     fn clean_duplicated_llm_tokens(input: &str) -> String {
-        let mut cleaned = input.to_string();
+        // Raw control characters inside a JSON string make serde reject the whole object
+        // ("control character"). That used to be treated as a GPU failure and reloaded the
+        // model onto the CPU. Spaces are legal JSON whitespace, including where a newline
+        // used to separate tokens.
+        let mut cleaned: String = input
+            .chars()
+            .map(|ch| if ch.is_control() { ' ' } else { ch })
+            .collect();
 
         // Fix doubled quotes and doubled colons e.g. ""key"": ""val"" -> "key": "val"
         cleaned = cleaned.replace(r#""""#, r#"""#);
@@ -1328,12 +1326,16 @@ impl IntelligenceExtractor {
                              {} GPU layers at {context_size} ctx{}",
                             margin / (1024 * 1024),
                             gpu_layer_description(gpu_layers),
-                            if accepted { "" } else { "; asking for less" }
+                            if accepted {
+                                ""
+                            } else {
+                                "; no accelerator layers, trying a smaller fit"
+                            }
                         );
-                        // Keep the newest plan either way: if no attempt wins the GPU, the last
-                        // one is still a valid CPU plan to load with.
-                        chosen = Some((fitted, context_size, gpu_layers));
+                        // A zero-layer plan is a CPU model. Do not keep it: a later record would
+                        // reuse it for the rest of the batch.
                         if accepted {
+                            chosen = Some((fitted, context_size, gpu_layers));
                             break;
                         }
                     }
@@ -1349,19 +1351,15 @@ impl IntelligenceExtractor {
 
             let (fitted, context_size, gpu_layers) = chosen.ok_or_else(|| {
                 anyhow!(
-                    "could not fit Gemma 4 to available memory: {}",
+                    "could not place the intelligence model on the GPU. CPU fallback is disabled. {}",
                     last_error
                         .map(|error| error.to_string())
-                        .unwrap_or_else(|| "no fitting attempt succeeded".to_string())
+                        .unwrap_or_else(|| {
+                            "no fitting attempt put any layer on an accelerator; free VRAM and retry"
+                                .to_string()
+                        })
                 )
             })?;
-            if !offloads_to_accelerator(gpu_layers) {
-                tauri_plugin_log::log::warn!(
-                    "[Extraction] Gemma 4 will run on the CPU: no fitting attempt could place a \
-                     single layer on an accelerator. See the device memory estimate above — free \
-                     VRAM must exceed the weights plus KV cache plus compute buffers."
-                );
-            }
             (Some(FittedParams(fitted)), context_size, gpu_layers)
         };
 
@@ -1557,6 +1555,15 @@ fn normalize_observations(object: &mut serde_json::Map<String, Value>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_characters_in_model_json_are_stripped_before_parse() {
+        let raw = "{\n\"audit_status\": \"completed\",\n\"object_description\": \"orb\u{0001} light\"}";
+        let cleaned = IntelligenceExtractor::clean_duplicated_llm_tokens(raw);
+        let value: serde_json::Value = serde_json::from_str(&cleaned).expect("json parses");
+        assert_eq!(value["audit_status"], "completed");
+        assert_eq!(value["object_description"], "orb  light");
+    }
 
     #[test]
     fn text_schema_notes_no_image_inspection() {

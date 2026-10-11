@@ -22,12 +22,27 @@
 		return `${layers} layers on GPU`;
 	}
 
+	function formatDuration(ms: number): string {
+		const total = Math.max(0, Math.round(ms / 1000));
+		const hours = Math.floor(total / 3600);
+		const minutes = Math.floor((total % 3600) / 60);
+		const seconds = total % 60;
+		if (hours > 0) return `${hours}h ${minutes}m`;
+		if (minutes > 0) return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+		return `${seconds}s`;
+	}
+
 	let {
 		status,
 		busy,
 		currentRecordId,
 		currentBatchIndex,
 		totalBatchCount,
+		batchStartedAt,
+		recordStartedAt,
+		completedRecordMs,
+		tokenIndex,
+		tokenLimit,
 		modelDownloadProgress,
 		modelDownloadMsg,
 		neuralTelemetry,
@@ -38,11 +53,48 @@
 		currentRecordId: string | null;
 		currentBatchIndex: number;
 		totalBatchCount: number;
+		batchStartedAt: number | null;
+		recordStartedAt: number | null;
+		completedRecordMs: number[];
+		tokenIndex: number;
+		tokenLimit: number;
 		modelDownloadProgress: number;
 		modelDownloadMsg: string;
 		neuralTelemetry: NeuralTelemetry | null | undefined;
 		onDismiss: () => void;
 	}>();
+
+	let now = $state(Date.now());
+
+	$effect(() => {
+		if (!busy) return;
+		now = Date.now();
+		const id = setInterval(() => {
+			now = Date.now();
+		}, 1000);
+		return () => clearInterval(id);
+	});
+
+	const elapsedMs = $derived(batchStartedAt ? Math.max(0, now - batchStartedAt) : 0);
+
+	const remainingMs = $derived.by(() => {
+		if (!batchStartedAt || totalBatchCount <= 0 || currentBatchIndex <= 0) return null;
+		const recordElapsed = recordStartedAt ? Math.max(0, now - recordStartedAt) : 0;
+		const fraction =
+			tokenLimit > 0 ? Math.min(0.95, Math.max(0, tokenIndex / tokenLimit)) : 0;
+		const samples = completedRecordMs;
+		if (samples.length === 0) {
+			if (fraction < 0.05 || recordElapsed < 5000) return null;
+			const recordTotal = recordElapsed / fraction;
+			const recordsAfter = Math.max(0, totalBatchCount - currentBatchIndex);
+			return Math.max(0, recordTotal - recordElapsed) + recordTotal * recordsAfter;
+		}
+		const average =
+			samples.reduce((sum: number, value: number) => sum + value, 0) / samples.length;
+		const currentLeft = recordStartedAt ? average * (1 - fraction) : 0;
+		const recordsAfter = Math.max(0, totalBatchCount - currentBatchIndex);
+		return Math.max(0, currentLeft + average * recordsAfter);
+	});
 </script>
 
 <div class="dashboard-side">
@@ -82,12 +134,31 @@
 				<div class="val">
 					<span class="l">Batch Synthesis Progress</span>
 					<span class="v">Record {currentBatchIndex} of {totalBatchCount}</span>
+					{#if batchStartedAt}
+						<span class="timing"
+							>Elapsed {formatDuration(elapsedMs)} · {remainingMs === null
+								? 'Estimating time left'
+								: `${formatDuration(remainingMs)} left`}</span
+						>
+					{/if}
 					<div class="batch-progress-bar-bg">
 						<div
 							class="batch-progress-bar-fill"
 							style="width: {(currentBatchIndex / totalBatchCount) * 100}%"
 						></div>
 					</div>
+				</div>
+			</div>
+		{:else if batchStartedAt}
+			<div class="info-card batch-card">
+				<Activity size={16} class="card-icon batch-icon" />
+				<div class="val">
+					<span class="l">Synthesis Time</span>
+					<span class="timing"
+						>Elapsed {formatDuration(elapsedMs)} · {remainingMs === null
+							? 'Estimating time left'
+							: `${formatDuration(remainingMs)} left`}</span
+					>
 				</div>
 			</div>
 		{/if}
@@ -435,6 +506,14 @@
 
 	:global(.batch-icon) {
 		color: var(--color-accent-info);
+	}
+
+	.timing {
+		display: block;
+		margin-top: 4px;
+		font-size: var(--text-xs);
+		color: var(--text-secondary, rgba(255, 255, 255, 0.72));
+		letter-spacing: 0.01em;
 	}
 
 	.batch-progress-bar-bg {

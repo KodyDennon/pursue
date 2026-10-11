@@ -45,6 +45,11 @@
 					currentRecordId={synthesisStore.currentRecordId}
 					currentBatchIndex={synthesisStore.currentBatchIndex}
 					totalBatchCount={synthesisStore.totalBatchCount}
+					batchStartedAt={synthesisStore.batchStartedAt}
+					recordStartedAt={synthesisStore.recordStartedAt}
+					completedRecordMs={synthesisStore.completedRecordMs}
+					tokenIndex={synthesisStore.tokenIndex}
+					tokenLimit={synthesisStore.tokenLimit}
 					modelDownloadProgress={synthesisStore.modelDownloadProgress}
 					modelDownloadMsg={synthesisStore.modelDownloadMsg}
 					neuralTelemetry={synthesisStore.neuralTelemetry}
